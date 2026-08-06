@@ -368,10 +368,12 @@
   min-width: 12rem;
   min-height: 3.8rem;
   padding: 0.7rem 1.5rem;
+  height: 4.4rem;
+  width: 20rem;
 
   color: #ffc107;
   font-family: inherit;
-  font-size: 1.2rem;
+  font-size: 1.5rem;
   font-weight: 700;
 
   background-color: transparent;
