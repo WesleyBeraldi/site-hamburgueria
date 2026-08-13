@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import xBacon from '../../../assets/xbacon.png';
@@ -8,6 +8,7 @@ import styles from './index.module.css';
 function FinalizarPedidos() {
   const navigate = useNavigate();
 
+  const [rolouPagina, setRolouPagina] = useState(false);
   const [formaPagamento, setFormaPagamento] = useState('pix');
 
   const [itens, setItens] = useState([
@@ -73,6 +74,23 @@ function FinalizarPedidos() {
 
   const total = subtotal + taxaEntrega;
 
+  useEffect(() => {
+    function verificarScroll() {
+      setRolouPagina(window.scrollY > 50);
+    }
+
+    verificarScroll();
+
+    window.addEventListener('scroll', verificarScroll);
+
+    return () => {
+      window.removeEventListener(
+        'scroll',
+        verificarScroll
+      );
+    };
+  }, []);
+
   return (
     <div className={styles.pagina}>
 
@@ -80,7 +98,11 @@ function FinalizarPedidos() {
           HEADER
       ========================= */}
 
-      <header className={styles.barraPrincipal}>
+      <header
+        className={`${styles.barraPrincipal} ${
+          rolouPagina ? styles.barraRolada : ''
+        }`}
+      >
         <div className={styles.conteudoHeader}>
 
           <Link
@@ -389,9 +411,7 @@ function FinalizarPedidos() {
                   }`}
                 >
 
-                  <div className={styles.radioPagamento}>
-                    <span />
-                  </div>
+                  <div className={styles.radioPagamento} />
 
                   <div className={styles.iconePagamento}>
                     ▭
@@ -424,9 +444,7 @@ function FinalizarPedidos() {
                   }`}
                 >
 
-                  <div className={styles.radioPagamento}>
-                    <span />
-                  </div>
+                  <div className={styles.radioPagamento} />
 
                   <div className={styles.iconePagamento}>
                     $
@@ -578,11 +596,21 @@ function FinalizarPedidos() {
                     <button
                       type="button"
                       className={styles.removerItem}
-                      onClick={() =>
-                        removerProduto(item.id)
-                      }
+                      onClick={() => removerProduto(item.id)}
+                      aria-label={`Remover ${item.nome}`}
                     >
-                      ×
+                      <svg
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M6 6L18 18M18 6L6 18"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.4"
+                          strokeLinecap="round"
+                        />
+                      </svg>
                     </button>
 
                   </div>

@@ -33,12 +33,30 @@
   display: flex;
   align-items: center;
 
-  background-color: rgba(8, 8, 8, 0.97);
+  /* Um pouco mais escura que #111111 */
+  background-color: rgba(13, 13, 13, 0.88);
+
+  border-bottom: 1px solid
+    rgba(255, 255, 255, 0.025);
+
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+
+  transition:
+    background-color 0.3s ease,
+    box-shadow 0.3s ease,
+    backdrop-filter 0.3s ease,
+    border-color 0.3s ease;
+}
+
+.barraRolada {
+  background-color: rgba(5, 5, 5, 0.97);
 
   box-shadow:
-    0 5px 25px rgba(0, 0, 0, 0.4);
+    0 5px 25px rgba(0, 0, 0, 0.5);
 
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 
@@ -471,18 +489,23 @@
 }
 
 
+/* =========================
+   RADIO PAGAMENTO
+========================= */
+
 .radioPagamento {
-  width: 1.6rem;
-  height: 1.6rem;
+  width: 20px;
+  height: 20px;
 
-  min-width: 1.6rem;
-  min-height: 1.6rem;
-
-  display: grid;
-  place-items: center;
+  min-width: 20px;
+  min-height: 20px;
 
   padding: 0;
   margin: 0;
+
+  flex-shrink: 0;
+
+  background-color: transparent;
 
   border: 2px solid #777777;
   border-radius: 50%;
@@ -491,107 +514,24 @@
 
   transition:
     border-color 0.2s ease,
-    background-color 0.2s ease,
+    background 0.2s ease,
     box-shadow 0.2s ease;
 }
 
-/* Bolinha interna */
-
-.radioPagamento span {
-  width: 0.75rem;
-  height: 0.75rem;
-
-  padding: 0;
-  margin: 0;
-
-  display: block;
-
-  background-color: transparent;
-
-  border-radius: 50%;
-
-  transition:
-    background-color 0.2s ease,
-    transform 0.2s ease;
-
-  transform: scale(0);
-}
-
-
-/* Quando estiver selecionado */
-
-.pagamentoAtivo .radioPagamento {
-  border-color: #ffc107;
-  background-color: rgba(255, 193, 7, 0.18);
-
-  box-shadow:
-    0 0 0 3px rgba(255, 193, 7, 0.1);
-}
-
-.radioPagamento {
-  width: 24px;
-  height: 24px;
-
-  min-width: 24px;
-  min-height: 24px;
-
-  display: grid;
-  place-items: center;
-
-  padding: 0;
-  margin: 0;
-
-  border: 2px solid #777777;
-  border-radius: 50%;
-
-  box-sizing: border-box;
-
-  transition:
-    border-color 0.2s ease,
-    background-color 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-
-/* Bolinha interna */
-.radioPagamento::after {
-  content: "";
-
-  width: 10px;
-  height: 10px;
-
-  display: block;
-
-  background-color: transparent;
-  border-radius: 50%;
-
-  transform: scale(0);
-
-  transition:
-    transform 0.2s ease,
-    background-color 0.2s ease;
-}
-
-
-/* Círculo selecionado */
 .pagamentoAtivo .radioPagamento {
   border-color: #ffc107;
 
-  background-color: rgba(255, 193, 7, 0.12);
+  background:
+    radial-gradient(
+      circle at center,
+      #ffc107 0,
+      #ffc107 5px,
+      transparent 5.5px
+    );
 
   box-shadow:
-    0 0 0 3px rgba(255, 193, 7, 0.08);
-}
-
-
-/* Bolinha selecionada */
-.pagamentoAtivo .radioPagamento::after {
-  background-color: #ffc107;
-
-  transform: scale(1);
-
-  box-shadow:
-    0 0 6px rgba(255, 193, 7, 0.55);
+    0 0 0 2px rgba(255, 193, 7, 0.08),
+    0 0 7px rgba(255, 193, 7, 0.2);
 }
 
 .pagamentoAtivo strong {
@@ -742,7 +682,7 @@
 
   color: #eeeeee;
 
-  font-size: 1.6rem;
+  font-size: 2rem;
   font-weight: 800;
 }
 
@@ -792,17 +732,18 @@
 
   color: #eeeeee;
 
-  font-size: 1.25rem;
+  font-size: 1.5rem;
   font-weight: 800;
+  line-height: 1.15;
 }
 
-
 .infoResumoItem p {
-  margin: 0.35rem 0 0.8rem;
+  margin: 0.4rem 0 0.9rem;
 
-  color: #999999;
+  color: #a5a5a5;
 
-  font-size: 0.9rem;
+  font-size: 1.05rem;
+  font-weight: 500;
   line-height: 1.4;
 }
 
@@ -874,48 +815,58 @@
   justify-content: space-between;
 }
 
-
 .ladoDireitoItem > strong {
   color: #eeeeee;
 
-  font-size: 1.15rem;
+  font-size: 1.35rem;
   font-weight: 800;
+  white-space: nowrap;
 }
 
 
 .removerItem {
-  width: 2.4rem;
-  height: 2.4rem;
+  width: 2.8rem;
+  height: 2.8rem;
+
+  min-width: 2.8rem;
+  min-height: 2.8rem;
+
+  padding: 0;
+  margin: 0;
 
   display: grid;
   place-items: center;
 
-  color: #999999;
+  color: #bdbdbd;
 
-  font-family: inherit;
-  font-size: 1.2rem;
+  background-color: #191919;
 
-  background-color: transparent;
-
-  border: 1px solid
-    rgba(255, 255, 255, 0.15);
-
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 50%;
 
   cursor: pointer;
 
   transition:
     color 0.2s ease,
+    background-color 0.2s ease,
     border-color 0.2s ease,
-    background-color 0.2s ease;
+    transform 0.2s ease;
 }
 
+.removerItem svg {
+  width: 1.2rem;
+  height: 1.2rem;
+
+  display: block;
+}
 
 .removerItem:hover {
   color: #111111;
 
   background-color: #ffc107;
   border-color: #ffc107;
+
+  transform: scale(1.08);
 }
 
 
@@ -946,14 +897,14 @@
 .valoresPedido span {
   color: #bdbdbd;
 
-  font-size: 1rem;
+  font-size: 1.15rem;
+  font-weight: 500;
 }
-
 
 .valoresPedido strong {
   color: #eeeeee;
 
-  font-size: 1rem;
+  font-size: 1.2rem;
   font-weight: 700;
 }
 
@@ -974,15 +925,14 @@
 .totalPedido span {
   color: #eeeeee;
 
-  font-size: 1.4rem;
+  font-size: 1.6rem;
   font-weight: 800;
 }
-
 
 .totalPedido strong {
   color: #ffc107;
 
-  font-size: 2.4rem;
+  font-size: 2.7rem;
   font-weight: 800;
 }
 
@@ -1023,9 +973,9 @@
 
   color: #999999;
 
-  font-size: 0.8rem;
+  font-size: 1.2rem;
+  font-weight: 500;
 }
-
 
 .entregaEstimada strong {
   display: block;
@@ -1034,16 +984,16 @@
 
   color: #ffc107;
 
-  font-size: 1.25rem;
+  font-size: 1.6rem;
+  font-weight: 800;
 }
-
 
 .entregaEstimada p {
   margin: 0;
 
   color: #999999;
 
-  font-size: 0.8rem;
+  font-size: 1.2rem;
   line-height: 1.4;
 }
 
@@ -1054,15 +1004,14 @@
 
 .botaoFinalizar {
   width: 100%;
-  height: 4.5rem;
+  height: 4.7rem;
 
   margin-top: 1.2rem;
 
   color: #111111;
 
   font-family: inherit;
-
-  font-size: 1.35rem;
+  font-size: 1.5rem;
   font-weight: 800;
 
   background-color: #ffc107;
@@ -1071,12 +1020,8 @@
   border-radius: 0.7rem;
 
   cursor: pointer;
-
-  transition:
-    background-color 0.2s ease,
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
 }
+
 
 
 .botaoFinalizar:hover {
@@ -1091,7 +1036,7 @@
 
 
 .seguranca {
-  margin-top: 0.9rem;
+  margin-top: 1rem;
 
   display: flex;
   align-items: center;
@@ -1101,7 +1046,7 @@
 
   color: #888888;
 
-  font-size: 0.85rem;
+  font-size: 1rem;
 }
 
 
@@ -1119,12 +1064,10 @@
 
   margin-top: 2rem;
 
-  padding: 1.5rem 2rem;
+  padding: 1.8rem 2rem;
 
   display: grid;
-
-  grid-template-columns:
-    repeat(3, 1fr);
+  grid-template-columns: repeat(3, 1fr);
 
   background:
     linear-gradient(
@@ -1133,9 +1076,7 @@
       #141414
     );
 
-  border: 1px solid
-    rgba(255, 193, 7, 0.18);
-
+  border: 1px solid rgba(255, 193, 7, 0.18);
   border-radius: 1rem;
 }
 
@@ -1158,25 +1099,26 @@
 .iconeBeneficio {
   color: #ffc107;
 
-  font-size: 2rem;
+  font-size: 2.4rem;
 }
-
 
 .beneficios strong {
   display: block;
 
   color: #ffc107;
 
-  font-size: 1rem;
+  font-size: 1.3rem;
+  font-weight: 800;
 }
 
-
 .beneficios p {
-  margin: 0.2rem 0 0;
+  margin: 0.3rem 0 0;
 
-  color: #888888;
+  color: #a0a0a0;
 
-  font-size: 0.85rem;
+  font-size: 1.05rem;
+  font-weight: 500;
+  line-height: 1.4;
 }
 
 
