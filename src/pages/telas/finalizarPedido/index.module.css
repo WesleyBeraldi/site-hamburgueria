@@ -1,0 +1,1288 @@
+/* =========================
+   PÁGINA
+========================= */
+
+.pagina {
+  width: 100%;
+  min-height: 100vh;
+
+  color: #eeeeee;
+
+  background:
+    radial-gradient(
+      circle at 75% 30%,
+      rgba(255, 193, 7, 0.035),
+      transparent 30%
+    ),
+    #111111;
+}
+
+
+/* =========================
+   HEADER
+========================= */
+
+.barraPrincipal {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+
+  width: 100%;
+  height: 7rem;
+
+  display: flex;
+  align-items: center;
+
+  background-color: rgba(8, 8, 8, 0.97);
+
+  box-shadow:
+    0 5px 25px rgba(0, 0, 0, 0.4);
+
+  backdrop-filter: blur(10px);
+}
+
+
+.conteudoHeader {
+  width: 100%;
+  max-width: 1500px;
+  height: 100%;
+
+  margin: 0 auto;
+  padding: 0 3rem;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+
+.logo {
+  color: #ffc107;
+
+  font-size: 2.8rem;
+  font-weight: 700;
+
+  text-decoration: none;
+}
+
+
+.menu {
+  display: flex;
+  align-items: center;
+
+  gap: 3.5rem;
+}
+
+
+.menu a {
+  color: #ffc107;
+
+  font-size: 1.35rem;
+  font-weight: 500;
+
+  text-decoration: none;
+
+  transition:
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+
+.menu a:hover {
+  color: #ffffff;
+
+  transform: translateY(-2px);
+}
+
+
+.botaoVoltar {
+  min-width: 10rem;
+  height: 3.8rem;
+
+  padding: 0 1.5rem;
+
+  color: #ffc107;
+
+  font-family: inherit;
+  font-size: 1.15rem;
+  font-weight: 700;
+
+  background-color: transparent;
+
+  border: 2px solid #ffc107;
+  border-radius: 2rem;
+
+  cursor: pointer;
+
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease,
+    transform 0.2s ease;
+}
+
+
+.botaoVoltar:hover {
+  color: #111111;
+
+  background-color: #ffc107;
+
+  transform: translateY(-2px);
+}
+
+
+/* =========================
+   CONTEÚDO
+========================= */
+
+.conteudoPagina {
+  width: 100%;
+  max-width: 1500px;
+
+  margin: 0 auto;
+
+  padding:
+    4rem 3rem
+    5rem;
+}
+
+
+/* =========================
+   TÍTULO
+========================= */
+
+.cabecalhoPagina {
+  margin-bottom: 2rem;
+
+  display: flex;
+  align-items: center;
+
+  gap: 1.3rem;
+}
+
+
+.iconeTitulo {
+  width: 4.5rem;
+  height: 4.5rem;
+
+  display: grid;
+  place-items: center;
+
+  color: #ffc107;
+
+  background-color:
+    rgba(255, 193, 7, 0.06);
+
+  border: 1.5px solid #ffc107;
+  border-radius: 1rem;
+}
+
+
+.iconeTitulo svg {
+  width: 2.1rem;
+  height: 2.1rem;
+}
+
+
+.cabecalhoPagina h1 {
+  margin: 0;
+
+  color: #eeeeee;
+
+  font-size: 3.7rem;
+  font-weight: 800;
+
+  line-height: 1.1;
+}
+
+
+.cabecalhoPagina h1 span {
+  color: #ffc107;
+}
+
+
+.cabecalhoPagina p {
+  margin: 0.5rem 0 0;
+
+  color: #a7a7a7;
+
+  font-size: 1.25rem;
+  font-weight: 500;
+}
+
+
+/* =========================
+   GRID PRINCIPAL
+========================= */
+
+.layoutPagamento {
+  display: grid;
+
+  grid-template-columns:
+    minmax(0, 1.45fr)
+    minmax(400px, 0.95fr);
+
+  align-items: start;
+
+  gap: 2rem;
+}
+
+
+.colunaFormulario {
+  display: flex;
+  flex-direction: column;
+
+  gap: 1rem;
+}
+
+
+/* =========================
+   CARDS FORMULÁRIO
+========================= */
+
+.cardFormulario {
+  width: 100%;
+
+  padding: 1.5rem;
+
+  background:
+    linear-gradient(
+      145deg,
+      #1c1c1c,
+      #171717
+    );
+
+  border: 1px solid
+    rgba(255, 255, 255, 0.08);
+
+  border-radius: 1rem;
+
+  box-shadow:
+    0 10px 25px
+    rgba(0, 0, 0, 0.2);
+}
+
+
+.tituloCard {
+  margin-bottom: 1.3rem;
+
+  display: flex;
+  align-items: center;
+
+  gap: 0.8rem;
+}
+
+
+.iconeCard {
+  width: 2rem;
+  height: 2rem;
+
+  color: #ffc107;
+}
+
+.iconeCard svg {
+  width: 100%;
+  height: 100%;
+}
+
+
+.tituloCard h2 {
+  margin: 0;
+
+  color: #eeeeee;
+
+  font-size: 1.9rem;
+  font-weight: 800;
+}
+
+
+.tituloCard h2 span {
+  color: #888888;
+
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+
+/* =========================
+   CAMPOS
+========================= */
+
+.gridCliente {
+  display: grid;
+
+  grid-template-columns:
+    1.35fr 0.9fr 1fr;
+
+  gap: 1rem;
+}
+
+
+.gridEndereco {
+  display: grid;
+
+  grid-template-columns:
+    repeat(2, 1fr);
+
+  gap: 1rem;
+}
+
+
+.campoRua {
+  grid-column: span 1;
+}
+
+
+.campoCompleto {
+  grid-column: 1 / -1;
+}
+
+
+.campo {
+  display: flex;
+  flex-direction: column;
+
+  gap: 0.45rem;
+}
+
+
+.campo label {
+  color: #eeeeee;
+
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+
+.campo label span {
+  color: #888888;
+
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
+
+.campo input {
+  width: 100%;
+  height: 4rem;
+
+  padding: 0 1.2rem;
+
+  color: #eeeeee;
+
+  font-family: inherit;
+  font-size: 1.15rem;
+  font-weight: 500;
+
+  background-color: #141414;
+
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.7rem;
+
+  outline: none;
+
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+
+.campo input::placeholder {
+  color: #707070;
+
+  font-size: 1.1rem;
+}
+
+
+.campo input:focus {
+  border-color: #ffc107;
+
+  box-shadow:
+    0 0 0 3px
+    rgba(255, 193, 7, 0.07);
+}
+
+
+/* =========================
+   PAGAMENTO
+========================= */
+
+.formasPagamento {
+  display: grid;
+
+  grid-template-columns:
+    repeat(3, 1fr);
+
+  gap: 1rem;
+}
+
+
+.opcaoPagamento {
+  min-height: 105px;
+
+  padding: 1rem;
+
+  display: grid;
+
+  grid-template-columns:
+    auto auto 1fr;
+
+  align-items: center;
+
+  gap: 0.8rem;
+
+  color: #eeeeee;
+
+  text-align: left;
+
+  font-family: inherit;
+
+  background-color: #171717;
+
+  border: 1px solid
+    rgba(255, 255, 255, 0.12);
+
+  border-radius: 0.8rem;
+
+  cursor: pointer;
+
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    transform 0.2s ease;
+}
+
+
+.opcaoPagamento:hover {
+  border-color:
+    rgba(255, 193, 7, 0.6);
+
+  transform: translateY(-2px);
+}
+
+
+.pagamentoAtivo {
+  background-color: rgba(255, 193, 7, 0.14);
+
+  border: 2px solid #ffc107;
+
+  box-shadow:
+    inset 0 0 30px rgba(255, 193, 7, 0.08),
+    0 0 15px rgba(255, 193, 7, 0.08);
+}
+
+
+.radioPagamento {
+  width: 1.6rem;
+  height: 1.6rem;
+
+  min-width: 1.6rem;
+  min-height: 1.6rem;
+
+  display: grid;
+  place-items: center;
+
+  padding: 0;
+  margin: 0;
+
+  border: 2px solid #777777;
+  border-radius: 50%;
+
+  box-sizing: border-box;
+
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+/* Bolinha interna */
+
+.radioPagamento span {
+  width: 0.75rem;
+  height: 0.75rem;
+
+  padding: 0;
+  margin: 0;
+
+  display: block;
+
+  background-color: transparent;
+
+  border-radius: 50%;
+
+  transition:
+    background-color 0.2s ease,
+    transform 0.2s ease;
+
+  transform: scale(0);
+}
+
+
+/* Quando estiver selecionado */
+
+.pagamentoAtivo .radioPagamento {
+  border-color: #ffc107;
+  background-color: rgba(255, 193, 7, 0.18);
+
+  box-shadow:
+    0 0 0 3px rgba(255, 193, 7, 0.1);
+}
+
+.radioPagamento {
+  width: 24px;
+  height: 24px;
+
+  min-width: 24px;
+  min-height: 24px;
+
+  display: grid;
+  place-items: center;
+
+  padding: 0;
+  margin: 0;
+
+  border: 2px solid #777777;
+  border-radius: 50%;
+
+  box-sizing: border-box;
+
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+
+/* Bolinha interna */
+.radioPagamento::after {
+  content: "";
+
+  width: 10px;
+  height: 10px;
+
+  display: block;
+
+  background-color: transparent;
+  border-radius: 50%;
+
+  transform: scale(0);
+
+  transition:
+    transform 0.2s ease,
+    background-color 0.2s ease;
+}
+
+
+/* Círculo selecionado */
+.pagamentoAtivo .radioPagamento {
+  border-color: #ffc107;
+
+  background-color: rgba(255, 193, 7, 0.12);
+
+  box-shadow:
+    0 0 0 3px rgba(255, 193, 7, 0.08);
+}
+
+
+/* Bolinha selecionada */
+.pagamentoAtivo .radioPagamento::after {
+  background-color: #ffc107;
+
+  transform: scale(1);
+
+  box-shadow:
+    0 0 6px rgba(255, 193, 7, 0.55);
+}
+
+.pagamentoAtivo strong {
+  color: #ffffff;
+}
+
+.pagamentoAtivo
+.opcaoPagamento > div:last-child > span {
+  color: #c7c7c7;
+}
+
+.iconePagamento {
+  min-width: 2.3rem;
+
+  color: #ffc107;
+
+  font-size: 2rem;
+  font-weight: 800;
+}
+
+
+.opcaoPagamento strong {
+  display: block;
+
+  color: #eeeeee;
+
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+
+.opcaoPagamento > div:last-child > span {
+  display: block;
+
+  margin-top: 0.3rem;
+
+  color: #858585;
+
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+/* =========================
+   OBSERVAÇÃO
+========================= */
+
+.observacaoPedido {
+  width: 100%;
+  min-height: 120px;
+
+  padding: 1.2rem;
+
+  resize: vertical;
+
+  color: #eeeeee;
+
+  font-family: inherit;
+  font-size: 1.2rem;
+  font-weight: 500;
+  line-height: 1.5;
+
+  background-color: #141414;
+
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.7rem;
+
+  outline: none;
+
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+
+.observacaoPedido::placeholder {
+  color: #777777;
+
+  font-family: inherit;
+  font-size: 1.15rem;
+  font-weight: 500;
+
+  opacity: 1;
+}
+
+.observacaoPedido:focus {
+  border-color: #ffc107;
+
+  box-shadow:
+    0 0 0 3px rgba(255, 193, 7, 0.08);
+}
+
+/* =========================
+   RESUMO
+========================= */
+
+.resumoPedido {
+  position: sticky;
+
+  top: 9rem;
+
+  padding: 1.8rem;
+
+  background:
+    linear-gradient(
+      145deg,
+      #1d1d1d,
+      #141414
+    );
+
+  border: 1.5px solid
+    rgba(255, 193, 7, 0.65);
+
+  border-radius: 1.3rem;
+
+  box-shadow:
+    0 20px 45px
+    rgba(0, 0, 0, 0.35);
+}
+
+
+.tituloResumo {
+  margin-bottom: 1.5rem;
+
+  display: flex;
+  align-items: center;
+
+  gap: 0.8rem;
+}
+
+
+.iconeSacola {
+  width: 1.8rem;
+  height: 1.8rem;
+
+  color: #ffc107;
+}
+
+
+.iconeSacola svg {
+  width: 100%;
+  height: 100%;
+}
+
+
+.tituloResumo h2 {
+  margin: 0;
+
+  color: #eeeeee;
+
+  font-size: 1.6rem;
+  font-weight: 800;
+}
+
+
+/* =========================
+   ITENS
+========================= */
+
+.listaResumo {
+  display: flex;
+  flex-direction: column;
+}
+
+
+.itemResumo {
+  padding: 1rem 0;
+
+  display: grid;
+
+  grid-template-columns:
+    95px 1fr auto;
+
+  gap: 1rem;
+
+  border-bottom: 1px solid
+    rgba(255, 255, 255, 0.08);
+}
+
+
+.itemResumo img {
+  width: 95px;
+  height: 95px;
+
+  object-fit: cover;
+
+  border-radius: 0.7rem;
+}
+
+
+.infoResumoItem {
+  min-width: 0;
+}
+
+
+.infoResumoItem h3 {
+  margin: 0;
+
+  color: #eeeeee;
+
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+
+.infoResumoItem p {
+  margin: 0.35rem 0 0.8rem;
+
+  color: #999999;
+
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+
+.quantidadeResumo {
+  width: 8rem;
+  height: 2.6rem;
+
+  display: grid;
+
+  grid-template-columns:
+    2.6rem 1fr 2.6rem;
+
+  align-items: center;
+
+  border: 1.5px solid #ffc107;
+
+  border-radius: 2rem;
+
+  overflow: hidden;
+}
+
+
+.quantidadeResumo button {
+  height: 100%;
+
+  padding: 0;
+
+  display: grid;
+  place-items: center;
+
+  color: #ffc107;
+
+  font-family: inherit;
+  font-size: 1.3rem;
+  font-weight: 700;
+
+  background: transparent;
+
+  border: none;
+
+  cursor: pointer;
+}
+
+
+.quantidadeResumo button:hover {
+  color: #111111;
+
+  background-color: #ffc107;
+}
+
+
+.quantidadeResumo span {
+  display: grid;
+  place-items: center;
+
+  color: #eeeeee;
+
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+
+.ladoDireitoItem {
+  display: flex;
+  flex-direction: column;
+
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+
+.ladoDireitoItem > strong {
+  color: #eeeeee;
+
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+
+.removerItem {
+  width: 2.4rem;
+  height: 2.4rem;
+
+  display: grid;
+  place-items: center;
+
+  color: #999999;
+
+  font-family: inherit;
+  font-size: 1.2rem;
+
+  background-color: transparent;
+
+  border: 1px solid
+    rgba(255, 255, 255, 0.15);
+
+  border-radius: 50%;
+
+  cursor: pointer;
+
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+
+.removerItem:hover {
+  color: #111111;
+
+  background-color: #ffc107;
+  border-color: #ffc107;
+}
+
+
+/* =========================
+   VALORES
+========================= */
+
+.valoresPedido {
+  padding: 1.3rem 0;
+
+  display: flex;
+  flex-direction: column;
+
+  gap: 0.8rem;
+
+  border-bottom: 1px solid
+    rgba(255, 255, 255, 0.1);
+}
+
+
+.valoresPedido > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+
+.valoresPedido span {
+  color: #bdbdbd;
+
+  font-size: 1rem;
+}
+
+
+.valoresPedido strong {
+  color: #eeeeee;
+
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+
+/* =========================
+   TOTAL
+========================= */
+
+.totalPedido {
+  padding: 1.4rem 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+
+.totalPedido span {
+  color: #eeeeee;
+
+  font-size: 1.4rem;
+  font-weight: 800;
+}
+
+
+.totalPedido strong {
+  color: #ffc107;
+
+  font-size: 2.4rem;
+  font-weight: 800;
+}
+
+
+/* =========================
+   ENTREGA
+========================= */
+
+.entregaEstimada {
+  padding: 1rem 1.2rem;
+
+  display: grid;
+
+  grid-template-columns:
+    auto auto 1fr;
+
+  align-items: center;
+
+  gap: 1rem;
+
+  background-color:
+    rgba(255, 193, 7, 0.025);
+
+  border: 1px solid
+    rgba(255, 193, 7, 0.3);
+
+  border-radius: 0.8rem;
+}
+
+
+.iconeEntrega {
+  font-size: 2rem;
+}
+
+
+.entregaEstimada span {
+  display: block;
+
+  color: #999999;
+
+  font-size: 0.8rem;
+}
+
+
+.entregaEstimada strong {
+  display: block;
+
+  margin-top: 0.15rem;
+
+  color: #ffc107;
+
+  font-size: 1.25rem;
+}
+
+
+.entregaEstimada p {
+  margin: 0;
+
+  color: #999999;
+
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+
+/* =========================
+   FINALIZAR
+========================= */
+
+.botaoFinalizar {
+  width: 100%;
+  height: 4.5rem;
+
+  margin-top: 1.2rem;
+
+  color: #111111;
+
+  font-family: inherit;
+
+  font-size: 1.35rem;
+  font-weight: 800;
+
+  background-color: #ffc107;
+
+  border: none;
+  border-radius: 0.7rem;
+
+  cursor: pointer;
+
+  transition:
+    background-color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+
+.botaoFinalizar:hover {
+  background-color: #ffd54f;
+
+  transform: translateY(-2px);
+
+  box-shadow:
+    0 8px 20px
+    rgba(255, 193, 7, 0.15);
+}
+
+
+.seguranca {
+  margin-top: 0.9rem;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 0.5rem;
+
+  color: #888888;
+
+  font-size: 0.85rem;
+}
+
+
+.seguranca span {
+  color: #ffc107;
+}
+
+
+/* =========================
+   BENEFÍCIOS
+========================= */
+
+.beneficios {
+  width: 100%;
+
+  margin-top: 2rem;
+
+  padding: 1.5rem 2rem;
+
+  display: grid;
+
+  grid-template-columns:
+    repeat(3, 1fr);
+
+  background:
+    linear-gradient(
+      145deg,
+      #181818,
+      #141414
+    );
+
+  border: 1px solid
+    rgba(255, 193, 7, 0.18);
+
+  border-radius: 1rem;
+}
+
+
+.beneficios > div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 1rem;
+}
+
+
+.beneficios > div:not(:last-child) {
+  border-right: 1px solid
+    rgba(255, 255, 255, 0.08);
+}
+
+
+.iconeBeneficio {
+  color: #ffc107;
+
+  font-size: 2rem;
+}
+
+
+.beneficios strong {
+  display: block;
+
+  color: #ffc107;
+
+  font-size: 1rem;
+}
+
+
+.beneficios p {
+  margin: 0.2rem 0 0;
+
+  color: #888888;
+
+  font-size: 0.85rem;
+}
+
+
+/* =========================
+   RESPONSIVIDADE
+========================= */
+
+@media (max-width: 1100px) {
+
+  .menu {
+    display: none;
+  }
+
+  .layoutPagamento {
+    grid-template-columns: 1fr;
+  }
+
+  .resumoPedido {
+    position: static;
+  }
+
+}
+
+
+@media (max-width: 750px) {
+
+  .conteudoHeader {
+    padding: 0 1.5rem;
+  }
+
+  .logo {
+    font-size: 2rem;
+  }
+
+  .botaoVoltar {
+    min-width: auto;
+
+    height: 3.2rem;
+
+    font-size: 0.9rem;
+  }
+
+  .conteudoPagina {
+    padding:
+      2rem 1.2rem
+      4rem;
+  }
+
+  .cabecalhoPagina h1 {
+    font-size: 2.5rem;
+  }
+
+  .cabecalhoPagina p {
+    font-size: 1rem;
+  }
+
+  .iconeTitulo {
+    width: 3.5rem;
+    height: 3.5rem;
+  }
+
+  .gridCliente,
+  .gridEndereco,
+  .formasPagamento {
+    grid-template-columns: 1fr;
+  }
+
+  .campoCompleto {
+    grid-column: auto;
+  }
+
+  .itemResumo {
+    grid-template-columns:
+      80px 1fr;
+  }
+
+  .itemResumo img {
+    width: 80px;
+    height: 80px;
+  }
+
+  .ladoDireitoItem {
+    grid-column: 2;
+
+    flex-direction: row;
+
+    align-items: center;
+  }
+
+  .beneficios {
+    grid-template-columns: 1fr;
+
+    gap: 1.5rem;
+  }
+
+  .beneficios > div {
+    justify-content: flex-start;
+  }
+
+  .beneficios > div:not(:last-child) {
+    padding-bottom: 1.5rem;
+
+    border-right: none;
+
+    border-bottom: 1px solid
+      rgba(255, 255, 255, 0.08);
+  }
+
+}
