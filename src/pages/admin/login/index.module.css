@@ -1,0 +1,592 @@
+/* ============================= */
+/* PÁGINA */
+/* ============================= */
+
+.pagina {
+    width: 100%;
+    min-height: 100vh;
+
+    background: #111111;
+
+    color: #ffffff;
+}
+
+
+/* ============================= */
+/* HEADER */
+/* ============================= */
+
+.header {
+    width: 100%;
+    height: 70px;
+
+    background: #0a0a0a;
+
+    border-bottom: 1px solid #151515;
+
+    display: flex;
+    align-items: center;
+}
+
+
+.headerConteudo {
+    width: 100%;
+    max-width: 1300px;
+
+    margin: 0 auto;
+
+    padding: 0 30px;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+
+.logo {
+    color: #ffc107;
+
+    font-size: 26px;
+    font-weight: 800;
+
+    cursor: pointer;
+}
+
+
+.botaoVoltar {
+    min-width: 95px;
+    height: 38px;
+
+    background: transparent;
+
+    border: 2px solid #ffc107;
+    border-radius: 50px;
+
+    color: #ffc107;
+
+    font-size: 13px;
+    font-weight: 700;
+
+    cursor: pointer;
+
+    transition: 0.25s;
+}
+
+
+.botaoVoltar:hover {
+    background: #ffc107;
+
+    color: #111111;
+}
+
+
+/* ============================= */
+/* CONTEÚDO PRINCIPAL */
+/* ============================= */
+
+.main {
+    min-height: calc(100vh - 70px);
+
+    padding: 55px 25px;
+
+    display: flex;
+    justify-content: center;
+}
+
+
+.loginContainer {
+    width: 100%;
+    max-width: 570px;
+}
+
+
+/* ============================= */
+/* TÍTULO */
+/* ============================= */
+
+.tituloArea {
+    display: flex;
+    align-items: center;
+
+    gap: 14px;
+
+    margin-bottom: 20px;
+}
+
+
+.iconeTitulo {
+    width: 48px;
+    height: 48px;
+
+    flex-shrink: 0;
+
+    border: 1px solid #ffc107;
+    border-radius: 11px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    color: #ffc107;
+}
+
+
+.iconeTitulo svg {
+    width: 21px;
+    height: 21px;
+}
+
+
+.tituloArea h1 {
+    margin: 0;
+
+    font-size: 30px;
+    line-height: 1.1;
+
+    font-weight: 800;
+
+    color: #ffffff;
+}
+
+
+.tituloArea h1 span {
+    color: #ffc107;
+}
+
+
+.tituloArea p {
+    margin: 5px 0 0;
+
+    color: #9a9a9a;
+
+    font-size: 13px;
+}
+
+
+/* ============================= */
+/* CARD */
+/* ============================= */
+
+.card {
+    width: 100%;
+
+    background: linear-gradient(
+        135deg,
+        #181818,
+        #151515
+    );
+
+    border: 1px solid #323232;
+    border-radius: 12px;
+
+    padding: 30px;
+
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.22);
+
+    position: relative;
+
+    overflow: hidden;
+}
+
+
+/* detalhe amarelo superior */
+
+.card::before {
+    content: '';
+
+    position: absolute;
+
+    top: 0;
+    left: 0;
+
+    width: 100%;
+    height: 2px;
+
+    background: #ffc107;
+
+    opacity: 0.8;
+}
+
+
+/* ============================= */
+/* CABEÇALHO CARD */
+/* ============================= */
+
+.cardCabecalho {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    gap: 20px;
+
+    padding-bottom: 23px;
+
+    margin-bottom: 25px;
+
+    border-bottom: 1px solid #303030;
+}
+
+
+.cardSubtitulo {
+    color: #ffc107;
+
+    font-size: 10px;
+    font-weight: 700;
+
+    letter-spacing: 1.4px;
+}
+
+
+.cardCabecalho h2 {
+    margin: 6px 0 5px;
+
+    color: #ffffff;
+
+    font-size: 22px;
+    font-weight: 700;
+}
+
+
+.cardCabecalho p {
+    margin: 0;
+
+    color: #858585;
+
+    font-size: 12px;
+}
+
+
+.iconeCadeado {
+    width: 43px;
+    height: 43px;
+
+    flex-shrink: 0;
+
+    background: rgba(255, 193, 7, 0.07);
+
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    border-radius: 10px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    color: #ffc107;
+}
+
+
+.iconeCadeado svg {
+    width: 19px;
+    height: 19px;
+}
+
+
+/* ============================= */
+/* FORMULÁRIO */
+/* ============================= */
+
+.formulario {
+    display: flex;
+    flex-direction: column;
+
+    gap: 20px;
+}
+
+
+.grupoCampo {
+    display: flex;
+    flex-direction: column;
+
+    gap: 8px;
+}
+
+
+.grupoCampo label {
+    color: #ffffff;
+
+    font-size: 12px;
+    font-weight: 600;
+}
+
+
+.grupoCampo input {
+    width: 100%;
+    height: 48px;
+
+    padding: 0 14px;
+
+    background: #151515;
+
+    border: 1px solid #343434;
+    border-radius: 7px;
+
+    outline: none;
+
+    color: #ffffff;
+
+    font-size: 13px;
+
+    transition:
+        border-color 0.2s ease,
+        background 0.2s ease;
+}
+
+
+.grupoCampo input::placeholder {
+    color: #707070;
+}
+
+
+.grupoCampo input:hover {
+    border-color: #484848;
+}
+
+
+.grupoCampo input:focus {
+    border-color: #ffc107;
+
+    background: #171717;
+}
+
+
+/* ============================= */
+/* INPUT SENHA */
+/* ============================= */
+
+.inputSenha {
+    width: 100%;
+
+    position: relative;
+}
+
+
+.inputSenha input {
+    padding-right: 80px;
+}
+
+
+.inputSenha button {
+    position: absolute;
+
+    top: 50%;
+    right: 13px;
+
+    transform: translateY(-50%);
+
+    background: transparent;
+
+    border: none;
+
+    color: #ffc107;
+
+    font-size: 11px;
+    font-weight: 600;
+
+    cursor: pointer;
+}
+
+
+.inputSenha button:hover {
+    text-decoration: underline;
+}
+
+
+/* ============================= */
+/* ERRO */
+/* ============================= */
+
+.erro {
+    padding: 11px 13px;
+
+    background: rgba(229, 57, 53, 0.07);
+
+    border: 1px solid rgba(229, 57, 53, 0.3);
+    border-radius: 6px;
+
+    color: #ff6b6b;
+
+    font-size: 12px;
+}
+
+
+/* ============================= */
+/* BOTÃO ENTRAR */
+/* ============================= */
+
+.botaoEntrar {
+    width: 100%;
+    height: 49px;
+
+    margin-top: 3px;
+
+    background: #ffc107;
+
+    border: 1px solid #ffc107;
+    border-radius: 7px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    gap: 10px;
+
+    color: #111111;
+
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 800;
+
+    cursor: pointer;
+
+    transition:
+        background 0.2s ease,
+        transform 0.2s ease;
+}
+
+.botaoVoltar,
+.botaoEntrar,
+.inputSenha button {
+    font-family: inherit;
+}
+
+
+.botaoEntrar span {
+    font-size: 19px;
+
+    transition: transform 0.2s ease;
+}
+
+
+.botaoEntrar:hover {
+    background: #ffd13b;
+
+    transform: translateY(-1px);
+}
+
+
+.botaoEntrar:hover span {
+    transform: translateX(3px);
+}
+
+
+/* ============================= */
+/* RODAPÉ CARD */
+/* ============================= */
+
+.rodapeCard {
+    margin-top: 20px;
+
+    padding-top: 17px;
+
+    border-top: 1px solid #303030;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    gap: 6px;
+
+    color: #777777;
+
+    font-size: 10px;
+}
+
+
+.rodapeCard span {
+    color: #ffc107;
+
+    font-weight: 700;
+}
+
+
+/* ============================= */
+/* RESPONSIVIDADE */
+/* ============================= */
+
+@media (max-width: 600px) {
+
+    .header {
+        height: 62px;
+    }
+
+
+    .headerConteudo {
+        padding: 0 18px;
+    }
+
+
+    .logo {
+        font-size: 22px;
+    }
+
+
+    .botaoVoltar {
+        min-width: 82px;
+        height: 34px;
+
+        font-size: 11px;
+    }
+
+
+    .main {
+        min-height: calc(100vh - 62px);
+
+        padding: 35px 16px;
+    }
+
+
+    .tituloArea {
+        align-items: flex-start;
+    }
+
+
+    .iconeTitulo {
+        width: 43px;
+        height: 43px;
+    }
+
+
+    .tituloArea h1 {
+        font-size: 25px;
+    }
+
+
+    .tituloArea p {
+        font-size: 12px;
+
+        line-height: 1.5;
+    }
+
+
+    .card {
+        padding: 23px 18px;
+
+        border-radius: 10px;
+    }
+
+
+    .cardCabecalho h2 {
+        font-size: 20px;
+    }
+
+
+    .cardCabecalho p {
+        font-size: 11px;
+    }
+
+
+    .iconeCadeado {
+        display: none;
+    }
+
+
+    .grupoCampo input {
+        height: 46px;
+    }
+
+
+    .botaoEntrar {
+        height: 47px;
+    }
+
+}

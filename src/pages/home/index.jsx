@@ -10,6 +10,8 @@ function Home() {
   const [categoriaAtiva, setCategoriaAtiva] = useState('Todos');
   const [secaoAtiva, setSecaoAtiva] = useState('inicio');
 
+  const [indicePromocao, setIndicePromocao] = useState(0);
+
   const [carrinhoAberto, setCarrinhoAberto] = useState(false);
   const [carrinho, setCarrinho] = useState([]);
   const [modalProdutoAberto, setModalProdutoAberto] = useState(false);
@@ -104,23 +106,124 @@ function Home() {
       id: 101,
       nome: 'Combo X-Bacon',
       categoria: 'Combos',
+
       descricao:
-        'X-Bacon artesanal acompanhado de batata frita crocante e refrigerante.',
+        'X-Bacon artesanal + batata frita crocante + refrigerante.',
+
+      precoAntigo: '49,90',
       preco: '42,40',
+
       imagem: xBacon,
-      destaque: '15% OFF'
+
+      destaque: '15% OFF',
+      tipo: 'COMBO ESPECIAL'
     },
+
     {
       id: 102,
       nome: 'Combo Duplo',
       categoria: 'Combos',
+
       descricao:
-        '2 X-Bacon artesanais, porção de batatas fritas e 2 refrigerantes.',
+        '2 X-Bacon artesanais + porção de fritas + 2 refrigerantes.',
+
+      precoAntigo: '79,90',
       preco: '69,90',
+
       imagem: xBacon,
-      destaque: 'Mais pedido'
+
+      destaque: 'MAIS PEDIDO',
+      tipo: 'PARA COMPARTILHAR'
+    },
+
+    {
+      id: 103,
+      nome: 'X-Bacon em Dobro',
+      categoria: 'Combos',
+
+      descricao:
+        'Dois X-Bacon artesanais com muito cheddar e bacon crocante.',
+
+      precoAntigo: '74,90',
+      preco: '59,90',
+
+      imagem: xBacon,
+
+      destaque: '20% OFF',
+      tipo: 'OFERTA DO DIA'
+    },
+
+    {
+      id: 104,
+      nome: 'Combo Família',
+      categoria: 'Combos',
+
+      descricao:
+        '3 hambúrgueres artesanais + fritas grandes + refrigerante.',
+
+      precoAntigo: '119,90',
+      preco: '99,90',
+
+      imagem: xBacon,
+
+      destaque: 'ECONOMIZE',
+      tipo: 'PARA A GALERA'
+    },
+
+    {
+      id: 105,
+      nome: 'Duplo Cheddar',
+      categoria: 'Hambúrgueres',
+
+      descricao:
+        'Hambúrguer duplo, cheddar cremoso e bacon crocante.',
+
+      precoAntigo: '46,90',
+      preco: '39,90',
+
+      imagem: xBacon,
+
+      destaque: '15% OFF',
+      tipo: 'OFERTA ESPECIAL'
     }
   ];  
+
+  const quantidadePromocoesVisiveis = 2;
+
+    const maxIndicePromocao =
+      Math.max(
+        0,
+        promocoes.length - quantidadePromocoesVisiveis
+      );
+
+
+    function proximaPromocao() {
+      setIndicePromocao((indiceAtual) => {
+        if (indiceAtual >= maxIndicePromocao) {
+          return 0;
+        }
+
+        return indiceAtual + 1;
+      });
+    }
+
+
+    function promocaoAnterior() {
+      setIndicePromocao((indiceAtual) => {
+        if (indiceAtual <= 0) {
+          return maxIndicePromocao;
+        }
+
+        return indiceAtual - 1;
+      });
+    }
+
+
+    const promocoesVisiveis =
+      promocoes.slice(
+        indicePromocao,
+        indicePromocao + quantidadePromocoesVisiveis
+      );
 
   const adicionais = [
     {
@@ -664,95 +767,164 @@ function Home() {
         >
 
           <div className={styles.topoPromocoes}>
+
             <div>
-              <span>🔥 OFERTAS ESPECIAIS</span>
-              <h3>Promoções do dia</h3>
+              <span>
+                🔥 OFERTAS ESPECIAIS
+              </span>
+
+              <h3>
+                Promoções do dia
+              </h3>
             </div>
 
-            <Link to="/promocoes" className={styles.verTodasPromocoes}>
-              Ver todas →
-            </Link>
+
+            <div className={styles.controlesPromocao}>
+
+              <button
+                type="button"
+                className={styles.setaPromocao}
+                onClick={promocaoAnterior}
+                aria-label="Promoção anterior"
+              >
+                <svg viewBox="0 0 24 24">
+                  <path
+                    d="M15 5L8 12L15 19"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+
+
+              <button
+                type="button"
+                className={styles.setaPromocao}
+                onClick={proximaPromocao}
+                aria-label="Próxima promoção"
+              >
+                <svg viewBox="0 0 24 24">
+                  <path
+                    d="M9 5L16 12L9 19"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+
+            </div>
 
           </div>
 
-          <div className={styles.listaPromocoes}>
 
-            <div className={styles.cardPromocao}>
-              <div className={styles.imagemPromocao}>
-                <img
-                  src={xBacon}
-                  alt="Combo X-Bacon"
-                />
+          <div className={styles.carrosselPromocoes}>
 
-                <span className={styles.seloPromocao}>
-                  15% OFF
-                </span>
-              </div>
+            <div
+              key={indicePromocao}
+              className={styles.listaPromocoes}
+            >
 
-              <div className={styles.conteudoPromocao}>
-                <span className={styles.tipoPromocao}>
-                  COMBO ESPECIAL
-                </span>
+              {promocoesVisiveis.map((promocao) => (
 
-                <h4>Combo X-Bacon</h4>
-
-                <p>
-                  X-Bacon + batata frita + refrigerante.
-                </p>
-
-                <div className={styles.precoPromocao}>
-                  <span>De R$ 49,90</span>
-                  <strong>R$ 42,40</strong>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => abrirModalProduto(promocoes[0])}
+                <article
+                  key={promocao.id}
+                  className={styles.cardPromocao}
                 >
-                  Aproveitar oferta
-                </button>
 
-              </div>
+                  <div className={styles.imagemPromocao}>
+
+                    <img
+                      src={promocao.imagem}
+                      alt={promocao.nome}
+                    />
+
+
+                    <span className={styles.seloPromocao}>
+                      {promocao.destaque}
+                    </span>
+
+                  </div>
+
+
+                  <div className={styles.conteudoPromocao}>
+
+                    <span className={styles.tipoPromocao}>
+                      {promocao.tipo}
+                    </span>
+
+
+                    <h4>
+                      {promocao.nome}
+                    </h4>
+
+
+                    <p>
+                      {promocao.descricao}
+                    </p>
+
+
+                    <div className={styles.precoPromocao}>
+
+                      <span>
+                        De R$ {promocao.precoAntigo}
+                      </span>
+
+                      <strong>
+                        R$ {promocao.preco}
+                      </strong>
+
+                    </div>
+
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        abrirModalProduto(promocao)
+                      }
+                    >
+                      Aproveitar oferta
+                    </button>
+
+                  </div>
+
+                </article>
+
+              ))}
+
             </div>
 
+          </div>
 
-            <div className={styles.cardPromocao}>
-              <div className={styles.imagemPromocao}>
-                <img
-                  src={xBacon}
-                  alt="Combo Duplo"
-                />
 
-                <span className={styles.seloPromocao}>
-                  MAIS PEDIDO
-                </span>
-              </div>
+          {/* INDICADOR */}
 
-              <div className={styles.conteudoPromocao}>
-                <span className={styles.tipoPromocao}>
-                  PARA COMPARTILHAR
-                </span>
+          <div className={styles.indicadoresPromocao}>
 
-                <h4>Combo Duplo</h4>
+            {Array.from({
+              length: maxIndicePromocao + 1
+            }).map((_, indice) => (
 
-                <p>
-                  2 X-Bacon + porção de fritas + 2 refrigerantes.
-                </p>
+              <button
+                key={indice}
+                type="button"
+                aria-label={`Ir para promoção ${indice + 1}`}
+                onClick={() =>
+                  setIndicePromocao(indice)
+                }
+                className={
+                  indicePromocao === indice
+                    ? styles.indicadorAtivo
+                    : ''
+                }
+              />
 
-                <div className={styles.precoPromocao}>
-                  <span>Preço especial</span>
-                  <strong>R$ 69,90</strong>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => abrirModalProduto(promocoes[1])}
-                >
-                  Aproveitar oferta
-                </button>
-
-              </div>
-            </div>
+            ))}
 
           </div>
 

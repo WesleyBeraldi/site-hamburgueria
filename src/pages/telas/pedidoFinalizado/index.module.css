@@ -1,0 +1,856 @@
+/* =========================
+   PÁGINA
+========================= */
+
+.pagina {
+  width: 100%;
+  min-height: 100vh;
+
+  color: #eeeeee;
+
+  background:
+    radial-gradient(
+      circle at 75% 20%,
+      rgba(255, 193, 7, 0.035),
+      transparent 35%
+    ),
+    #111111;
+}
+
+
+/* =========================
+   HEADER
+========================= */
+
+.barraPrincipal {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+
+  width: 100%;
+  height: 7rem;
+
+  display: flex;
+  align-items: center;
+
+  background-color: #0b0b0b;
+
+  box-shadow:
+    0 5px 20px rgba(0, 0, 0, 0.35);
+}
+
+
+.conteudoHeader {
+  width: 100%;
+  max-width: 1500px;
+  height: 100%;
+
+  margin: 0 auto;
+  padding: 0 3rem;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+
+.logo {
+  color: #ffc107;
+
+  font-size: 2.8rem;
+  font-weight: 800;
+
+  text-decoration: none;
+}
+
+
+.menu {
+  display: flex;
+  align-items: center;
+
+  gap: 3.5rem;
+}
+
+
+.menu a {
+  color: #ffc107;
+
+  font-size: 1.35rem;
+  font-weight: 600;
+
+  text-decoration: none;
+
+  transition:
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+
+.menu a:hover {
+  color: #ffffff;
+
+  transform: translateY(-2px);
+}
+
+
+/* =========================
+   CONTEÚDO
+========================= */
+
+.conteudoPagina {
+  width: 100%;
+  max-width: 1500px;
+
+  margin: 0 auto;
+
+  padding:
+    4.5rem 3rem
+    4rem;
+}
+
+
+/* =========================
+   CONFIRMAÇÃO
+========================= */
+
+.confirmacao {
+  width: 100%;
+
+  margin-bottom: 3rem;
+
+  display: flex;
+  align-items: center;
+
+  gap: 2rem;
+}
+
+
+.iconeConfirmacao {
+  width: 7rem;
+  height: 7rem;
+
+  min-width: 7rem;
+
+  display: grid;
+  place-items: center;
+
+  color: #ffc107;
+
+  background-color:
+    rgba(255, 193, 7, 0.07);
+
+  border: 2px solid #ffc107;
+  border-radius: 50%;
+
+  box-shadow:
+    0 0 30px rgba(255, 193, 7, 0.12);
+}
+
+
+.iconeConfirmacao svg {
+  width: 3.8rem;
+  height: 3.8rem;
+}
+
+
+.textoConfirmacao > span {
+  color: #ffc107;
+
+  font-size: 1.05rem;
+  font-weight: 800;
+
+  letter-spacing: 0.05rem;
+}
+
+
+.textoConfirmacao h1 {
+  margin: 0.3rem 0 0;
+
+  color: #eeeeee;
+
+  font-size: 4rem;
+  font-weight: 800;
+
+  line-height: 1.05;
+}
+
+
+.textoConfirmacao h1 strong {
+  color: #ffc107;
+}
+
+
+.textoConfirmacao p {
+  max-width: 700px;
+
+  margin: 0.8rem 0 0;
+
+  color: #b5b5b5;
+
+  font-size: 1.35rem;
+  font-weight: 500;
+
+  line-height: 1.5;
+}
+
+
+/* =========================
+   INFORMAÇÕES DO PEDIDO
+========================= */
+
+.informacoesPedido {
+  width: 100%;
+
+  margin-bottom: 2rem;
+
+  padding: 2.2rem 2rem;
+
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+
+  background:
+    linear-gradient(
+      145deg,
+      #1b1b1b,
+      #151515
+    );
+
+  border: 1px solid rgba(255, 193, 7, 0.35);
+  border-radius: 1.3rem;
+
+  box-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.25);
+}
+
+
+.infoPedido {
+  min-width: 0;
+
+  padding: 0 1.5rem;
+
+  display: grid;
+  grid-template-columns:
+    auto 1fr;
+
+  align-items: center;
+
+  gap: 1rem;
+}
+
+
+.infoPedido:not(:last-child) {
+  border-right: 1px solid
+    rgba(255, 255, 255, 0.09);
+}
+
+
+.iconeInfo {
+  width: 3.3rem;
+  height: 3.3rem;
+
+  color: #ffc107;
+
+  flex-shrink: 0;
+}
+
+.iconeInfo svg {
+  width: 100%;
+  height: 100%;
+}
+
+
+.infoPedido span {
+  display: block;
+
+  color: #a5a5a5;
+
+  font-size: 1.2rem;
+  font-weight: 500;
+}
+
+.infoPedido strong {
+  display: block;
+
+  margin-top: 0.25rem;
+
+  color: #ffc107;
+
+  font-size: 1.75rem;
+  font-weight: 800;
+
+  line-height: 1.15;
+}
+
+.infoPedido p {
+  margin: 0.4rem 0 0;
+
+  color: #8f8f8f;
+
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
+.infoPedido .endereco {
+  font-size: 1.45rem;
+  line-height: 1.3;
+}
+
+
+/* =========================
+   STATUS
+========================= */
+
+.statusPedido {
+  position: relative;
+
+  width: 100%;
+
+  margin-bottom: 2rem;
+  padding: 1.8rem 3rem;
+
+  display: grid;
+  grid-template-columns:
+    repeat(4, 1fr);
+
+  background:
+    linear-gradient(
+      145deg,
+      #191919,
+      #141414
+    );
+
+  border: 1px solid
+    rgba(255, 193, 7, 0.25);
+
+  border-radius: 1.3rem;
+}
+
+
+.linhaStatus {
+  position: absolute;
+
+  top: 3.6rem;
+  left: 13%;
+  right: 13%;
+
+  height: 2px;
+
+  background:
+    linear-gradient(
+      to right,
+      #ffc107 0%,
+      #ffc107 34%,
+      #444444 34%,
+      #444444 100%
+    );
+}
+
+
+.etapaStatus {
+  position: relative;
+  z-index: 2;
+
+  display: flex;
+  flex-direction: column;
+
+  align-items: center;
+
+  text-align: center;
+}
+
+
+.circuloStatus {
+  width: 4.3rem;
+  height: 4.3rem;
+
+  margin-bottom: 0.8rem;
+
+  display: grid;
+  place-items: center;
+
+  color: #777777;
+
+  font-size: 1.6rem;
+  font-weight: 800;
+
+  background-color: #171717;
+
+  border: 2px solid #555555;
+  border-radius: 50%;
+}
+
+
+.circuloStatus svg {
+  width: 2rem;
+  height: 2rem;
+}
+
+
+.etapaConcluida .circuloStatus {
+  color: #111111;
+
+  background-color: #ffc107;
+
+  border-color: #ffc107;
+}
+
+
+.etapaAtual .circuloStatus {
+  color: #ffc107;
+
+  border-color: #ffc107;
+
+  box-shadow:
+    0 0 0 5px
+    rgba(255, 193, 7, 0.08);
+}
+
+
+.etapaStatus strong {
+  color: #bdbdbd;
+
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+
+.etapaConcluida strong,
+.etapaAtual strong {
+  color: #ffc107;
+  font-size: 1.4rem;
+}
+
+
+.etapaStatus span {
+  margin-top: 0.3rem;
+
+  color: #888888;
+
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
+
+/* =========================
+   RESUMO / ITENS
+========================= */
+
+.areaResumo {
+  width: 100%;
+
+  display: grid;
+  grid-template-columns:
+    1.35fr 0.85fr;
+
+  align-items: stretch;
+
+  gap: 1.5rem;
+}
+
+
+.cardItens,
+.cardResumo {
+  padding: 2rem;
+
+  background:
+    linear-gradient(
+      145deg,
+      #1a1a1a,
+      #141414
+    );
+
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 1.2rem;
+
+  box-shadow:
+    0 10px 25px rgba(0, 0, 0, 0.25);
+}
+
+
+.cardItens h2,
+.cardResumo h2 {
+  margin: 0 0 1.6rem;
+
+  color: #eeeeee;
+
+  font-size: 2rem;
+  font-weight: 800;
+}
+
+
+/* =========================
+   ITENS
+========================= */
+
+.listaItens {
+  display: flex;
+  flex-direction: column;
+
+  gap: 1rem;
+}
+
+
+.itemPedido {
+  display: grid;
+
+  grid-template-columns:
+    120px auto 1fr auto;
+
+  align-items: center;
+
+  gap: 1.3rem;
+
+  padding: 1rem 0;
+
+  border-bottom: 1px solid
+    rgba(255, 255, 255, 0.07);
+}
+
+
+.itemPedido:last-child {
+  padding-bottom: 0;
+
+  border-bottom: none;
+}
+
+
+.itemPedido img {
+  width: 120px;
+  height: 100px;
+
+  object-fit: cover;
+
+  border-radius: 0.8rem;
+}
+
+
+.quantidadeItem {
+  min-width: 3.2rem;
+  height: 2.3rem;
+
+  padding: 0 0.7rem;
+
+  display: grid;
+  place-items: center;
+
+  color: #111111;
+
+  font-size: 1.05rem;
+  font-weight: 800;
+
+  background-color: #ffc107;
+
+  border-radius: 2rem;
+}
+
+
+.infoItem h3 {
+  margin: 0;
+
+  color: #eeeeee;
+
+  font-size: 1.5rem;
+  font-weight: 800;
+
+  line-height: 1.2;
+}
+
+
+.infoItem p {
+  max-width: 500px;
+
+  margin: 0.45rem 0 0;
+
+  color: #a5a5a5;
+
+  font-size: 1.1rem;
+  font-weight: 500;
+
+  line-height: 1.45;
+}
+
+
+.precoItem {
+  color: #ffc107;
+
+  font-size: 1.6rem;
+  font-weight: 800;
+
+  white-space: nowrap;
+}
+
+/* =========================
+   RESUMO DOS VALORES
+========================= */
+
+.linhaResumo {
+  margin-bottom: 1.1rem;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 1rem;
+}
+
+
+.linhaResumo span {
+  color: #bdbdbd;
+
+  font-size: 1.2rem;
+  font-weight: 500;
+}
+
+.linhaResumo strong {
+  color: #eeeeee;
+
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+
+.totalResumo {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+
+.totalResumo span {
+  color: #eeeeee;
+
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+
+
+.totalResumo strong {
+  color: #ffc107;
+
+  font-size: 2.5rem;
+  font-weight: 800;
+
+  line-height: 1;
+}
+
+/* =========================
+   BENEFÍCIOS
+========================= */
+.beneficios {
+  width: 100%;
+
+  margin-top: 2rem;
+  padding: 2rem 2.5rem;
+
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+
+  background:
+    linear-gradient(
+      145deg,
+      #181818,
+      #141414
+    );
+
+  border: 1px solid rgba(255, 193, 7, 0.2);
+  border-radius: 1.2rem;
+}
+
+.beneficios > div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 1.3rem;
+}
+
+
+.beneficios > div:not(:last-child) {
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+
+.iconeBeneficio {
+  width: 3.5rem;
+  height: 3.5rem;
+
+  display: grid;
+  place-items: center;
+
+  color: #ffc107;
+
+  font-size: 2.4rem;
+  font-weight: 800;
+
+  flex-shrink: 0;
+}
+
+.beneficios strong {
+  display: block;
+
+  color: #ffc107;
+
+  font-size: 1.4rem;
+  font-weight: 800;
+}
+
+.beneficios p {
+  margin: 0.35rem 0 0;
+
+  color: #999999;
+
+  font-size: 1.1rem;
+  font-weight: 500;
+
+  line-height: 1.4;
+}
+
+/* =========================
+   RESPONSIVIDADE
+========================= */
+
+@media (max-width: 1100px) {
+
+  .menu {
+    display: none;
+  }
+
+
+  .informacoesPedido {
+    grid-template-columns:
+      repeat(2, 1fr);
+
+    gap: 2rem;
+  }
+
+
+  .infoPedido:not(:last-child) {
+    border-right: none;
+  }
+
+
+  .areaResumo {
+    grid-template-columns: 1fr;
+  }
+
+}
+
+
+@media (max-width: 700px) {
+
+  .conteudoHeader {
+    padding: 0 1.5rem;
+  }
+
+
+  .logo {
+    font-size: 2rem;
+  }
+
+
+  .conteudoPagina {
+    padding:
+      2.5rem 1.2rem
+      3rem;
+  }
+
+
+  .confirmacao {
+    align-items: flex-start;
+
+    flex-direction: column;
+  }
+
+
+  .iconeConfirmacao {
+    width: 5rem;
+    height: 5rem;
+
+    min-width: 5rem;
+  }
+
+
+  .iconeConfirmacao svg {
+    width: 2.7rem;
+    height: 2.7rem;
+  }
+
+
+  .textoConfirmacao h1 {
+    font-size: 2.7rem;
+  }
+
+
+  .textoConfirmacao p {
+    font-size: 1.05rem;
+  }
+
+
+  .informacoesPedido {
+    grid-template-columns: 1fr;
+  }
+
+
+  .infoPedido {
+    padding: 1rem 0;
+  }
+
+
+  .statusPedido {
+    padding: 1.5rem;
+
+    grid-template-columns: 1fr;
+
+    gap: 2rem;
+  }
+
+
+  .linhaStatus {
+    display: none;
+  }
+
+
+  .itemPedido {
+    grid-template-columns:
+      80px auto 1fr;
+  }
+
+
+  .itemPedido img {
+    width: 80px;
+    height: 75px;
+  }
+
+
+  .precoItem {
+    grid-column: 3;
+  }
+
+
+  .beneficios {
+    grid-template-columns: 1fr;
+
+    gap: 1.5rem;
+  }
+
+
+  .beneficios > div {
+    justify-content: flex-start;
+  }
+
+
+  .beneficios > div:not(:last-child) {
+    padding-bottom: 1.5rem;
+
+    border-right: none;
+
+    border-bottom: 1px solid
+      rgba(255, 255, 255, 0.08);
+  }
+
+}
