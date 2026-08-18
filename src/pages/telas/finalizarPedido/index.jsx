@@ -224,14 +224,7 @@ function FinalizarPedidos() {
                   />
                 </div>
 
-                <div className={styles.campo}>
-                  <label>E-mail</label>
-
-                  <input
-                    type="email"
-                    placeholder="seu@email.com"
-                  />
-                </div>
+                
 
               </div>
 
@@ -469,33 +462,7 @@ function FinalizarPedidos() {
 
             {/* OBSERVAÇÃO */}
 
-            <section className={styles.cardFormulario}>
-
-              <div className={styles.tituloCard}>
-                <div className={styles.iconeCard}>
-                  <svg viewBox="0 0 24 24">
-                    <path
-                      d="M4 5h16v12H8l-4 4V5Z"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </div>
-
-                <h2>
-                  Observações
-                  <span> (opcional)</span>
-                </h2>
-              </div>
-
-              <textarea
-                className={styles.observacaoPedido}
-                placeholder="Alguma observação sobre seu pedido? Ex: tocar o interfone, deixar na portaria..."
-              />
-
-            </section>
+            
 
           </div>
 
