@@ -10,6 +10,7 @@ import AdminPedidos from './pages/admin/pedidos/AdminPedidos';
 import DetalhesPedido from './pages/admin/pedidos/detalhes';
 import CardapioAdmin from './pages/admin/cardapio';
 import FormularioProduto from './pages/admin/cardapio/formulario';
+import AdicionaisAdmin from './pages/admin/adicionais';
 import PromocoesAdmin from './pages/admin/promocoes';
 import FuncionariosAdmin from './pages/admin/funcionarios';
 import QrCodeFuncionario from './pages/admin/funcionarios/qrCode';
@@ -36,6 +37,7 @@ function App() {
         <Route path="/admin/cardapio" element={<CardapioAdmin />} />
         <Route path="/admin/cardapio/novo" element={<FormularioProduto />} />
         <Route path="/admin/cardapio/:id/editar" element={<FormularioProduto />} />
+        <Route path="/admin/adicionais" element={<AdicionaisAdmin />} />
         <Route path="/admin/promocoes" element={<PromocoesAdmin />} />
         <Route path="/admin/funcionarios" element={<FuncionariosAdmin />} />
         <Route path="/admin/funcionarios/:id/qr" element={<QrCodeFuncionario />} />

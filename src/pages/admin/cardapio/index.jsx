@@ -1,4 +1,4 @@
-import { Edit3, Package, Plus, Search, Trash2 } from 'lucide-react';
+import { Edit3, ListPlus, Package, Plus, Search, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -20,9 +20,10 @@ function CardapioAdmin() {
   });
 
   const acao = (
-    <button type="button" className={styles.botaoPrimario} onClick={() => navigate('/admin/cardapio/novo')}>
-      <Plus size={17} /> Novo produto
-    </button>
+    <div className={styles.acoesCabecalho}>
+      <button type="button" className={styles.botaoSecundario} onClick={() => navigate('/admin/adicionais')}><ListPlus size={17} /> Adicionais</button>
+      <button type="button" className={styles.botaoPrimario} onClick={() => navigate('/admin/cardapio/novo')}><Plus size={17} /> Novo produto</button>
+    </div>
   );
 
   function excluir(produto) {
@@ -51,6 +52,7 @@ function CardapioAdmin() {
               <span className={styles.categoria}>{produto.categoria}</span>
               <h3>{produto.nome}</h3>
               <p>{produto.descricao}</p>
+              <small className={styles.contagemAdicionais}>{produto.adicionaisIds?.length ?? 0} adicionais disponíveis</small>
               <div className={styles.produtoRodape}>
                 <span className={styles.preco}>R$ {produto.preco}</span>
                 <div className={styles.acoes}>

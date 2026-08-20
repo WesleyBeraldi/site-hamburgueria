@@ -53,6 +53,11 @@ function ComandaGarcom() {
   const filtrados = produtos.filter((produto) => produto.ativo && (categoria === 'Todos' || produto.categoria === categoria));
   const total = comanda.itens.reduce((soma, item) => soma + Number(item.preco) * item.quantidade, 0);
   const precoModal = produtoSelecionado ? (numeroPreco(produtoSelecionado.preco) + extras.reduce((soma, item) => soma + item.preco, 0)) * quantidade : 0;
+  const adicionaisProduto = adicionais.filter((adicional) => {
+    if (adicional.ativo === false) return false;
+    if (!Array.isArray(produtoSelecionado?.adicionaisIds)) return true;
+    return produtoSelecionado.adicionaisIds.some((id) => String(id) === String(adicional.id));
+  });
 
   function abrirProduto(produto) {
     setProdutoSelecionado(produto);
@@ -102,7 +107,7 @@ function ComandaGarcom() {
         </aside>
       </div>
 
-      {produtoSelecionado && <div className={styles.modalFundo} onClick={() => setProdutoSelecionado(null)}><div className={styles.modal} onClick={(event) => event.stopPropagation()}><div className={styles.modalTopo}><div><h2>{produtoSelecionado.nome}</h2><p>{produtoSelecionado.descricao}</p></div><button type="button" onClick={() => setProdutoSelecionado(null)}><X size={21} /></button></div><div className={styles.adicionais}>{adicionais.map((adicional) => <button type="button" key={adicional.id} className={`${styles.adicional} ${extras.some((item) => item.id === adicional.id) ? styles.adicionalAtivo : ''}`} onClick={() => alternarExtra(adicional)}><span>{adicional.nome}</span><strong>+ {moeda(adicional.preco)}</strong></button>)}</div><div className={styles.campo}><label htmlFor="observacaoItem">Observação <span>(opcional)</span></label><textarea id="observacaoItem" value={observacao} onChange={(event) => setObservacao(event.target.value)} placeholder="Ex: sem cebola, ponto da carne..." /></div><div className={styles.modalRodape}><div className={styles.quantidade}><button type="button" onClick={() => setQuantidade((atual) => Math.max(1, atual - 1))}><Minus size={16} /></button><strong>{quantidade}</strong><button type="button" onClick={() => setQuantidade((atual) => atual + 1)}><Plus size={16} /></button></div><button type="button" className={styles.botaoPrincipal} onClick={adicionar}>Adicionar • {moeda(precoModal)}</button></div></div></div>}
+      {produtoSelecionado && <div className={styles.modalFundo} onClick={() => setProdutoSelecionado(null)}><div className={styles.modal} onClick={(event) => event.stopPropagation()}><div className={styles.modalTopo}><div><h2>{produtoSelecionado.nome}</h2><p>{produtoSelecionado.descricao}</p></div><button type="button" onClick={() => setProdutoSelecionado(null)}><X size={21} /></button></div><div className={styles.adicionais}>{adicionaisProduto.map((adicional) => <button type="button" key={adicional.id} className={`${styles.adicional} ${extras.some((item) => item.id === adicional.id) ? styles.adicionalAtivo : ''}`} onClick={() => alternarExtra(adicional)}><span>{adicional.nome}</span><strong>+ {moeda(adicional.preco)}</strong></button>)}{adicionaisProduto.length === 0 && <div className={styles.vazio}>Este produto não possui adicionais disponíveis.</div>}</div><div className={styles.campo}><label htmlFor="observacaoItem">Observação <span>(opcional)</span></label><textarea id="observacaoItem" value={observacao} onChange={(event) => setObservacao(event.target.value)} placeholder="Ex: sem cebola, ponto da carne..." /></div><div className={styles.modalRodape}><div className={styles.quantidade}><button type="button" onClick={() => setQuantidade((atual) => Math.max(1, atual - 1))}><Minus size={16} /></button><strong>{quantidade}</strong><button type="button" onClick={() => setQuantidade((atual) => atual + 1)}><Plus size={16} /></button></div><button type="button" className={styles.botaoPrincipal} onClick={adicionar}>Adicionar • {moeda(precoModal)}</button></div></div></div>}
     </WaiterLayout>
   );
 }

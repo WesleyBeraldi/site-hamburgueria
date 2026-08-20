@@ -32,6 +32,8 @@ O QR Code do garcom guarda apenas o link com o token. O PIN e informado separada
 ## Recursos implementados
 
 - Cardapio, promocoes, personalizacao, carrinho, checkout e acompanhamento do pedido.
+- Cadastro de produtos com upload e otimizacao de fotos.
+- Catalogo administravel de adicionais e selecao dos extras permitidos por produto.
 - Dashboard, pedidos, produtos, promocoes, funcionarios, QR Codes, mesas, relatorios e configuracoes.
 - Login protegido do administrador e sessao protegida do garcom.
 - Abertura de mesa, montagem de comanda, envio para a cozinha e fechamento de conta.
@@ -40,4 +42,6 @@ O QR Code do garcom guarda apenas o link com o token. O PIN e informado separada
 ## Persistencia
 
 A estrutura esta pronta para receber uma API. Enquanto nao existe backend, produtos, pedidos, comandas e configuracoes sao salvos localmente no navegador. Use o botao **Restaurar dados de demonstracao** em Configuracoes para limpar o estado salvo.
+
+As fotos enviadas sao convertidas para WebP e reduzidas antes de serem salvas. Quando o backend for conectado, o campo `imagem` passara a guardar a URL do arquivo no armazenamento compartilhado, permitindo que a mesma foto apareca para todos os clientes e dispositivos.
 

@@ -16,6 +16,7 @@ export const produtosIniciais = [
     descricao: 'Pão brioche, hambúrguer artesanal, cheddar cremoso, bacon crocante, alface e tomate.',
     preco: '34,90',
     imagem: xBacon,
+    adicionaisIds: [1, 2, 3, 4, 5, 6],
     destaque: 'Mais vendido',
     ativo: true
   },
@@ -26,6 +27,7 @@ export const produtosIniciais = [
     descricao: 'Pão brioche, hambúrguer artesanal, queijo, alface, tomate e molho especial da casa.',
     preco: '29,90',
     imagem: xBacon,
+    adicionaisIds: [1, 2, 3, 4, 5, 6],
     ativo: true
   },
   {
@@ -35,6 +37,7 @@ export const produtosIniciais = [
     descricao: 'Dois hambúrgueres artesanais, cheddar duplo, bacon crocante e molho especial.',
     preco: '42,90',
     imagem: xBacon,
+    adicionaisIds: [1, 2, 3, 4, 5, 6],
     destaque: 'Recomendado',
     ativo: true
   },
@@ -45,6 +48,7 @@ export const produtosIniciais = [
     descricao: 'Hambúrguer artesanal, queijo, bacon, ovo, presunto, alface, tomate e maionese.',
     preco: '39,90',
     imagem: xBacon,
+    adicionaisIds: [1, 2, 3, 4, 5, 6],
     ativo: true
   },
   {
@@ -54,6 +58,7 @@ export const produtosIniciais = [
     descricao: 'X-Bacon acompanhado de batata frita e refrigerante.',
     preco: '49,90',
     imagem: xBacon,
+    adicionaisIds: [1, 2, 3, 5, 6],
     ativo: true
   },
   {
@@ -63,6 +68,7 @@ export const produtosIniciais = [
     descricao: 'Batata frita crocante com cheddar cremoso e bacon.',
     preco: '24,90',
     imagem: xBacon,
+    adicionaisIds: [1, 2, 6],
     ativo: true
   },
   {
@@ -72,17 +78,18 @@ export const produtosIniciais = [
     descricao: 'Refrigerante gelado disponível em diversos sabores.',
     preco: '7,00',
     imagem: xBacon,
+    adicionaisIds: [],
     ativo: true
   }
 ];
 
 export const adicionaisIniciais = [
-  { id: 1, nome: 'Bacon extra', preco: 5 },
-  { id: 2, nome: 'Cheddar extra', preco: 4 },
-  { id: 3, nome: 'Hambúrguer extra', preco: 10 },
-  { id: 4, nome: 'Ovo', preco: 3 },
-  { id: 5, nome: 'Cebola caramelizada', preco: 4 },
-  { id: 6, nome: 'Catupiry', preco: 6 }
+  { id: 1, nome: 'Bacon extra', preco: 5, ativo: true },
+  { id: 2, nome: 'Cheddar extra', preco: 4, ativo: true },
+  { id: 3, nome: 'Hambúrguer extra', preco: 10, ativo: true },
+  { id: 4, nome: 'Ovo', preco: 3, ativo: true },
+  { id: 5, nome: 'Cebola caramelizada', preco: 4, ativo: true },
+  { id: 6, nome: 'Catupiry', preco: 6, ativo: true }
 ];
 
 export const promocoesIniciais = [
