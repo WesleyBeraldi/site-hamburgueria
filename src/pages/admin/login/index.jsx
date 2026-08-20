@@ -1,11 +1,14 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
+import { useApp } from '../../../context/appContext';
 import styles from './index.module.css';
 
 function LoginAdmin() {
 
     const navigate = useNavigate();
+    const location = useLocation();
+    const { entrarAdmin } = useApp();
 
     const [usuario, setUsuario] = useState('');
     const [senha, setSenha] = useState('');
@@ -23,26 +26,14 @@ function LoginAdmin() {
             return;
         }
 
-        /*
-            FUTURAMENTE:
+        if (!entrarAdmin(usuario, senha)) {
+            setErro('Usuário ou senha incorretos.');
+            return;
+        }
 
-            Aqui vamos enviar os dados para o backend.
-
-            POST /admin/login
-
-            {
-                usuario,
-                senha
-            }
-        */
-
-        console.log({
-            usuario,
-            senha
+        navigate(location.state?.origem ?? '/admin/dashboard', {
+            replace: true
         });
-
-        // Temporário até criarmos o Dashboard
-        navigate('/admin/dashboard');
     }
 
 
@@ -271,6 +262,12 @@ function LoginAdmin() {
 
                             Ambiente exclusivo para administradores.
 
+                        </div>
+
+                        <div className={styles.credenciaisDemo}>
+                            <strong>Acesso demonstrativo</strong>
+                            <span>Usuário: admin</span>
+                            <span>Senha: admin123</span>
                         </div>
 
                     </div>

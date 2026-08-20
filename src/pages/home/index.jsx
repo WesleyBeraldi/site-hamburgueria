@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 
 import banner from '../../assets/banner.png';
 import xBacon from '../../assets/xbacon.png';
+import { useApp } from '../../context/appContext';
 import styles from './index.module.css';
 
 function Home() {
@@ -13,7 +14,6 @@ function Home() {
   const [indicePromocao, setIndicePromocao] = useState(0);
 
   const [carrinhoAberto, setCarrinhoAberto] = useState(false);
-  const [carrinho, setCarrinho] = useState([]);
   const [modalProdutoAberto, setModalProdutoAberto] = useState(false);
   const [produtoSelecionado, setProdutoSelecionado] = useState(null);
 
@@ -21,6 +21,13 @@ function Home() {
   const [quantidadeModal, setQuantidadeModal] = useState(1);
 
   const navigate = useNavigate();
+  const {
+    produtos: produtosSalvos,
+    promocoes: promocoesSalvas,
+    adicionais: adicionaisSalvos,
+    carrinho,
+    setCarrinho
+  } = useApp();
 
   const [adicionaisSelecionados, setAdicionaisSelecionados] =
     useState([]);
@@ -33,7 +40,7 @@ function Home() {
     'Bebidas'
   ];
 
-  const produtos = [
+  const produtosPadrao = [
     {
       id: 1,
       nome: 'X-Bacon',
@@ -101,7 +108,12 @@ function Home() {
     }
   ];
 
-  const promocoes = [
+  const produtos = (produtosSalvos.length > 0
+    ? produtosSalvos
+    : produtosPadrao
+  ).filter((produto) => produto.ativo !== false);
+
+  const promocoesPadrao = [
     {
       id: 101,
       nome: 'Combo X-Bacon',
@@ -186,7 +198,12 @@ function Home() {
       destaque: '15% OFF',
       tipo: 'OFERTA ESPECIAL'
     }
-  ];  
+  ];
+
+  const promocoes = (promocoesSalvas.length > 0
+    ? promocoesSalvas
+    : promocoesPadrao
+  ).filter((promocao) => promocao.ativo !== false);
 
   const quantidadePromocoesVisiveis = 2;
 
@@ -225,7 +242,7 @@ function Home() {
         indicePromocao + quantidadePromocoesVisiveis
       );
 
-  const adicionais = [
+  const adicionaisPadrao = [
     {
       id: 1,
       nome: 'Bacon extra',
@@ -258,6 +275,10 @@ function Home() {
     }
   ];
 
+  const adicionais = adicionaisSalvos.length > 0
+    ? adicionaisSalvos
+    : adicionaisPadrao;
+
   const produtosFiltrados =
     categoriaAtiva === 'Todos'
       ? produtos
@@ -271,32 +292,6 @@ function Home() {
 
   function fecharCarrinho() {
     setCarrinhoAberto(false);
-  }
-
-  function adicionarAoCarrinho(produto) {
-    const produtoExiste = carrinho.find(
-      (item) => item.id === produto.id
-    );
-
-    if (produtoExiste) {
-      setCarrinho(
-        carrinho.map((item) =>
-          item.id === produto.id
-            ? { ...item, quantidade: item.quantidade + 1 }
-            : item
-        )
-      );
-    } else {
-      setCarrinho([
-        ...carrinho,
-        {
-          ...produto,
-          quantidade: 1
-        }
-      ]);
-    }
-
-    setCarrinhoAberto(true);
   }
 
   function abrirModalProduto(produto) {
@@ -337,21 +332,21 @@ function Home() {
     }
   }
 
-  function aumentarQuantidade(id) {
+  function aumentarQuantidade(chave) {
     setCarrinho(
       carrinho.map((item) =>
-        item.id === id
+        (item.carrinhoId ?? item.id) === chave
           ? { ...item, quantidade: item.quantidade + 1 }
           : item
       )
     );
   }
 
-  function diminuirQuantidade(id) {
+  function diminuirQuantidade(chave) {
     setCarrinho(
       carrinho
         .map((item) =>
-          item.id === id
+          (item.carrinhoId ?? item.id) === chave
             ? { ...item, quantidade: item.quantidade - 1 }
             : item
         )
@@ -359,9 +354,9 @@ function Home() {
     );
   }
 
-  function removerProduto(id) {
+  function removerProduto(chave) {
     setCarrinho(
-      carrinho.filter((item) => item.id !== id)
+      carrinho.filter((item) => (item.carrinhoId ?? item.id) !== chave)
     );
   }
 
@@ -1510,7 +1505,7 @@ function Home() {
             carrinho.map((item) => (
               <div
                 className={styles.itemCarrinho}
-                key={item.id}
+                key={item.carrinhoId ?? item.id}
               >
                 <img
                   src={item.imagem}
@@ -1525,7 +1520,7 @@ function Home() {
                   <button
                     type="button"
                     className={styles.botaoRemover}
-                    onClick={() => removerProduto(item.id)}
+                    onClick={() => removerProduto(item.carrinhoId ?? item.id)}
                     aria-label="Remover produto"
                   >
                     <svg
@@ -1587,7 +1582,7 @@ function Home() {
 
                   <button
                     type="button"
-                    onClick={() => diminuirQuantidade(item.id)}
+                    onClick={() => diminuirQuantidade(item.carrinhoId ?? item.id)}
                     aria-label="Diminuir quantidade"
                   >
                     <svg viewBox="0 0 24 24">
@@ -1605,7 +1600,7 @@ function Home() {
 
                   <button
                     type="button"
-                    onClick={() => aumentarQuantidade(item.id)}
+                    onClick={() => aumentarQuantidade(item.carrinhoId ?? item.id)}
                     aria-label="Aumentar quantidade"
                   >
                     <svg viewBox="0 0 24 24">

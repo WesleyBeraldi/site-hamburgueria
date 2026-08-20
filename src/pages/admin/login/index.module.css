@@ -590,3 +590,22 @@
     }
 
 }
+
+.credenciaisDemo {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    border-top: 1px solid rgba(255, 193, 7, 0.12);
+    margin-top: 18px;
+    padding-top: 17px;
+    color: #777;
+    font-size: 11px;
+}
+
+.credenciaisDemo strong {
+    width: 100%;
+    color: #ffc107;
+    font-size: 10px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+}

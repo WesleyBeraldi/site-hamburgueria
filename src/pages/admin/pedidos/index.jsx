@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import {
@@ -30,8 +30,6 @@ import {
     Phone,
     Check,
     CircleX,
-    Minus,
-    Plus,
     ReceiptText
 } from 'lucide-react';
 
@@ -406,65 +404,60 @@ function PedidosAdmin() {
     /* FILTROS */
     /* ======================================= */
 
-    const pedidosFiltrados = useMemo(() => {
+    const pedidosFiltrados = pedidos.filter((pedido) => {
+        const textoBusca = busca.toLowerCase();
 
-        return pedidos.filter((pedido) => {
-
-            const textoBusca = busca.toLowerCase();
-
-            const correspondeBusca =
-                pedido.id.toLowerCase().includes(textoBusca) ||
-                pedido.cliente.toLowerCase().includes(textoBusca) ||
-                pedido.itensResumo.toLowerCase().includes(textoBusca);
+        const correspondeBusca =
+            pedido.id.toLowerCase().includes(textoBusca) ||
+            pedido.cliente.toLowerCase().includes(textoBusca) ||
+            pedido.itensResumo.toLowerCase().includes(textoBusca);
 
 
-            let correspondeStatus = true;
+        let correspondeStatus = true;
 
-            if (filtroStatus === 'Recebidos') {
-                correspondeStatus = pedido.status === 'Recebido';
-            }
+        if (filtroStatus === 'Recebidos') {
+            correspondeStatus = pedido.status === 'Recebido';
+        }
 
-            if (filtroStatus === 'Em preparo') {
-                correspondeStatus = pedido.status === 'Em preparo';
-            }
+        if (filtroStatus === 'Em preparo') {
+            correspondeStatus = pedido.status === 'Em preparo';
+        }
 
-            if (filtroStatus === 'Prontos') {
-                correspondeStatus =
-                    pedido.status === 'Pronto' ||
-                    pedido.status === 'Saiu para entrega';
-            }
+        if (filtroStatus === 'Prontos') {
+            correspondeStatus =
+                pedido.status === 'Pronto' ||
+                pedido.status === 'Saiu para entrega';
+        }
 
-            if (filtroStatus === 'Entregues') {
-                correspondeStatus =
-                    pedido.status === 'Entregue' ||
-                    pedido.status === 'Entregue na mesa';
-            }
+        if (filtroStatus === 'Entregues') {
+            correspondeStatus =
+                pedido.status === 'Entregue' ||
+                pedido.status === 'Entregue na mesa';
+        }
 
-            if (filtroStatus === 'Cancelados') {
-                correspondeStatus = pedido.status === 'Cancelado';
-            }
-
-
-            let correspondeOrigem = true;
-
-            if (filtroOrigem === 'Delivery') {
-                correspondeOrigem = pedido.origem === 'Delivery';
-            }
-
-            if (filtroOrigem === 'Salão') {
-                correspondeOrigem = pedido.origem !== 'Delivery';
-            }
+        if (filtroStatus === 'Cancelados') {
+            correspondeStatus = pedido.status === 'Cancelado';
+        }
 
 
-            return (
-                correspondeBusca &&
-                correspondeStatus &&
-                correspondeOrigem
-            );
+        let correspondeOrigem = true;
 
-        });
+        if (filtroOrigem === 'Delivery') {
+            correspondeOrigem = pedido.origem === 'Delivery';
+        }
 
-    }, [busca, filtroStatus, filtroOrigem]);
+        if (filtroOrigem === 'Salão') {
+            correspondeOrigem = pedido.origem !== 'Delivery';
+        }
+
+
+        return (
+            correspondeBusca &&
+            correspondeStatus &&
+            correspondeOrigem
+        );
+
+    });
 
 
     /* ======================================= */

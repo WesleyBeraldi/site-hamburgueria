@@ -13,7 +13,6 @@ import {
     LogOut,
     Menu,
     Search,
-    ChevronDown,
     ShoppingBag,
     ChefHat,
     Bike,

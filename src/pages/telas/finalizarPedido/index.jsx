@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
-import xBacon from '../../../assets/xbacon.png';
-
+import { useApp } from '../../../context/appContext';
 import styles from './index.module.css';
 
 function FinalizarPedidos() {
@@ -10,30 +9,38 @@ function FinalizarPedidos() {
 
   const [rolouPagina, setRolouPagina] = useState(false);
   const [formaPagamento, setFormaPagamento] = useState('pix');
+  const [dadosCliente, setDadosCliente] = useState({
+    nome: '',
+    telefone: '',
+    email: '',
+    rua: '',
+    numero: '',
+    bairro: '',
+    complemento: '',
+    referencia: '',
+    observacao: ''
+  });
+  const [erro, setErro] = useState('');
+  const {
+    carrinho: itens,
+    setCarrinho: setItens,
+    criarPedidoDelivery,
+    configuracao,
+    numeroPreco
+  } = useApp();
 
-  const [itens, setItens] = useState([
-    {
-      id: 1,
-      nome: 'X-Bacon',
-      descricao: 'Pão brioche, hambúrguer artesanal, cheddar e bacon.',
-      preco: 34.90,
-      quantidade: 1,
-      imagem: xBacon
-    },
-    {
-      id: 2,
-      nome: 'Batata com Cheddar',
-      descricao: 'Batata frita crocante com cheddar cremoso.',
-      preco: 24.90,
-      quantidade: 1,
-      imagem: xBacon
-    }
-  ]);
+  function chaveItem(item) {
+    return item.carrinhoId ?? item.id;
+  }
 
-  function aumentarQuantidade(id) {
+  function precoItem(item) {
+    return item.precoFinal ?? numeroPreco(item.preco);
+  }
+
+  function aumentarQuantidade(chave) {
     setItens(
       itens.map((item) =>
-        item.id === id
+        chaveItem(item) === chave
           ? {
               ...item,
               quantidade: item.quantidade + 1
@@ -43,11 +50,11 @@ function FinalizarPedidos() {
     );
   }
 
-  function diminuirQuantidade(id) {
+  function diminuirQuantidade(chave) {
     setItens(
       itens
         .map((item) =>
-          item.id === id
+          chaveItem(item) === chave
             ? {
                 ...item,
                 quantidade: item.quantidade - 1
@@ -58,21 +65,58 @@ function FinalizarPedidos() {
     );
   }
 
-  function removerProduto(id) {
+  function removerProduto(chave) {
     setItens(
-      itens.filter((item) => item.id !== id)
+      itens.filter((item) => chaveItem(item) !== chave)
     );
   }
 
   const subtotal = itens.reduce(
     (total, item) =>
-      total + item.preco * item.quantidade,
+      total + precoItem(item) * item.quantidade,
     0
   );
 
-  const taxaEntrega = 7.90;
+  const taxaEntrega = Number(configuracao.taxaEntrega);
 
   const total = subtotal + taxaEntrega;
+
+  function alterarCampo(campo, valor) {
+    setDadosCliente((atuais) => ({ ...atuais, [campo]: valor }));
+  }
+
+  function finalizarPedido() {
+    const obrigatorios = [
+      dadosCliente.nome,
+      dadosCliente.telefone,
+      dadosCliente.email,
+      dadosCliente.rua,
+      dadosCliente.numero,
+      dadosCliente.bairro
+    ];
+
+    if (itens.length === 0) {
+      setErro('Seu carrinho está vazio. Volte ao cardápio para adicionar produtos.');
+      return;
+    }
+
+    if (obrigatorios.some((campo) => !campo.trim())) {
+      setErro('Preencha os dados do cliente e o endereço de entrega.');
+      return;
+    }
+
+    const nomesPagamento = {
+      pix: 'Pix',
+      cartao: 'Cartão na entrega',
+      dinheiro: 'Dinheiro'
+    };
+
+    criarPedidoDelivery({
+      ...dadosCliente,
+      pagamento: nomesPagamento[formaPagamento]
+    });
+    navigate('/pedido-finalizado');
+  }
 
   useEffect(() => {
     function verificarScroll() {
@@ -157,7 +201,7 @@ function FinalizarPedidos() {
           <div>
             <h1>
               Finalizar
-              <span> pagamento</span>
+              <span> pedido</span>
             </h1>
 
             <p>
@@ -212,6 +256,8 @@ function FinalizarPedidos() {
                   <input
                     type="text"
                     placeholder="Digite seu nome"
+                    value={dadosCliente.nome}
+                    onChange={(event) => alterarCampo('nome', event.target.value)}
                   />
                 </div>
 
@@ -221,10 +267,20 @@ function FinalizarPedidos() {
                   <input
                     type="tel"
                     placeholder="(11) 99999-9999"
+                    value={dadosCliente.telefone}
+                    onChange={(event) => alterarCampo('telefone', event.target.value)}
                   />
                 </div>
 
-                
+                <div className={`${styles.campo} ${styles.campoCompleto}`}>
+                  <label>E-mail</label>
+                  <input
+                    type="email"
+                    placeholder="seuemail@exemplo.com"
+                    value={dadosCliente.email}
+                    onChange={(event) => alterarCampo('email', event.target.value)}
+                  />
+                </div>
 
               </div>
 
@@ -270,6 +326,8 @@ function FinalizarPedidos() {
                   <input
                     type="text"
                     placeholder="Digite o nome da rua"
+                    value={dadosCliente.rua}
+                    onChange={(event) => alterarCampo('rua', event.target.value)}
                   />
                 </div>
 
@@ -279,6 +337,8 @@ function FinalizarPedidos() {
                   <input
                     type="text"
                     placeholder="123"
+                    value={dadosCliente.numero}
+                    onChange={(event) => alterarCampo('numero', event.target.value)}
                   />
                 </div>
 
@@ -289,6 +349,8 @@ function FinalizarPedidos() {
                   <input
                     type="text"
                     placeholder="Digite seu bairro"
+                    value={dadosCliente.bairro}
+                    onChange={(event) => alterarCampo('bairro', event.target.value)}
                   />
                 </div>
 
@@ -302,6 +364,8 @@ function FinalizarPedidos() {
                   <input
                     type="text"
                     placeholder="Apto, bloco, casa..."
+                    value={dadosCliente.complemento}
+                    onChange={(event) => alterarCampo('complemento', event.target.value)}
                   />
                 </div>
 
@@ -317,6 +381,8 @@ function FinalizarPedidos() {
                   <input
                     type="text"
                     placeholder="Ex: próximo ao mercado, padaria..."
+                    value={dadosCliente.referencia}
+                    onChange={(event) => alterarCampo('referencia', event.target.value)}
                   />
                 </div>
 
@@ -462,7 +528,20 @@ function FinalizarPedidos() {
 
             {/* OBSERVAÇÃO */}
 
-            
+            <section className={styles.cardFormulario}>
+              <div className={styles.tituloCard}>
+                <div className={styles.iconeCard}>✎</div>
+                <h2>Observações do pedido</h2>
+              </div>
+              <div className={`${styles.campo} ${styles.campoCompleto}`}>
+                <label>Alguma instrução especial? <span>(opcional)</span></label>
+                <textarea
+                  value={dadosCliente.observacao}
+                  onChange={(event) => alterarCampo('observacao', event.target.value)}
+                  placeholder="Ex: retirar cebola, entregar na portaria..."
+                />
+              </div>
+            </section>
 
           </div>
 
@@ -500,11 +579,18 @@ function FinalizarPedidos() {
 
             <div className={styles.listaResumo}>
 
+              {itens.length === 0 && (
+                <div className={styles.resumoVazio}>
+                  Seu carrinho está vazio.
+                  <button type="button" onClick={() => navigate('/')}>Voltar ao cardápio</button>
+                </div>
+              )}
+
               {itens.map((item) => (
 
                 <div
                   className={styles.itemResumo}
-                  key={item.id}
+                  key={chaveItem(item)}
                 >
 
                   <img
@@ -527,7 +613,7 @@ function FinalizarPedidos() {
                       <button
                         type="button"
                         onClick={() =>
-                          diminuirQuantidade(item.id)
+                          diminuirQuantidade(chaveItem(item))
                         }
                       >
                         −
@@ -540,7 +626,7 @@ function FinalizarPedidos() {
                       <button
                         type="button"
                         onClick={() =>
-                          aumentarQuantidade(item.id)
+                          aumentarQuantidade(chaveItem(item))
                         }
                       >
                         +
@@ -555,7 +641,7 @@ function FinalizarPedidos() {
 
                     <strong>
                       R${' '}
-                      {(item.preco * item.quantidade)
+                      {(precoItem(item) * item.quantidade)
                         .toFixed(2)
                         .replace('.', ',')}
                     </strong>
@@ -563,7 +649,7 @@ function FinalizarPedidos() {
                     <button
                       type="button"
                       className={styles.removerItem}
-                      onClick={() => removerProduto(item.id)}
+                      onClick={() => removerProduto(chaveItem(item))}
                       aria-label={`Remover ${item.nome}`}
                     >
                       <svg
@@ -641,7 +727,7 @@ function FinalizarPedidos() {
                 <span>Entrega estimada</span>
 
                 <strong>
-                  35–45 min
+                  {configuracao.tempoEntrega}
                 </strong>
               </div>
 
@@ -658,9 +744,13 @@ function FinalizarPedidos() {
             <button
               type="button"
               className={styles.botaoFinalizar}
+              onClick={finalizarPedido}
+              disabled={itens.length === 0}
             >
               Finalizar pedido
             </button>
+
+            {erro && <div className={styles.mensagemErro}>{erro}</div>}
 
 
             <div className={styles.seguranca}>

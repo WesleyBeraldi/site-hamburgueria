@@ -1231,3 +1231,53 @@
   }
 
 }
+
+.campo textarea {
+  width: 100%;
+  min-height: 112px;
+  border: 1px solid #333;
+  border-radius: 10px;
+  outline: none;
+  background: #111;
+  padding: 14px;
+  color: #fff;
+  font: inherit;
+  resize: vertical;
+}
+
+.campo textarea:focus {
+  border-color: #ffc107;
+}
+
+.resumoVazio {
+  display: grid;
+  gap: 12px;
+  padding: 24px 8px;
+  color: #777;
+  font-size: 13px;
+  text-align: center;
+}
+
+.resumoVazio button {
+  border: 0;
+  background: transparent;
+  color: #ffc107;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.mensagemErro {
+  border: 1px solid rgba(255, 94, 94, 0.35);
+  border-radius: 9px;
+  margin-top: 12px;
+  background: rgba(255, 94, 94, 0.08);
+  padding: 10px 12px;
+  color: #ff8a8a;
+  font-size: 12px;
+}
+
+.botaoFinalizar:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

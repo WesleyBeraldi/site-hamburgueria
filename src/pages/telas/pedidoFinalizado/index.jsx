@@ -1,12 +1,14 @@
 import { Link } from 'react-router-dom';
 
 import xBacon from '../../../assets/xbacon.png';
-
+import { useApp } from '../../../context/appContext';
 import styles from './index.module.css';
 
 function PedidoFinalizado() {
 
-  const pedido = {
+  const { pedidoAtual, configuracao } = useApp();
+
+  const pedidoDemonstracao = {
     numero: '#PED25678',
 
     data: '14/08/2026',
@@ -43,6 +45,26 @@ function PedidoFinalizado() {
 
     taxaEntrega: 7.90
   };
+
+  const pedido = pedidoAtual ?? pedidoDemonstracao;
+  const dataPedido = pedido.data ?? new Intl.DateTimeFormat('pt-BR').format(
+    pedido.criadoEm ? new Date(pedido.criadoEm) : new Date()
+  );
+  const fluxo = ['Recebido', 'Em preparo', 'Saiu para entrega', 'Entregue'];
+  const statusNormalizado = pedido.status === 'Pedido recebido'
+    ? 'Recebido'
+    : pedido.status ?? 'Em preparo';
+  const indiceStatus = Math.max(0, fluxo.indexOf(statusNormalizado));
+
+  function classeEtapa(indice) {
+    if (indice < indiceStatus) {
+      return `${styles.etapaStatus} ${styles.etapaConcluida}`;
+    }
+    if (indice === indiceStatus) {
+      return `${styles.etapaStatus} ${styles.etapaAtual}`;
+    }
+    return styles.etapaStatus;
+  }
 
 
   const subtotal = pedido.itens.reduce(
@@ -196,11 +218,11 @@ function PedidoFinalizado() {
               </span>
 
               <strong>
-                {pedido.numero}
+                {pedido.id ?? pedido.numero}
               </strong>
 
               <p>
-                {pedido.data} às {pedido.horario}
+                {dataPedido} às {pedido.horario}
               </p>
             </div>
 
@@ -243,7 +265,7 @@ function PedidoFinalizado() {
               </span>
 
               <strong>
-                {pedido.previsao}
+                {pedido.previsao ?? configuracao.tempoEntrega}
               </strong>
 
               <p>
@@ -361,7 +383,7 @@ function PedidoFinalizado() {
           {/* RECEBIDO */}
 
           <div
-            className={`${styles.etapaStatus} ${styles.etapaConcluida}`}
+            className={classeEtapa(0)}
           >
 
             <div className={styles.circuloStatus}>
@@ -382,7 +404,7 @@ function PedidoFinalizado() {
           {/* PREPARO */}
 
           <div
-            className={`${styles.etapaStatus} ${styles.etapaAtual}`}
+            className={classeEtapa(1)}
           >
 
             <div className={styles.circuloStatus}>
@@ -410,7 +432,7 @@ function PedidoFinalizado() {
 
           {/* SAIU */}
 
-          <div className={styles.etapaStatus}>
+          <div className={classeEtapa(2)}>
 
             <div className={styles.circuloStatus}>
 
@@ -459,7 +481,7 @@ function PedidoFinalizado() {
 
           {/* ENTREGUE */}
 
-          <div className={styles.etapaStatus}>
+          <div className={classeEtapa(3)}>
 
             <div className={styles.circuloStatus}>
 
