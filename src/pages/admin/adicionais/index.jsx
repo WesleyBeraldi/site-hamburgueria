@@ -16,6 +16,8 @@ function AdicionaisAdmin() {
   const [dados, setDados] = useState(vazio);
   const [busca, setBusca] = useState('');
   const [erro, setErro] = useState('');
+  const [processando, setProcessando] = useState(false);
+  const [processandoId, setProcessandoId] = useState(null);
 
   const filtrados = useMemo(() => adicionais.filter((adicional) =>
     adicional.nome.toLowerCase().includes(busca.toLowerCase())), [adicionais, busca]);
@@ -34,21 +36,48 @@ function AdicionaisAdmin() {
     setErro('');
   }
 
-  function enviar(event) {
+  async function enviar(event) {
     event.preventDefault();
     if (!dados.nome.trim() || !String(dados.preco).trim()) {
       setErro('Informe o nome e o preço do adicional.');
       return;
     }
 
-    salvarAdicional({ ...dados, nome: dados.nome.trim() });
-    cancelar();
+    setProcessando(true);
+    try {
+      await salvarAdicional({ ...dados, nome: dados.nome.trim() });
+      cancelar();
+    } catch (falha) {
+      setErro(falha.message);
+    } finally {
+      setProcessando(false);
+    }
   }
 
-  function excluir(adicional) {
+  async function excluir(adicional) {
     if (window.confirm(`Remover ${adicional.nome}? Ele também sairá dos produtos vinculados.`)) {
-      removerAdicional(adicional.id);
-      if (dados.id === adicional.id) cancelar();
+      setProcessandoId(adicional.id);
+      setErro('');
+      try {
+        await removerAdicional(adicional.id);
+        if (dados.id === adicional.id) cancelar();
+      } catch (falha) {
+        setErro(falha.message);
+      } finally {
+        setProcessandoId(null);
+      }
+    }
+  }
+
+  async function mudarStatus(adicional) {
+    setProcessandoId(adicional.id);
+    setErro('');
+    try {
+      await alternarAdicional(adicional.id);
+    } catch (falha) {
+      setErro(falha.message);
+    } finally {
+      setProcessandoId(null);
     }
   }
 
@@ -71,7 +100,7 @@ function AdicionaisAdmin() {
                   <strong>{adicional.nome}</strong>
                   <span>{moeda(adicional.preco)} • usado em {quantidadeProdutos(adicional.id)} produto(s)</span>
                 </div>
-                <button type="button" className={`${styles.status} ${adicional.ativo !== false ? styles.statusAtivo : styles.statusInativo}`} onClick={() => alternarAdicional(adicional.id)}>{adicional.ativo !== false ? 'Ativo' : 'Inativo'}</button>
+                <button type="button" disabled={processandoId === adicional.id} className={`${styles.status} ${adicional.ativo !== false ? styles.statusAtivo : styles.statusInativo}`} onClick={() => mudarStatus(adicional)}>{processandoId === adicional.id ? 'Salvando...' : adicional.ativo !== false ? 'Ativo' : 'Inativo'}</button>
                 <div className={styles.acoes}>
                   <button type="button" className={styles.botaoIcone} aria-label={`Editar ${adicional.nome}`} onClick={() => editar(adicional)}><Edit3 size={16} /></button>
                   <button type="button" className={styles.botaoIcone} aria-label={`Remover ${adicional.nome}`} onClick={() => excluir(adicional)}><Trash2 size={16} /></button>
@@ -92,7 +121,7 @@ function AdicionaisAdmin() {
             {erro && <div className={styles.erro}>{erro}</div>}
             <div className={styles.rodapeFormulario}>
               {dados.id && <button type="button" className={styles.botaoSecundario} onClick={cancelar}><X size={16} /> Cancelar</button>}
-              <button type="submit" className={styles.botaoPrimario}>{dados.id ? <Save size={17} /> : <Plus size={17} />} {dados.id ? 'Salvar alteração' : 'Adicionar extra'}</button>
+              <button type="submit" className={styles.botaoPrimario} disabled={processando}>{dados.id ? <Save size={17} /> : <Plus size={17} />} {processando ? 'Salvando...' : dados.id ? 'Salvar alteração' : 'Adicionar extra'}</button>
             </div>
           </form>
         </section>

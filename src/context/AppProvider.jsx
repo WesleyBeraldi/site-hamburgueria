@@ -10,6 +10,21 @@ import {
   produtosIniciais,
   promocoesIniciais
 } from '../data/initialData';
+import {
+  alterarStatusAdicionalApi,
+  alterarStatusProdutoApi,
+  atualizarAdicionalApi,
+  atualizarProdutoApi,
+  buscarCatalogo,
+  criarAdicionalApi,
+  criarProdutoApi,
+  ErroApi,
+  excluirAdicionalApi,
+  excluirProdutoApi,
+  loginAdmin,
+  logoutAdmin,
+  validarSessaoAdmin
+} from '../services/api';
 import { AppContext } from './appContext';
 
 const CHAVES = {
@@ -45,6 +60,11 @@ function lerSessao(chave) {
   }
 }
 
+function lerSessaoAdmin() {
+  const sessao = lerSessao(CHAVES.admin);
+  return sessao?.token ? sessao : null;
+}
+
 function numeroPreco(valor) {
   if (typeof valor === 'number') return valor;
   return Number(String(valor).replace(',', '.')) || 0;
@@ -76,6 +96,7 @@ function normalizarProdutos(lista) {
 
     return {
       ...produto,
+      imagem: produto.imagem || produtoInicial?.imagem || produtosIniciais[0].imagem,
       adicionaisIds: produto.adicionaisIds ?? produtoInicial?.adicionaisIds ?? idsPadrao
     };
   });
@@ -92,11 +113,12 @@ export function AppProvider({ children }) {
   const [configuracao, setConfiguracao] = useState(() => lerLocal(CHAVES.configuracao, configuracaoInicial));
   const [carrinho, setCarrinho] = useState(() => lerLocal(CHAVES.carrinho, []));
   const [pedidoAtual, setPedidoAtual] = useState(() => lerLocal(CHAVES.pedidoAtual, null));
-  const [adminSessao, setAdminSessao] = useState(() => lerSessao(CHAVES.admin));
+  const [adminSessao, setAdminSessao] = useState(lerSessaoAdmin);
   const [garcomSessao, setGarcomSessao] = useState(() => lerSessao(CHAVES.garcom));
+  const [catalogoCarregando, setCatalogoCarregando] = useState(true);
+  const [sessaoAdminCarregando, setSessaoAdminCarregando] = useState(() => Boolean(lerSessaoAdmin()));
+  const [erroApi, setErroApi] = useState('');
 
-  useEffect(() => localStorage.setItem(CHAVES.produtos, JSON.stringify(produtos)), [produtos]);
-  useEffect(() => localStorage.setItem(CHAVES.adicionais, JSON.stringify(adicionais)), [adicionais]);
   useEffect(() => localStorage.setItem(CHAVES.promocoes, JSON.stringify(promocoes)), [promocoes]);
   useEffect(() => localStorage.setItem(CHAVES.funcionarios, JSON.stringify(funcionarios)), [funcionarios]);
   useEffect(() => localStorage.setItem(CHAVES.mesas, JSON.stringify(mesas)), [mesas]);
@@ -106,20 +128,84 @@ export function AppProvider({ children }) {
   useEffect(() => localStorage.setItem(CHAVES.carrinho, JSON.stringify(carrinho)), [carrinho]);
   useEffect(() => localStorage.setItem(CHAVES.pedidoAtual, JSON.stringify(pedidoAtual)), [pedidoAtual]);
 
-  function entrarAdmin(usuario, senha) {
-    const usuarioValido = ['admin', 'admin@hamburgueria.com'].includes(usuario.trim().toLowerCase());
+  useEffect(() => {
+    let ativo = true;
 
-    if (!usuarioValido || senha !== 'admin123') {
-      return false;
+    buscarCatalogo()
+      .then((catalogo) => {
+        if (!ativo) return;
+        setProdutos(normalizarProdutos(catalogo.produtos));
+        setAdicionais(catalogo.adicionais);
+        setErroApi('');
+      })
+      .catch((erro) => {
+        if (ativo) setErroApi(erro.message);
+      })
+      .finally(() => {
+        if (ativo) setCatalogoCarregando(false);
+      });
+
+    return () => {
+      ativo = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!adminSessao?.token) return;
+
+    let ativo = true;
+    const token = adminSessao.token;
+    validarSessaoAdmin()
+      .then(({ admin }) => {
+        if (!ativo) return;
+        const sessao = { ...admin, token };
+        sessionStorage.setItem(CHAVES.admin, JSON.stringify(sessao));
+        setAdminSessao(sessao);
+      })
+      .catch(() => {
+        if (!ativo) return;
+        sessionStorage.removeItem(CHAVES.admin);
+        setAdminSessao(null);
+      })
+      .finally(() => {
+        if (ativo) setSessaoAdminCarregando(false);
+      });
+
+    return () => {
+      ativo = false;
+    };
+  }, [adminSessao?.token]);
+
+  async function recarregarCatalogo() {
+    setCatalogoCarregando(true);
+    try {
+      const catalogo = await buscarCatalogo();
+      setProdutos(normalizarProdutos(catalogo.produtos));
+      setAdicionais(catalogo.adicionais);
+      setErroApi('');
+    } catch (erro) {
+      setErroApi(erro.message);
+      throw erro;
+    } finally {
+      setCatalogoCarregando(false);
     }
+  }
 
-    const sessao = { nome: 'Admin', perfil: 'Administrador' };
-    sessionStorage.setItem(CHAVES.admin, JSON.stringify(sessao));
-    setAdminSessao(sessao);
-    return true;
+  async function entrarAdmin(usuario, senha) {
+    try {
+      const { admin, token } = await loginAdmin(usuario, senha);
+      const sessao = { ...admin, token };
+      sessionStorage.setItem(CHAVES.admin, JSON.stringify(sessao));
+      setAdminSessao(sessao);
+      return true;
+    } catch (erro) {
+      if (erro instanceof ErroApi && erro.status === 401) return false;
+      throw erro;
+    }
   }
 
   function sairAdmin() {
+    logoutAdmin().catch(() => {});
     sessionStorage.removeItem(CHAVES.admin);
     setAdminSessao(null);
   }
@@ -148,52 +234,47 @@ export function AppProvider({ children }) {
     setGarcomSessao(null);
   }
 
-  function salvarProduto(dados) {
+  async function salvarProduto(dados) {
     if (dados.id) {
-      setProdutos((atuais) => atuais.map((produto) => produto.id === dados.id ? { ...produto, ...dados } : produto));
-      return dados.id;
+      const { produto } = await atualizarProdutoApi(dados.id, dados);
+      const normalizado = normalizarProdutos([produto])[0];
+      setProdutos((atuais) => atuais.map((item) => item.id === normalizado.id ? normalizado : item));
+      return normalizado.id;
     }
 
-    const novo = {
-      ...dados,
-      id: Date.now(),
-      ativo: true,
-      imagem: dados.imagem || produtosIniciais[0].imagem,
-      adicionaisIds: dados.adicionaisIds ?? []
-    };
-    setProdutos((atuais) => [...atuais, novo]);
-    return novo.id;
+    const { produto } = await criarProdutoApi(dados);
+    const normalizado = normalizarProdutos([produto])[0];
+    setProdutos((atuais) => [...atuais, normalizado]);
+    return normalizado.id;
   }
 
-  function removerProduto(id) {
+  async function removerProduto(id) {
+    await excluirProdutoApi(id);
     setProdutos((atuais) => atuais.filter((produto) => produto.id !== id));
   }
 
-  function alternarProduto(id) {
-    setProdutos((atuais) => atuais.map((produto) => produto.id === id ? { ...produto, ativo: !produto.ativo } : produto));
+  async function alternarProduto(id) {
+    const atual = produtos.find((produto) => produto.id === id);
+    if (!atual) return;
+    const { produto } = await alterarStatusProdutoApi(id, !atual.ativo);
+    const normalizado = normalizarProdutos([produto])[0];
+    setProdutos((atuais) => atuais.map((item) => item.id === id ? normalizado : item));
   }
 
-  function salvarAdicional(dados) {
-    const preco = numeroPreco(dados.preco);
-
+  async function salvarAdicional(dados) {
     if (dados.id) {
-      setAdicionais((atuais) => atuais.map((adicional) => adicional.id === dados.id
-        ? { ...adicional, ...dados, preco }
-        : adicional));
-      return dados.id;
+      const { adicional } = await atualizarAdicionalApi(dados.id, dados);
+      setAdicionais((atuais) => atuais.map((item) => item.id === adicional.id ? adicional : item));
+      return adicional.id;
     }
 
-    const novo = {
-      ...dados,
-      id: Date.now(),
-      preco,
-      ativo: true
-    };
-    setAdicionais((atuais) => [...atuais, novo]);
-    return novo.id;
+    const { adicional } = await criarAdicionalApi(dados);
+    setAdicionais((atuais) => [...atuais, adicional]);
+    return adicional.id;
   }
 
-  function removerAdicional(id) {
+  async function removerAdicional(id) {
+    await excluirAdicionalApi(id);
     setAdicionais((atuais) => atuais.filter((adicional) => adicional.id !== id));
     setProdutos((atuais) => atuais.map((produto) => ({
       ...produto,
@@ -201,10 +282,11 @@ export function AppProvider({ children }) {
     })));
   }
 
-  function alternarAdicional(id) {
-    setAdicionais((atuais) => atuais.map((adicional) => adicional.id === id
-      ? { ...adicional, ativo: adicional.ativo === false }
-      : adicional));
+  async function alternarAdicional(id) {
+    const atual = adicionais.find((adicional) => adicional.id === id);
+    if (!atual) return;
+    const { adicional } = await alterarStatusAdicionalApi(id, atual.ativo === false);
+    setAdicionais((atuais) => atuais.map((item) => item.id === id ? adicional : item));
   }
 
   function salvarPromocao(dados) {
@@ -386,8 +468,6 @@ export function AppProvider({ children }) {
   }
 
   function restaurarDemonstracao() {
-    setProdutos(produtosIniciais);
-    setAdicionais(adicionaisIniciais);
     setPromocoes(promocoesIniciais);
     setFuncionarios(funcionariosIniciais);
     setMesas(mesasIniciais);
@@ -411,6 +491,9 @@ export function AppProvider({ children }) {
     pedidoAtual,
     adminSessao,
     garcomSessao,
+    catalogoCarregando,
+    sessaoAdminCarregando,
+    erroApi,
     setCarrinho,
     setConfiguracao,
     entrarAdmin,
@@ -436,8 +519,18 @@ export function AppProvider({ children }) {
     solicitarConta,
     fecharComanda,
     restaurarDemonstracao,
+    recarregarCatalogo,
     numeroPreco
   };
+
+  if (catalogoCarregando) {
+    return (
+      <div className="carregamentoAplicacao" role="status">
+        <span />
+        <strong>Carregando cardápio...</strong>
+      </div>
+    );
+  }
 
   return <AppContext.Provider value={valor}>{children}</AppContext.Provider>;
 }
