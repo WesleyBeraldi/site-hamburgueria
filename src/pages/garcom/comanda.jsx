@@ -42,7 +42,7 @@ function ComandaGarcom() {
   }
 
   if (!comanda) {
-    return <WaiterLayout titulo={`Mesa ${mesa.numero}`} subtitulo="A comanda ainda não foi aberta."><button type="button" className={styles.botaoPrincipal} onClick={() => abrirComanda(mesa.id)}>Abrir comanda</button></WaiterLayout>;
+    return <WaiterLayout titulo={`Mesa ${mesa.numero}`} subtitulo="A comanda ainda não foi aberta."><button type="button" className={styles.botaoPrincipal} onClick={() => abrirComanda(mesa.id).catch((falha) => setMensagem(falha.message))}>Abrir comanda</button>{mensagem && <div className={styles.erro}>{mensagem}</div>}</WaiterLayout>;
   }
 
   if (comanda.funcionarioId !== garcomSessao.id) {
@@ -70,19 +70,49 @@ function ComandaGarcom() {
     setExtras((atuais) => atuais.some((item) => item.id === adicional.id) ? atuais.filter((item) => item.id !== adicional.id) : [...atuais, adicional]);
   }
 
-  function adicionar() {
-    adicionarItemComanda(comanda.id, produtoSelecionado, quantidade, extras, observacao.trim());
-    setProdutoSelecionado(null);
-    setMensagem('Item adicionado à comanda.');
+  async function adicionar() {
+    try {
+      await adicionarItemComanda(comanda.id, produtoSelecionado, quantidade, extras, observacao.trim());
+      setProdutoSelecionado(null);
+      setMensagem('Item adicionado à comanda.');
+    } catch (falha) {
+      setMensagem(falha.message);
+    }
   }
 
-  function enviar() {
-    if (enviarComanda(comanda.id)) setMensagem('Pedido enviado para a cozinha.');
+  async function enviar() {
+    try {
+      if (await enviarComanda(comanda.id)) setMensagem('Pedido enviado para a cozinha.');
+    } catch (falha) {
+      setMensagem(falha.message);
+    }
   }
 
-  function encerrar() {
-    fecharComanda(comanda.id, pagamento);
-    navigate('/garcom/mesas');
+  async function encerrar() {
+    try {
+      await fecharComanda(comanda.id, pagamento);
+      navigate('/garcom/mesas');
+    } catch (falha) {
+      setMensagem(falha.message);
+    }
+  }
+
+  async function pedirConta() {
+    try {
+      await solicitarConta(comanda.id);
+      setMensagem('Conta solicitada.');
+    } catch (falha) {
+      setMensagem(falha.message);
+    }
+  }
+
+  async function removerItem(itemId) {
+    try {
+      await removerItemComanda(comanda.id, itemId);
+      setMensagem('Item removido da comanda.');
+    } catch (falha) {
+      setMensagem(falha.message);
+    }
   }
 
   return (
@@ -97,11 +127,11 @@ function ComandaGarcom() {
 
         <aside className={`${styles.painel} ${styles.resumo}`}>
           <div className={styles.topoPainel}><div><h2>Resumo da comanda</h2><p>{comanda.status} • {comanda.itens.length} itens</p></div></div>
-          {comanda.itens.length === 0 ? <div className={styles.vazio}>A comanda está vazia.<br />Selecione um produto no cardápio.</div> : comanda.itens.map((item, indice) => <div className={styles.itemComanda} key={item.linhaId ?? `${item.id}-${indice}`}><div><h3>{item.quantidade}x {item.nome}</h3>{item.adicionais?.length > 0 && <p>+ {item.adicionais.map((extra) => extra.nome ?? extra).join(', ')}</p>}{item.observacao && <p>{item.observacao}</p>}</div><div><strong>{moeda(Number(item.preco) * item.quantidade)}</strong><button type="button" aria-label={`Remover ${item.nome}`} onClick={() => removerItemComanda(comanda.id, item.linhaId ?? item.id)}><Trash2 size={14} /></button></div></div>)}
+          {comanda.itens.length === 0 ? <div className={styles.vazio}>A comanda está vazia.<br />Selecione um produto no cardápio.</div> : comanda.itens.map((item, indice) => <div className={styles.itemComanda} key={item.linhaId ?? `${item.id}-${indice}`}><div><h3>{item.quantidade}x {item.nome}</h3>{item.adicionais?.length > 0 && <p>+ {item.adicionais.map((extra) => extra.nome ?? extra).join(', ')}</p>}{item.observacao && <p>{item.observacao}</p>}</div><div><strong>{moeda(Number(item.preco) * item.quantidade)}</strong><button type="button" aria-label={`Remover ${item.nome}`} onClick={() => removerItem(item.linhaId ?? item.id)}><Trash2 size={14} /></button></div></div>)}
           <div className={styles.total}><span>Total</span><strong>{moeda(total)}</strong></div>
           <div className={styles.acoesComanda}>
             <button type="button" className={styles.botaoPrincipal} disabled={comanda.itens.length === 0} onClick={enviar}><Send size={17} /> Enviar para cozinha</button>
-            <button type="button" className={styles.botaoSecundario} disabled={comanda.itens.length === 0} onClick={() => { solicitarConta(comanda.id); setMensagem('Conta solicitada.'); }}>Solicitar conta</button>
+            <button type="button" className={styles.botaoSecundario} disabled={comanda.itens.length === 0} onClick={pedirConta}>Solicitar conta</button>
             {comanda.status === 'Conta solicitada' && <><div className={styles.campo}><label htmlFor="pagamentoComanda">Forma de pagamento</label><select id="pagamentoComanda" value={pagamento} onChange={(event) => setPagamento(event.target.value)}><option>Pix</option><option>Cartão</option><option>Dinheiro</option></select></div><button type="button" className={styles.botaoPerigo} onClick={encerrar}>Finalizar e liberar mesa</button></>}
           </div>
         </aside>

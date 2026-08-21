@@ -14,13 +14,18 @@ function AcessoGarcom() {
   const funcionario = funcionarios.find((item) => item.token === token && item.status === 'Ativo');
   const ativos = funcionarios.filter((item) => item.status === 'Ativo');
 
-  function entrar(event) {
+  async function entrar(event) {
     event.preventDefault();
-    if (!entrarGarcom(token, pin)) {
-      setErro('PIN incorreto. Confirme o código e tente novamente.');
-      return;
+    setErro('');
+    try {
+      if (!await entrarGarcom(token, pin)) {
+        setErro('PIN incorreto. Confirme o código e tente novamente.');
+        return;
+      }
+      navigate('/garcom/mesas');
+    } catch (falha) {
+      setErro(falha.message);
     }
-    navigate('/garcom/mesas');
   }
 
   return (

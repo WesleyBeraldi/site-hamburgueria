@@ -35,8 +35,8 @@ function AdminLayout({ titulo, subtitulo, acao, children }) {
   const { adminSessao, sairAdmin } = useApp();
   const navigate = useNavigate();
 
-  function sair() {
-    sairAdmin();
+  async function sair() {
+    await sairAdmin();
     navigate('/admin/login');
   }
 

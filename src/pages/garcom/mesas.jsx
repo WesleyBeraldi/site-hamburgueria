@@ -9,11 +9,15 @@ function MesasGarcom() {
   const { mesas, comandas, abrirComanda, garcomSessao } = useApp();
   const navigate = useNavigate();
 
-  function acessar(mesa) {
+  async function acessar(mesa) {
     const comanda = comandas.find((item) => item.mesaId === mesa.id && item.status !== 'Encerrada');
     if (comanda && comanda.funcionarioId !== garcomSessao.id) return;
-    abrirComanda(mesa.id);
-    navigate(`/garcom/comanda/${mesa.id}`);
+    try {
+      await abrirComanda(mesa.id);
+      navigate(`/garcom/comanda/${mesa.id}`);
+    } catch {
+      // A atualização automática manterá a mesa ocupada e impedirá um segundo atendimento.
+    }
   }
 
   return (

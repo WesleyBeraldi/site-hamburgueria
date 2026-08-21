@@ -8,8 +8,8 @@ function WaiterLayout({ titulo, subtitulo, children }) {
   const { garcomSessao, sairGarcom } = useApp();
   const navigate = useNavigate();
 
-  function sair() {
-    sairGarcom();
+  async function sair() {
+    await sairGarcom();
     navigate('/garcom/acesso');
   }
 

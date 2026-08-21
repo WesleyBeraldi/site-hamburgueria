@@ -1,41 +1,48 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import {
-  adicionaisIniciais,
-  comandasIniciais,
   configuracaoInicial,
-  funcionariosIniciais,
-  mesasIniciais,
-  pedidosIniciais,
-  produtosIniciais,
-  promocoesIniciais
+  produtosIniciais
 } from '../data/initialData';
 import {
+  acompanharPedidoApi,
+  adicionarItemComandaApi,
   alterarStatusAdicionalApi,
+  alterarStatusFuncionarioApi,
   alterarStatusProdutoApi,
   atualizarAdicionalApi,
+  atualizarFuncionarioApi,
   atualizarProdutoApi,
-  buscarCatalogo,
+  atualizarPromocaoApi,
+  atualizarStatusPedidoApi,
+  abrirComandaApi,
+  buscarDadosAdmin,
+  buscarDadosGarcom,
+  buscarDadosPublicos,
   criarAdicionalApi,
+  criarFuncionarioApi,
+  criarPedidoDeliveryApi,
   criarProdutoApi,
+  criarPromocaoApi,
   ErroApi,
+  enviarComandaApi,
   excluirAdicionalApi,
   excluirProdutoApi,
+  excluirPromocaoApi,
+  fecharComandaApi,
   loginAdmin,
+  loginGarcom,
   logoutAdmin,
-  validarSessaoAdmin
+  logoutGarcom,
+  removerItemComandaApi,
+  salvarConfiguracaoApi,
+  solicitarContaApi,
+  validarSessaoAdmin,
+  validarSessaoGarcom
 } from '../services/api';
 import { AppContext } from './appContext';
 
 const CHAVES = {
-  produtos: 'hamburgueria_produtos',
-  adicionais: 'hamburgueria_adicionais',
-  promocoes: 'hamburgueria_promocoes',
-  funcionarios: 'hamburgueria_funcionarios',
-  mesas: 'hamburgueria_mesas',
-  pedidos: 'hamburgueria_pedidos',
-  comandas: 'hamburgueria_comandas',
-  configuracao: 'hamburgueria_configuracao',
   carrinho: 'hamburgueria_carrinho',
   pedidoAtual: 'hamburgueria_pedido_atual',
   admin: 'hamburgueria_admin_sessao',
@@ -60,8 +67,8 @@ function lerSessao(chave) {
   }
 }
 
-function lerSessaoAdmin() {
-  const sessao = lerSessao(CHAVES.admin);
+function lerSessaoComToken(chave) {
+  const sessao = lerSessao(chave);
   return sessao?.token ? sessao : null;
 }
 
@@ -70,72 +77,88 @@ function numeroPreco(valor) {
   return Number(String(valor).replace(',', '.')) || 0;
 }
 
-function criarToken(nome) {
-  const base = nome
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
-
-  return `${base}-${crypto.randomUUID().slice(0, 8)}`;
-}
-
-function agoraFormatado() {
-  return new Intl.DateTimeFormat('pt-BR', {
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(new Date());
-}
-
 function normalizarProdutos(lista) {
-  const idsPadrao = adicionaisIniciais.map((adicional) => adicional.id);
-
-  return lista.map((produto) => {
+  return (lista ?? []).map((produto) => {
     const produtoInicial = produtosIniciais.find((item) => item.id === produto.id);
-
     return {
       ...produto,
       imagem: produto.imagem || produtoInicial?.imagem || produtosIniciais[0].imagem,
-      adicionaisIds: produto.adicionaisIds ?? produtoInicial?.adicionaisIds ?? idsPadrao
+      adicionaisIds: produto.adicionaisIds ?? produtoInicial?.adicionaisIds ?? []
     };
   });
 }
 
+function normalizarPromocoes(lista, produtos) {
+  return (lista ?? []).map((promocao) => ({
+    ...promocao,
+    imagem: promocao.imagem
+      || produtos.find((produto) => produto.id === promocao.produtoId)?.imagem
+      || produtos.find((produto) => produto.nome === promocao.nome)?.imagem
+      || produtosIniciais[0].imagem
+  }));
+}
+
 export function AppProvider({ children }) {
-  const [produtos, setProdutos] = useState(() => normalizarProdutos(lerLocal(CHAVES.produtos, produtosIniciais)));
-  const [adicionais, setAdicionais] = useState(() => lerLocal(CHAVES.adicionais, adicionaisIniciais));
-  const [promocoes, setPromocoes] = useState(() => lerLocal(CHAVES.promocoes, promocoesIniciais));
-  const [funcionarios, setFuncionarios] = useState(() => lerLocal(CHAVES.funcionarios, funcionariosIniciais));
-  const [mesas, setMesas] = useState(() => lerLocal(CHAVES.mesas, mesasIniciais));
-  const [pedidos, setPedidos] = useState(() => lerLocal(CHAVES.pedidos, pedidosIniciais));
-  const [comandas, setComandas] = useState(() => lerLocal(CHAVES.comandas, comandasIniciais));
-  const [configuracao, setConfiguracao] = useState(() => lerLocal(CHAVES.configuracao, configuracaoInicial));
+  const [produtos, setProdutos] = useState([]);
+  const [adicionais, setAdicionais] = useState([]);
+  const [promocoes, setPromocoes] = useState([]);
+  const [funcionarios, setFuncionarios] = useState([]);
+  const [mesas, setMesas] = useState([]);
+  const [pedidos, setPedidos] = useState([]);
+  const [comandas, setComandas] = useState([]);
+  const [configuracao, setConfiguracaoEstado] = useState(configuracaoInicial);
   const [carrinho, setCarrinho] = useState(() => lerLocal(CHAVES.carrinho, []));
-  const [pedidoAtual, setPedidoAtual] = useState(() => lerLocal(CHAVES.pedidoAtual, null));
-  const [adminSessao, setAdminSessao] = useState(lerSessaoAdmin);
-  const [garcomSessao, setGarcomSessao] = useState(() => lerSessao(CHAVES.garcom));
+  const [pedidoAtual, setPedidoAtual] = useState(() => lerSessao(CHAVES.pedidoAtual));
+  const [adminSessao, setAdminSessao] = useState(() => lerSessaoComToken(CHAVES.admin));
+  const [garcomSessao, setGarcomSessao] = useState(() => lerSessaoComToken(CHAVES.garcom));
   const [catalogoCarregando, setCatalogoCarregando] = useState(true);
-  const [sessaoAdminCarregando, setSessaoAdminCarregando] = useState(() => Boolean(lerSessaoAdmin()));
+  const [sessaoAdminCarregando, setSessaoAdminCarregando] = useState(() => Boolean(lerSessaoComToken(CHAVES.admin)));
   const [erroApi, setErroApi] = useState('');
 
-  useEffect(() => localStorage.setItem(CHAVES.promocoes, JSON.stringify(promocoes)), [promocoes]);
-  useEffect(() => localStorage.setItem(CHAVES.funcionarios, JSON.stringify(funcionarios)), [funcionarios]);
-  useEffect(() => localStorage.setItem(CHAVES.mesas, JSON.stringify(mesas)), [mesas]);
-  useEffect(() => localStorage.setItem(CHAVES.pedidos, JSON.stringify(pedidos)), [pedidos]);
-  useEffect(() => localStorage.setItem(CHAVES.comandas, JSON.stringify(comandas)), [comandas]);
-  useEffect(() => localStorage.setItem(CHAVES.configuracao, JSON.stringify(configuracao)), [configuracao]);
   useEffect(() => localStorage.setItem(CHAVES.carrinho, JSON.stringify(carrinho)), [carrinho]);
-  useEffect(() => localStorage.setItem(CHAVES.pedidoAtual, JSON.stringify(pedidoAtual)), [pedidoAtual]);
+  useEffect(() => {
+    if (pedidoAtual) sessionStorage.setItem(CHAVES.pedidoAtual, JSON.stringify(pedidoAtual));
+    else sessionStorage.removeItem(CHAVES.pedidoAtual);
+  }, [pedidoAtual]);
+
+  const aplicarDados = useCallback((dados) => {
+    const produtosNormalizados = dados.produtos ? normalizarProdutos(dados.produtos) : null;
+    if (produtosNormalizados) setProdutos(produtosNormalizados);
+    if (dados.adicionais) setAdicionais(dados.adicionais);
+    if (dados.promocoes) {
+      setPromocoes(normalizarPromocoes(dados.promocoes, produtosNormalizados ?? []));
+    }
+    if (dados.funcionarios) setFuncionarios(dados.funcionarios);
+    if (dados.mesas) setMesas(dados.mesas);
+    if (dados.pedidos) setPedidos(dados.pedidos);
+    if (dados.comandas) setComandas(dados.comandas);
+    if (dados.configuracao) setConfiguracaoEstado(dados.configuracao);
+  }, []);
+
+  const recarregarPublico = useCallback(async () => {
+    const dados = await buscarDadosPublicos();
+    aplicarDados(dados);
+    return dados;
+  }, [aplicarDados]);
+
+  const recarregarAdmin = useCallback(async () => {
+    const dados = await buscarDadosAdmin();
+    aplicarDados(dados);
+    return dados;
+  }, [aplicarDados]);
+
+  const recarregarGarcom = useCallback(async () => {
+    const dados = await buscarDadosGarcom();
+    aplicarDados(dados);
+    return dados;
+  }, [aplicarDados]);
 
   useEffect(() => {
     let ativo = true;
-
-    buscarCatalogo()
-      .then((catalogo) => {
+    buscarDadosPublicos()
+      .then((dados) => {
         if (!ativo) return;
-        setProdutos(normalizarProdutos(catalogo.produtos));
-        setAdicionais(catalogo.adicionais);
+        aplicarDados(dados);
         setErroApi('');
       })
       .catch((erro) => {
@@ -144,23 +167,20 @@ export function AppProvider({ children }) {
       .finally(() => {
         if (ativo) setCatalogoCarregando(false);
       });
-
-    return () => {
-      ativo = false;
-    };
-  }, []);
+    return () => { ativo = false; };
+  }, [aplicarDados]);
 
   useEffect(() => {
-    if (!adminSessao?.token) return;
-
+    if (!adminSessao?.token) return undefined;
     let ativo = true;
     const token = adminSessao.token;
-    validarSessaoAdmin()
-      .then(({ admin }) => {
+    Promise.all([validarSessaoAdmin(), buscarDadosAdmin()])
+      .then(([{ admin }, dados]) => {
         if (!ativo) return;
         const sessao = { ...admin, token };
         sessionStorage.setItem(CHAVES.admin, JSON.stringify(sessao));
         setAdminSessao(sessao);
+        aplicarDados(dados);
       })
       .catch(() => {
         if (!ativo) return;
@@ -170,18 +190,52 @@ export function AppProvider({ children }) {
       .finally(() => {
         if (ativo) setSessaoAdminCarregando(false);
       });
+    return () => { ativo = false; };
+  }, [adminSessao?.token, aplicarDados]);
 
-    return () => {
-      ativo = false;
+  useEffect(() => {
+    if (!garcomSessao?.token) return undefined;
+    let ativo = true;
+    const token = garcomSessao.token;
+    Promise.all([validarSessaoGarcom(), buscarDadosGarcom()])
+      .then(([{ garcom }, dados]) => {
+        if (!ativo) return;
+        const sessao = { ...garcom, token };
+        sessionStorage.setItem(CHAVES.garcom, JSON.stringify(sessao));
+        setGarcomSessao(sessao);
+        aplicarDados(dados);
+      })
+      .catch(() => {
+        if (!ativo) return;
+        sessionStorage.removeItem(CHAVES.garcom);
+        setGarcomSessao(null);
+      });
+    return () => { ativo = false; };
+  }, [garcomSessao?.token, aplicarDados]);
+
+  useEffect(() => {
+    if (!adminSessao?.token && !garcomSessao?.token) return undefined;
+    const atualizar = () => {
+      const operacao = adminSessao?.token ? recarregarAdmin() : recarregarGarcom();
+      operacao.catch(() => {});
     };
-  }, [adminSessao?.token]);
+    const intervalo = setInterval(atualizar, 15000);
+    return () => clearInterval(intervalo);
+  }, [adminSessao?.token, garcomSessao?.token, recarregarAdmin, recarregarGarcom]);
+
+  useEffect(() => {
+    if (!pedidoAtual?.id || !pedidoAtual?.tokenAcompanhamento) return undefined;
+    const atualizar = () => acompanharPedidoApi(pedidoAtual.id, pedidoAtual.tokenAcompanhamento)
+      .then(({ pedido }) => setPedidoAtual(pedido))
+      .catch(() => {});
+    const intervalo = setInterval(atualizar, 10000);
+    return () => clearInterval(intervalo);
+  }, [pedidoAtual?.id, pedidoAtual?.tokenAcompanhamento]);
 
   async function recarregarCatalogo() {
     setCatalogoCarregando(true);
     try {
-      const catalogo = await buscarCatalogo();
-      setProdutos(normalizarProdutos(catalogo.produtos));
-      setAdicionais(catalogo.adicionais);
+      await recarregarPublico();
       setErroApi('');
     } catch (erro) {
       setErroApi(erro.message);
@@ -197,6 +251,7 @@ export function AppProvider({ children }) {
       const sessao = { ...admin, token };
       sessionStorage.setItem(CHAVES.admin, JSON.stringify(sessao));
       setAdminSessao(sessao);
+      await recarregarAdmin();
       return true;
     } catch (erro) {
       if (erro instanceof ErroApi && erro.status === 401) return false;
@@ -204,47 +259,48 @@ export function AppProvider({ children }) {
     }
   }
 
-  function sairAdmin() {
-    logoutAdmin().catch(() => {});
+  async function sairAdmin() {
+    await logoutAdmin().catch(() => {});
     sessionStorage.removeItem(CHAVES.admin);
     setAdminSessao(null);
+    setSessaoAdminCarregando(false);
+    setPedidos([]);
+    setComandas([]);
+    setMesas([]);
+    await recarregarPublico().catch(() => {});
   }
 
-  function entrarGarcom(token, pin) {
-    const funcionario = funcionarios.find(
-      (item) => item.token === token && item.pin === pin && item.status === 'Ativo'
-    );
-
-    if (!funcionario) return false;
-
-    const sessao = {
-      id: funcionario.id,
-      nome: funcionario.nome,
-      cargo: funcionario.cargo,
-      token: funcionario.token
-    };
-
-    sessionStorage.setItem(CHAVES.garcom, JSON.stringify(sessao));
-    setGarcomSessao(sessao);
-    return true;
+  async function entrarGarcom(tokenAcesso, pin) {
+    try {
+      const { garcom, token } = await loginGarcom(tokenAcesso, pin);
+      const sessao = { ...garcom, token };
+      sessionStorage.setItem(CHAVES.garcom, JSON.stringify(sessao));
+      setGarcomSessao(sessao);
+      await recarregarGarcom();
+      return true;
+    } catch (erro) {
+      if (erro instanceof ErroApi && erro.status === 401) return false;
+      throw erro;
+    }
   }
 
-  function sairGarcom() {
+  async function sairGarcom() {
+    await logoutGarcom().catch(() => {});
     sessionStorage.removeItem(CHAVES.garcom);
     setGarcomSessao(null);
+    setMesas([]);
+    setComandas([]);
+    await recarregarPublico().catch(() => {});
   }
 
   async function salvarProduto(dados) {
-    if (dados.id) {
-      const { produto } = await atualizarProdutoApi(dados.id, dados);
-      const normalizado = normalizarProdutos([produto])[0];
-      setProdutos((atuais) => atuais.map((item) => item.id === normalizado.id ? normalizado : item));
-      return normalizado.id;
-    }
-
-    const { produto } = await criarProdutoApi(dados);
-    const normalizado = normalizarProdutos([produto])[0];
-    setProdutos((atuais) => [...atuais, normalizado]);
+    const resposta = dados.id
+      ? await atualizarProdutoApi(dados.id, dados)
+      : await criarProdutoApi(dados);
+    const normalizado = normalizarProdutos([resposta.produto])[0];
+    setProdutos((atuais) => dados.id
+      ? atuais.map((item) => item.id === normalizado.id ? normalizado : item)
+      : [...atuais, normalizado]);
     return normalizado.id;
   }
 
@@ -262,15 +318,13 @@ export function AppProvider({ children }) {
   }
 
   async function salvarAdicional(dados) {
-    if (dados.id) {
-      const { adicional } = await atualizarAdicionalApi(dados.id, dados);
-      setAdicionais((atuais) => atuais.map((item) => item.id === adicional.id ? adicional : item));
-      return adicional.id;
-    }
-
-    const { adicional } = await criarAdicionalApi(dados);
-    setAdicionais((atuais) => [...atuais, adicional]);
-    return adicional.id;
+    const resposta = dados.id
+      ? await atualizarAdicionalApi(dados.id, dados)
+      : await criarAdicionalApi(dados);
+    setAdicionais((atuais) => dados.id
+      ? atuais.map((item) => item.id === resposta.adicional.id ? resposta.adicional : item)
+      : [...atuais, resposta.adicional]);
+    return resposta.adicional.id;
   }
 
   async function removerAdicional(id) {
@@ -289,193 +343,93 @@ export function AppProvider({ children }) {
     setAdicionais((atuais) => atuais.map((item) => item.id === id ? adicional : item));
   }
 
-  function salvarPromocao(dados) {
-    if (dados.id) {
-      setPromocoes((atuais) => atuais.map((promocao) => promocao.id === dados.id ? { ...promocao, ...dados } : promocao));
-      return;
-    }
-
-    setPromocoes((atuais) => [...atuais, {
-      ...dados,
-      id: Date.now(),
-      ativo: true,
-      imagem: produtosIniciais[0].imagem
-    }]);
+  async function salvarPromocao(dados) {
+    const resposta = dados.id
+      ? await atualizarPromocaoApi(dados.id, dados)
+      : await criarPromocaoApi(dados);
+    const normalizada = normalizarPromocoes([resposta.promocao], produtos)[0];
+    setPromocoes((atuais) => dados.id
+      ? atuais.map((item) => item.id === normalizada.id ? normalizada : item)
+      : [...atuais, normalizada]);
+    return normalizada.id;
   }
 
-  function removerPromocao(id) {
+  async function removerPromocao(id) {
+    await excluirPromocaoApi(id);
     setPromocoes((atuais) => atuais.filter((promocao) => promocao.id !== id));
   }
 
-  function salvarFuncionario(dados) {
-    if (dados.id) {
-      setFuncionarios((atuais) => atuais.map((funcionario) => funcionario.id === dados.id ? { ...funcionario, ...dados } : funcionario));
-      return dados.id;
-    }
-
-    const id = `func-${Date.now()}`;
-    setFuncionarios((atuais) => [...atuais, {
-      ...dados,
-      id,
-      token: criarToken(dados.nome),
-      status: 'Ativo',
-      vendas: 0,
-      comandas: 0
-    }]);
-    return id;
+  async function salvarFuncionario(dados) {
+    const resposta = dados.id
+      ? await atualizarFuncionarioApi(dados.id, dados)
+      : await criarFuncionarioApi(dados);
+    setFuncionarios((atuais) => dados.id
+      ? atuais.map((item) => item.id === resposta.funcionario.id ? resposta.funcionario : item)
+      : [...atuais, resposta.funcionario]);
+    return resposta.funcionario.id;
   }
 
-  function alternarFuncionario(id) {
-    setFuncionarios((atuais) => atuais.map((funcionario) => funcionario.id === id
-      ? { ...funcionario, status: funcionario.status === 'Ativo' ? 'Inativo' : 'Ativo' }
-      : funcionario));
+  async function alternarFuncionario(id) {
+    const atual = funcionarios.find((funcionario) => funcionario.id === id);
+    if (!atual) return;
+    const { funcionario } = await alterarStatusFuncionarioApi(id, atual.status !== 'Ativo');
+    setFuncionarios((atuais) => atuais.map((item) => item.id === id ? funcionario : item));
   }
 
-  function atualizarStatusPedido(id, status) {
-    setPedidos((atuais) => atuais.map((pedido) => pedido.id === id ? { ...pedido, status } : pedido));
-    setPedidoAtual((atual) => atual?.id === id ? { ...atual, status } : atual);
+  async function atualizarStatusPedido(id, status) {
+    const { pedido } = await atualizarStatusPedidoApi(id, status);
+    setPedidos((atuais) => atuais.map((item) => item.id === id ? pedido : item));
+    setPedidoAtual((atual) => atual?.id === id ? { ...pedido, tokenAcompanhamento: atual.tokenAcompanhamento } : atual);
   }
 
-  function criarPedidoDelivery(dados) {
-    const subtotal = carrinho.reduce((total, item) => {
-      const preco = item.precoFinal ?? numeroPreco(item.preco);
-      return total + preco * item.quantidade;
-    }, 0);
-    const sequencia = 1100 + pedidos.length + 1;
-    const agora = new Date();
-    const pedido = {
-      id: `#PED${sequencia}`,
-      cliente: dados.nome,
-      telefone: dados.telefone,
-      email: dados.email,
-      origem: 'Delivery',
-      status: 'Recebido',
-      pagamento: dados.pagamento,
-      horario: agoraFormatado(),
-      criadoEm: agora.toISOString(),
-      endereco: `${dados.rua}, ${dados.numero} - ${dados.bairro}${dados.complemento ? `, ${dados.complemento}` : ''}`,
-      referencia: dados.referencia,
-      observacao: dados.observacao,
-      itens: carrinho.map((item) => ({
-        ...item,
-        preco: item.precoFinal ?? numeroPreco(item.preco),
-        adicionais: item.adicionais ?? []
-      })),
-      taxaEntrega: Number(configuracao.taxaEntrega),
-      total: subtotal + Number(configuracao.taxaEntrega)
-    };
-
-    setPedidos((atuais) => [pedido, ...atuais]);
+  async function criarPedidoDelivery(dados) {
+    const { pedido } = await criarPedidoDeliveryApi(dados, carrinho);
     setPedidoAtual(pedido);
     setCarrinho([]);
     return pedido;
   }
 
-  function abrirComanda(mesaId) {
-    const existente = comandas.find((comanda) => comanda.mesaId === mesaId && comanda.status !== 'Encerrada');
-    if (existente) return existente;
-
-    const nova = {
-      id: `comanda-${Date.now()}`,
-      mesaId,
-      funcionarioId: garcomSessao.id,
-      garcom: garcomSessao.nome,
-      status: 'Aberta',
-      abertaEm: agoraFormatado(),
-      itens: []
-    };
-
-    setComandas((atuais) => [...atuais, nova]);
-    setMesas((atuais) => atuais.map((mesa) => mesa.id === mesaId ? { ...mesa, status: 'Ocupada' } : mesa));
-    return nova;
+  async function abrirComanda(mesaId) {
+    const { comanda } = await abrirComandaApi(mesaId);
+    await recarregarGarcom();
+    return comanda;
   }
 
-  function adicionarItemComanda(comandaId, produto, quantidade, adicionais, observacao) {
-    const preco = numeroPreco(produto.preco) + adicionais.reduce((total, adicional) => total + adicional.preco, 0);
-    const item = {
-      ...produto,
-      linhaId: `${produto.id}-${Date.now()}`,
-      preco,
+  async function adicionarItemComanda(comandaId, produto, quantidade, extras, observacao) {
+    await adicionarItemComandaApi(comandaId, {
+      produtoId: produto.id,
       quantidade,
-      adicionais,
+      adicionais: extras.map((extra) => extra.id),
       observacao
-    };
-
-    setComandas((atuais) => atuais.map((comanda) => comanda.id === comandaId
-      ? { ...comanda, itens: [...comanda.itens, item] }
-      : comanda));
+    });
+    await recarregarGarcom();
   }
 
-  function removerItemComanda(comandaId, linhaId) {
-    setComandas((atuais) => atuais.map((comanda) => comanda.id === comandaId
-      ? { ...comanda, itens: comanda.itens.filter((item) => (item.linhaId ?? item.id) !== linhaId) }
-      : comanda));
+  async function removerItemComanda(comandaId, linhaId) {
+    await removerItemComandaApi(comandaId, linhaId);
+    await recarregarGarcom();
   }
 
-  function enviarComanda(comandaId) {
-    const comanda = comandas.find((item) => item.id === comandaId);
-    if (!comanda || comanda.itens.length === 0) return false;
-
-    const total = comanda.itens.reduce((soma, item) => soma + numeroPreco(item.preco) * item.quantidade, 0);
-    const existente = pedidos.find((pedido) => pedido.comandaId === comandaId);
-    const mesa = mesas.find((item) => item.id === comanda.mesaId);
-
-    setComandas((atuais) => atuais.map((item) => item.id === comandaId ? { ...item, status: 'Na cozinha' } : item));
-
-    if (existente) {
-      setPedidos((atuais) => atuais.map((pedido) => pedido.comandaId === comandaId
-        ? { ...pedido, itens: comanda.itens, total, status: 'Em preparo' }
-        : pedido));
-    } else {
-      setPedidos((atuais) => [{
-        id: `#PED${1100 + atuais.length + 1}`,
-        comandaId,
-        cliente: `Mesa ${mesa.numero}`,
-        telefone: 'Atendimento presencial',
-        origem: `Mesa ${mesa.numero}`,
-        mesaId: mesa.id,
-        garcom: comanda.garcom,
-        status: 'Recebido',
-        pagamento: 'A definir',
-        horario: agoraFormatado(),
-        criadoEm: new Date().toISOString(),
-        itens: comanda.itens,
-        taxaEntrega: 0,
-        total,
-        observacao: ''
-      }, ...atuais]);
-    }
-
+  async function enviarComanda(comandaId) {
+    await enviarComandaApi(comandaId);
+    await recarregarGarcom();
     return true;
   }
 
-  function solicitarConta(comandaId) {
-    setComandas((atuais) => atuais.map((item) => item.id === comandaId ? { ...item, status: 'Conta solicitada' } : item));
+  async function solicitarConta(comandaId) {
+    await solicitarContaApi(comandaId);
+    await recarregarGarcom();
   }
 
-  function fecharComanda(comandaId, pagamento) {
-    const comanda = comandas.find((item) => item.id === comandaId);
-    if (!comanda) return;
-
-    setComandas((atuais) => atuais.map((item) => item.id === comandaId ? { ...item, status: 'Encerrada', pagamento } : item));
-    setMesas((atuais) => atuais.map((mesa) => mesa.id === comanda.mesaId ? { ...mesa, status: 'Livre' } : mesa));
-    setPedidos((atuais) => atuais.map((pedido) => pedido.comandaId === comandaId
-      ? { ...pedido, status: 'Entregue na mesa', pagamento }
-      : pedido));
-    setFuncionarios((atuais) => atuais.map((funcionario) => funcionario.id === comanda.funcionarioId
-      ? { ...funcionario, comandas: funcionario.comandas + 1, vendas: funcionario.vendas + 1 }
-      : funcionario));
+  async function fecharComanda(comandaId, pagamento) {
+    await fecharComandaApi(comandaId, pagamento);
+    await recarregarGarcom();
   }
 
-  function restaurarDemonstracao() {
-    setPromocoes(promocoesIniciais);
-    setFuncionarios(funcionariosIniciais);
-    setMesas(mesasIniciais);
-    setPedidos(pedidosIniciais);
-    setComandas(comandasIniciais);
-    setConfiguracao(configuracaoInicial);
-    setCarrinho([]);
-    setPedidoAtual(null);
+  async function setConfiguracao(dados) {
+    const { configuracao: salva } = await salvarConfiguracaoApi(dados);
+    setConfiguracaoEstado(salva);
+    return salva;
   }
 
   const valor = {
@@ -518,7 +472,6 @@ export function AppProvider({ children }) {
     enviarComanda,
     solicitarConta,
     fecharComanda,
-    restaurarDemonstracao,
     recarregarCatalogo,
     numeroPreco
   };
@@ -527,7 +480,7 @@ export function AppProvider({ children }) {
     return (
       <div className="carregamentoAplicacao" role="status">
         <span />
-        <strong>Carregando cardápio...</strong>
+        <strong>Conectando ao cardápio...</strong>
       </div>
     );
   }

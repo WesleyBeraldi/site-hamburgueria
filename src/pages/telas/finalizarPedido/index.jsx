@@ -85,7 +85,7 @@ function FinalizarPedidos() {
     setDadosCliente((atuais) => ({ ...atuais, [campo]: valor }));
   }
 
-  function finalizarPedido() {
+  async function finalizarPedido() {
     const obrigatorios = [
       dadosCliente.nome,
       dadosCliente.telefone,
@@ -111,11 +111,16 @@ function FinalizarPedidos() {
       dinheiro: 'Dinheiro'
     };
 
-    criarPedidoDelivery({
-      ...dadosCliente,
-      pagamento: nomesPagamento[formaPagamento]
-    });
-    navigate('/pedido-finalizado');
+    setErro('');
+    try {
+      await criarPedidoDelivery({
+        ...dadosCliente,
+        pagamento: nomesPagamento[formaPagamento]
+      });
+      navigate('/pedido-finalizado');
+    } catch (falha) {
+      setErro(falha.message);
+    }
   }
 
   useEffect(() => {

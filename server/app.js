@@ -15,10 +15,31 @@ import {
   listarCatalogo
 } from './catalog.js';
 import { removerImagemLocal, salvarImagemDataUrl } from './imageStore.js';
+import {
+  acompanharPedido,
+  adicionarItemComanda,
+  abrirComanda,
+  alternarStatusFuncionario,
+  atualizarStatusPedido,
+  buscarFuncionarioPorToken,
+  criarPedidoDelivery,
+  enviarComanda,
+  excluirPromocao,
+  fecharComanda,
+  listarDadosAdmin,
+  listarDadosGarcom,
+  listarDadosPublicos,
+  removerItemComanda,
+  salvarConfiguracao,
+  salvarFuncionario,
+  salvarPromocao,
+  solicitarConta
+} from './operations.js';
 import { criarHashToken, criarTokenSessao, verificarSenha } from './security.js';
 
 const LIMITE_CORPO = 2 * 1024 * 1024;
-const DURACAO_SESSAO_MS = 12 * 60 * 60 * 1000;
+const DURACAO_SESSAO_ADMIN_MS = 12 * 60 * 60 * 1000;
+const DURACAO_SESSAO_GARCOM_MS = 8 * 60 * 60 * 1000;
 
 class ErroHttp extends Error {
   constructor(status, message) {
@@ -65,40 +86,65 @@ function tokenBearer(requisicao) {
   return correspondencia?.[1] ?? null;
 }
 
-function obterAdministrador(banco, requisicao) {
+async function obterAdministrador(banco, requisicao) {
   const token = tokenBearer(requisicao);
   if (!token) throw new ErroHttp(401, 'Faça login para continuar.');
 
-  banco.prepare('DELETE FROM sessoes_admin WHERE expira_em <= ?').run(new Date().toISOString());
-  const sessao = banco.prepare(`
+  await banco.query('DELETE FROM sessoes_admin WHERE expira_em <= CURRENT_TIMESTAMP(3)');
+  const [linhas] = await banco.execute(`
     SELECT a.id, a.nome, a.usuario, a.email
     FROM sessoes_admin s
     INNER JOIN administradores a ON a.id = s.administrador_id
-    WHERE s.token_hash = ? AND s.expira_em > ? AND a.ativo = 1
-  `).get(criarHashToken(token), new Date().toISOString());
-
+    WHERE s.token_hash = ? AND s.expira_em > CURRENT_TIMESTAMP(3) AND a.ativo = 1
+  `, [criarHashToken(token)]);
+  const sessao = linhas[0];
   if (!sessao) throw new ErroHttp(401, 'Sua sessão expirou. Entre novamente.');
-  return { id: Number(sessao.id), nome: sessao.nome, usuario: sessao.usuario, email: sessao.email, perfil: 'Administrador' };
+  return {
+    id: Number(sessao.id),
+    nome: sessao.nome,
+    usuario: sessao.usuario,
+    email: sessao.email,
+    perfil: 'Administrador'
+  };
+}
+
+async function obterGarcom(banco, requisicao) {
+  const token = tokenBearer(requisicao);
+  if (!token) throw new ErroHttp(401, 'Entre com o QR Code e o PIN para continuar.');
+
+  await banco.query('DELETE FROM sessoes_garcom WHERE expira_em <= CURRENT_TIMESTAMP(3)');
+  const [linhas] = await banco.execute(`
+    SELECT f.id, f.nome, f.cargo, f.token_acesso
+    FROM sessoes_garcom s
+    INNER JOIN funcionarios f ON f.id = s.funcionario_id
+    WHERE s.token_hash = ? AND s.expira_em > CURRENT_TIMESTAMP(3) AND f.ativo = 1
+  `, [criarHashToken(token)]);
+  const sessao = linhas[0];
+  if (!sessao) throw new ErroHttp(401, 'Sua sessão expirou. Leia o QR Code novamente.');
+  return {
+    id: String(sessao.id),
+    nome: sessao.nome,
+    cargo: sessao.cargo,
+    acessoToken: sessao.token_acesso
+  };
 }
 
 function tratarErroDados(erro) {
-  if (erro instanceof ErroHttp) throw erro;
-  if (String(erro.code ?? '').startsWith('SQLITE_CONSTRAINT_UNIQUE')) {
-    throw new ErroHttp(409, 'Já existe um cadastro com esse nome.');
-  }
-  if (String(erro.code ?? '').startsWith('SQLITE_CONSTRAINT')) {
-    throw new ErroHttp(409, 'Este cadastro está sendo usado e não pode ser removido.');
+  if (erro instanceof ErroHttp || erro.status) throw erro;
+  if (erro.code === 'ER_DUP_ENTRY') throw new ErroHttp(409, 'Já existe um cadastro com esses dados.');
+  if (['ER_ROW_IS_REFERENCED_2', 'ER_NO_REFERENCED_ROW_2'].includes(erro.code)) {
+    throw new ErroHttp(409, 'Este cadastro está vinculado a outro registro e não pode ser alterado.');
   }
   throw new ErroHttp(400, erro.message || 'Não foi possível salvar os dados.');
 }
 
-function criarSessaoAdmin(banco, administradorId) {
+async function criarSessao(banco, tabela, campoId, id, duracaoMs) {
   const token = criarTokenSessao();
-  const expiraEm = new Date(Date.now() + DURACAO_SESSAO_MS).toISOString();
-  banco.prepare(`
-    INSERT INTO sessoes_admin (token_hash, administrador_id, expira_em) VALUES (?, ?, ?)
-  `).run(criarHashToken(token), administradorId, expiraEm);
-  return { token, expiraEm };
+  const expiraEm = new Date(Date.now() + duracaoMs);
+  await banco.execute(`
+    INSERT INTO ${tabela} (token_hash, ${campoId}, expira_em) VALUES (?, ?, ?)
+  `, [criarHashToken(token), id, expiraEm]);
+  return { token, expiraEm: expiraEm.toISOString() };
 }
 
 async function processarImagemNova(imagem, pastaUploads) {
@@ -112,38 +158,67 @@ async function processarImagemAtualizada(imagem, imagemAnterior, pastaUploads) {
   return imagemAnterior ?? null;
 }
 
-async function rotaApi({ banco, pastaUploads, requisicao, resposta, caminho }) {
-  if (requisicao.method === 'OPTIONS') {
-    cabecalhosSeguranca(resposta);
-    resposta.writeHead(204, { Allow: 'GET, POST, PUT, PATCH, DELETE, OPTIONS' });
-    resposta.end();
-    return true;
-  }
-
+async function rotaPublica({ banco, requisicao, resposta, caminho, url }) {
   if (requisicao.method === 'GET' && caminho === '/api/saude') {
-    responderJson(resposta, 200, { status: 'ok', banco: 'conectado' });
+    await banco.query('SELECT 1');
+    responderJson(resposta, 200, { status: 'ok', banco: 'mysql-conectado' });
     return true;
   }
 
   if (requisicao.method === 'GET' && caminho === '/api/catalogo') {
     resposta.setHeader('Cache-Control', 'no-store');
-    responderJson(resposta, 200, listarCatalogo(banco));
+    responderJson(resposta, 200, await listarCatalogo(banco));
     return true;
   }
 
+  if (requisicao.method === 'GET' && caminho === '/api/publico/inicial') {
+    resposta.setHeader('Cache-Control', 'no-store');
+    responderJson(resposta, 200, await listarDadosPublicos(banco));
+    return true;
+  }
+
+  if (requisicao.method === 'POST' && caminho === '/api/pedidos') {
+    const dados = await lerJson(requisicao);
+    try {
+      const pedido = await criarPedidoDelivery(banco, dados);
+      responderJson(resposta, 201, { pedido });
+    } catch (erro) {
+      tratarErroDados(erro);
+    }
+    return true;
+  }
+
+  const acompanhamento = caminho.match(/^\/api\/pedidos\/([^/]+)$/);
+  if (requisicao.method === 'GET' && acompanhamento) {
+    const pedido = await acompanharPedido(banco, acompanhamento[1], url.searchParams.get('token'));
+    if (!pedido) throw new ErroHttp(404, 'Pedido não encontrado ou link de acompanhamento inválido.');
+    responderJson(resposta, 200, { pedido });
+    return true;
+  }
+
+  return false;
+}
+
+async function rotaAdmin({ banco, pastaUploads, requisicao, resposta, caminho }) {
   if (requisicao.method === 'POST' && caminho === '/api/admin/login') {
     const dados = await lerJson(requisicao);
     const identificador = String(dados.usuario ?? '').trim();
-    const administrador = banco.prepare(`
+    const [linhas] = await banco.execute(`
       SELECT * FROM administradores
-      WHERE (usuario = ? COLLATE NOCASE OR email = ? COLLATE NOCASE) AND ativo = 1
-    `).get(identificador, identificador);
-
+      WHERE (LOWER(usuario) = LOWER(?) OR LOWER(email) = LOWER(?)) AND ativo = 1
+      LIMIT 1
+    `, [identificador, identificador]);
+    const administrador = linhas[0];
     if (!administrador || !verificarSenha(String(dados.senha ?? ''), administrador.senha_hash)) {
       throw new ErroHttp(401, 'Usuário ou senha incorretos.');
     }
-
-    const sessao = criarSessaoAdmin(banco, administrador.id);
+    const sessao = await criarSessao(
+      banco,
+      'sessoes_admin',
+      'administrador_id',
+      administrador.id,
+      DURACAO_SESSAO_ADMIN_MS
+    );
     responderJson(resposta, 200, {
       token: sessao.token,
       expiraEm: sessao.expiraEm,
@@ -153,26 +228,31 @@ async function rotaApi({ banco, pastaUploads, requisicao, resposta, caminho }) {
   }
 
   if (requisicao.method === 'GET' && caminho === '/api/admin/sessao') {
-    responderJson(resposta, 200, { admin: obterAdministrador(banco, requisicao) });
+    responderJson(resposta, 200, { admin: await obterAdministrador(banco, requisicao) });
     return true;
   }
 
   if (requisicao.method === 'DELETE' && caminho === '/api/admin/sessao') {
     const token = tokenBearer(requisicao);
-    if (token) banco.prepare('DELETE FROM sessoes_admin WHERE token_hash = ?').run(criarHashToken(token));
+    if (token) await banco.execute('DELETE FROM sessoes_admin WHERE token_hash = ?', [criarHashToken(token)]);
     responderJson(resposta, 200, { sucesso: true });
     return true;
   }
 
   if (!caminho.startsWith('/api/admin/')) return false;
-  obterAdministrador(banco, requisicao);
+  await obterAdministrador(banco, requisicao);
+
+  if (requisicao.method === 'GET' && caminho === '/api/admin/dados') {
+    responderJson(resposta, 200, await listarDadosAdmin(banco));
+    return true;
+  }
 
   if (requisicao.method === 'POST' && caminho === '/api/admin/produtos') {
     const dados = await lerJson(requisicao);
     let imagemUrl = null;
     try {
       imagemUrl = await processarImagemNova(dados.imagem, pastaUploads);
-      const produto = criarProduto(banco, dados, imagemUrl);
+      const produto = await criarProduto(banco, dados, imagemUrl);
       responderJson(resposta, 201, { produto });
     } catch (erro) {
       if (imagemUrl) await removerImagemLocal(imagemUrl, pastaUploads);
@@ -184,7 +264,7 @@ async function rotaApi({ banco, pastaUploads, requisicao, resposta, caminho }) {
   const produtoStatus = caminho.match(/^\/api\/admin\/produtos\/(\d+)\/status$/);
   if (requisicao.method === 'PATCH' && produtoStatus) {
     const dados = await lerJson(requisicao);
-    const produto = alternarStatusProduto(banco, Number(produtoStatus[1]), Boolean(dados.ativo));
+    const produto = await alternarStatusProduto(banco, Number(produtoStatus[1]), Boolean(dados.ativo));
     if (!produto) throw new ErroHttp(404, 'Produto não encontrado.');
     responderJson(resposta, 200, { produto });
     return true;
@@ -193,16 +273,15 @@ async function rotaApi({ banco, pastaUploads, requisicao, resposta, caminho }) {
   const produtoId = caminho.match(/^\/api\/admin\/produtos\/(\d+)$/);
   if (requisicao.method === 'PUT' && produtoId) {
     const id = Number(produtoId[1]);
-    const anterior = buscarProduto(banco, id);
+    const anterior = await buscarProduto(banco, id);
     if (!anterior) throw new ErroHttp(404, 'Produto não encontrado.');
-
     const dados = await lerJson(requisicao);
     let imagemUrl;
     let novaImagem = null;
     try {
       imagemUrl = await processarImagemAtualizada(dados.imagem, anterior.imagem, pastaUploads);
       if (imagemUrl !== anterior.imagem) novaImagem = imagemUrl;
-      const produto = atualizarProduto(banco, id, dados, imagemUrl);
+      const produto = await atualizarProduto(banco, id, dados, imagemUrl);
       if (anterior.imagem && anterior.imagem !== imagemUrl) await removerImagemLocal(anterior.imagem, pastaUploads);
       responderJson(resposta, 200, { produto });
     } catch (erro) {
@@ -214,9 +293,9 @@ async function rotaApi({ banco, pastaUploads, requisicao, resposta, caminho }) {
 
   if (requisicao.method === 'DELETE' && produtoId) {
     const id = Number(produtoId[1]);
-    const produto = buscarProduto(banco, id);
+    const produto = await buscarProduto(banco, id);
     if (!produto) throw new ErroHttp(404, 'Produto não encontrado.');
-    excluirProduto(banco, id);
+    await excluirProduto(banco, id);
     await removerImagemLocal(produto.imagem, pastaUploads);
     responderJson(resposta, 200, { sucesso: true });
     return true;
@@ -225,7 +304,7 @@ async function rotaApi({ banco, pastaUploads, requisicao, resposta, caminho }) {
   if (requisicao.method === 'POST' && caminho === '/api/admin/adicionais') {
     const dados = await lerJson(requisicao);
     try {
-      responderJson(resposta, 201, { adicional: criarAdicional(banco, dados) });
+      responderJson(resposta, 201, { adicional: await criarAdicional(banco, dados) });
     } catch (erro) {
       tratarErroDados(erro);
     }
@@ -235,7 +314,7 @@ async function rotaApi({ banco, pastaUploads, requisicao, resposta, caminho }) {
   const adicionalStatus = caminho.match(/^\/api\/admin\/adicionais\/(\d+)\/status$/);
   if (requisicao.method === 'PATCH' && adicionalStatus) {
     const dados = await lerJson(requisicao);
-    const adicional = alternarStatusAdicional(banco, Number(adicionalStatus[1]), Boolean(dados.ativo));
+    const adicional = await alternarStatusAdicional(banco, Number(adicionalStatus[1]), Boolean(dados.ativo));
     if (!adicional) throw new ErroHttp(404, 'Adicional não encontrado.');
     responderJson(resposta, 200, { adicional });
     return true;
@@ -245,7 +324,7 @@ async function rotaApi({ banco, pastaUploads, requisicao, resposta, caminho }) {
   if (requisicao.method === 'PUT' && adicionalId) {
     const dados = await lerJson(requisicao);
     try {
-      const adicional = atualizarAdicional(banco, Number(adicionalId[1]), dados);
+      const adicional = await atualizarAdicional(banco, Number(adicionalId[1]), dados);
       if (!adicional) throw new ErroHttp(404, 'Adicional não encontrado.');
       responderJson(resposta, 200, { adicional });
     } catch (erro) {
@@ -255,12 +334,156 @@ async function rotaApi({ banco, pastaUploads, requisicao, resposta, caminho }) {
   }
 
   if (requisicao.method === 'DELETE' && adicionalId) {
-    if (!excluirAdicional(banco, Number(adicionalId[1]))) throw new ErroHttp(404, 'Adicional não encontrado.');
+    if (!await excluirAdicional(banco, Number(adicionalId[1]))) throw new ErroHttp(404, 'Adicional não encontrado.');
+    responderJson(resposta, 200, { sucesso: true });
+    return true;
+  }
+
+  if (requisicao.method === 'POST' && caminho === '/api/admin/promocoes') {
+    const promocao = await salvarPromocao(banco, await lerJson(requisicao));
+    responderJson(resposta, 201, { promocao });
+    return true;
+  }
+  const promocaoId = caminho.match(/^\/api\/admin\/promocoes\/(\d+)$/);
+  if (requisicao.method === 'PUT' && promocaoId) {
+    responderJson(resposta, 200, { promocao: await salvarPromocao(banco, await lerJson(requisicao), promocaoId[1]) });
+    return true;
+  }
+  if (requisicao.method === 'DELETE' && promocaoId) {
+    if (!await excluirPromocao(banco, promocaoId[1])) throw new ErroHttp(404, 'Promoção não encontrada.');
+    responderJson(resposta, 200, { sucesso: true });
+    return true;
+  }
+
+  if (requisicao.method === 'POST' && caminho === '/api/admin/funcionarios') {
+    responderJson(resposta, 201, { funcionario: await salvarFuncionario(banco, await lerJson(requisicao)) });
+    return true;
+  }
+  const funcionarioStatus = caminho.match(/^\/api\/admin\/funcionarios\/(\d+)\/status$/);
+  if (requisicao.method === 'PATCH' && funcionarioStatus) {
+    const dados = await lerJson(requisicao);
+    const funcionario = await alternarStatusFuncionario(banco, funcionarioStatus[1], Boolean(dados.ativo));
+    if (!funcionario) throw new ErroHttp(404, 'Funcionário não encontrado.');
+    responderJson(resposta, 200, { funcionario });
+    return true;
+  }
+  const funcionarioId = caminho.match(/^\/api\/admin\/funcionarios\/(\d+)$/);
+  if (requisicao.method === 'PUT' && funcionarioId) {
+    responderJson(resposta, 200, { funcionario: await salvarFuncionario(banco, await lerJson(requisicao), funcionarioId[1]) });
+    return true;
+  }
+
+  const pedidoStatus = caminho.match(/^\/api\/admin\/pedidos\/([^/]+)\/status$/);
+  if (requisicao.method === 'PATCH' && pedidoStatus) {
+    const dados = await lerJson(requisicao);
+    const pedido = await atualizarStatusPedido(banco, pedidoStatus[1], dados.status);
+    if (!pedido) throw new ErroHttp(404, 'Pedido não encontrado.');
+    responderJson(resposta, 200, { pedido });
+    return true;
+  }
+
+  if (requisicao.method === 'PUT' && caminho === '/api/admin/configuracao') {
+    responderJson(resposta, 200, { configuracao: await salvarConfiguracao(banco, await lerJson(requisicao)) });
+    return true;
+  }
+
+  return false;
+}
+
+async function rotaGarcom({ banco, requisicao, resposta, caminho }) {
+  if (requisicao.method === 'POST' && caminho === '/api/garcom/login') {
+    const dados = await lerJson(requisicao);
+    const funcionario = await buscarFuncionarioPorToken(banco, String(dados.token ?? ''));
+    if (!funcionario || !verificarSenha(String(dados.pin ?? ''), funcionario.pin_hash)) {
+      throw new ErroHttp(401, 'QR Code ou PIN incorreto.');
+    }
+    const sessao = await criarSessao(
+      banco,
+      'sessoes_garcom',
+      'funcionario_id',
+      funcionario.id,
+      DURACAO_SESSAO_GARCOM_MS
+    );
+    responderJson(resposta, 200, {
+      token: sessao.token,
+      expiraEm: sessao.expiraEm,
+      garcom: { id: String(funcionario.id), nome: funcionario.nome, cargo: funcionario.cargo }
+    });
+    return true;
+  }
+
+  if (requisicao.method === 'GET' && caminho === '/api/garcom/sessao') {
+    responderJson(resposta, 200, { garcom: await obterGarcom(banco, requisicao) });
+    return true;
+  }
+
+  if (requisicao.method === 'DELETE' && caminho === '/api/garcom/sessao') {
+    const token = tokenBearer(requisicao);
+    if (token) await banco.execute('DELETE FROM sessoes_garcom WHERE token_hash = ?', [criarHashToken(token)]);
+    responderJson(resposta, 200, { sucesso: true });
+    return true;
+  }
+
+  if (!caminho.startsWith('/api/garcom/')) return false;
+  const garcom = await obterGarcom(banco, requisicao);
+
+  if (requisicao.method === 'GET' && caminho === '/api/garcom/dados') {
+    responderJson(resposta, 200, await listarDadosGarcom(banco));
+    return true;
+  }
+
+  if (requisicao.method === 'POST' && caminho === '/api/garcom/comandas') {
+    const dados = await lerJson(requisicao);
+    responderJson(resposta, 201, { comanda: await abrirComanda(banco, Number(dados.mesaId), garcom.id) });
+    return true;
+  }
+
+  const itemComanda = caminho.match(/^\/api\/garcom\/comandas\/(\d+)\/itens\/(\d+)$/);
+  if (requisicao.method === 'DELETE' && itemComanda) {
+    await removerItemComanda(banco, itemComanda[1], itemComanda[2], garcom.id);
+    responderJson(resposta, 200, { sucesso: true });
+    return true;
+  }
+  const itensComanda = caminho.match(/^\/api\/garcom\/comandas\/(\d+)\/itens$/);
+  if (requisicao.method === 'POST' && itensComanda) {
+    await adicionarItemComanda(banco, itensComanda[1], garcom.id, await lerJson(requisicao));
+    responderJson(resposta, 201, { sucesso: true });
+    return true;
+  }
+  const enviar = caminho.match(/^\/api\/garcom\/comandas\/(\d+)\/enviar$/);
+  if (requisicao.method === 'POST' && enviar) {
+    await enviarComanda(banco, enviar[1], garcom.id);
+    responderJson(resposta, 200, { sucesso: true });
+    return true;
+  }
+  const conta = caminho.match(/^\/api\/garcom\/comandas\/(\d+)\/conta$/);
+  if (requisicao.method === 'POST' && conta) {
+    await solicitarConta(banco, conta[1], garcom.id);
+    responderJson(resposta, 200, { sucesso: true });
+    return true;
+  }
+  const fechar = caminho.match(/^\/api\/garcom\/comandas\/(\d+)\/fechar$/);
+  if (requisicao.method === 'POST' && fechar) {
+    const dados = await lerJson(requisicao);
+    await fecharComanda(banco, fechar[1], garcom.id, String(dados.pagamento ?? ''));
     responderJson(resposta, 200, { sucesso: true });
     return true;
   }
 
   return false;
+}
+
+async function rotaApi(parametros) {
+  const { requisicao, resposta } = parametros;
+  if (requisicao.method === 'OPTIONS') {
+    cabecalhosSeguranca(resposta);
+    resposta.writeHead(204, { Allow: 'GET, POST, PUT, PATCH, DELETE, OPTIONS' });
+    resposta.end();
+    return true;
+  }
+  return await rotaPublica(parametros)
+    || await rotaAdmin(parametros)
+    || await rotaGarcom(parametros);
 }
 
 const TIPOS_CONTEUDO = {
@@ -297,20 +520,17 @@ async function enviarArquivo(resposta, caminhoArquivo, cacheControl) {
 
 async function servirFrontend({ requisicao, resposta, caminho, pastaUploads, pastaDist }) {
   if (!['GET', 'HEAD'].includes(requisicao.method)) return false;
-
   if (caminho.startsWith('/uploads/')) {
     const nomeArquivo = basename(caminho);
     if (caminho !== `/uploads/${nomeArquivo}`) return false;
     return enviarArquivo(resposta, resolve(pastaUploads, nomeArquivo), 'public, max-age=31536000, immutable');
   }
-
   if (!pastaDist) return false;
   const caminhoRelativo = caminho === '/' ? 'index.html' : caminho.replace(/^\//, '');
   const arquivo = resolve(pastaDist, caminhoRelativo);
   const relativoAoDist = relative(resolve(pastaDist), arquivo);
   const estaDentroDoDist = relativoAoDist && !relativoAoDist.startsWith('..') && !isAbsolute(relativoAoDist);
   if (estaDentroDoDist && await enviarArquivo(resposta, arquivo, 'public, max-age=3600')) return true;
-
   return enviarArquivo(resposta, resolve(pastaDist, 'index.html'), 'no-cache');
 }
 
@@ -318,20 +538,25 @@ export function criarServidor({ banco, pastaUploads, pastaDist = null }) {
   return createServer(async (requisicao, resposta) => {
     const url = new URL(requisicao.url, 'http://localhost');
     const caminho = decodeURIComponent(url.pathname);
-
     try {
       if (caminho.startsWith('/api/')) {
-        const atendida = await rotaApi({ banco, pastaUploads, requisicao, resposta, caminho });
+        const atendida = await rotaApi({ banco, pastaUploads, requisicao, resposta, caminho, url });
         if (!atendida) responderJson(resposta, 404, { erro: 'Rota da API não encontrada.' });
         return;
       }
-
       if (await servirFrontend({ requisicao, resposta, caminho, pastaUploads, pastaDist })) return;
       responderJson(resposta, 404, { erro: 'Página não encontrada.' });
     } catch (erro) {
-      const status = erro instanceof ErroHttp ? erro.status : 500;
-      if (status === 500) console.error(erro);
-      responderJson(resposta, status, { erro: status === 500 ? 'Erro interno do servidor.' : erro.message });
+      const erroDuplicado = erro.code === 'ER_DUP_ENTRY';
+      const erroRelacionamento = ['ER_ROW_IS_REFERENCED_2', 'ER_NO_REFERENCED_ROW_2'].includes(erro.code);
+      const status = Number(erro.status) || (erroDuplicado || erroRelacionamento ? 409 : 500);
+      if (status >= 500) console.error(erro);
+      const mensagem = erroDuplicado
+        ? 'Já existe um cadastro com esses dados.'
+        : erroRelacionamento
+          ? 'Este cadastro está vinculado a outro registro.'
+          : erro.message;
+      responderJson(resposta, status, { erro: status >= 500 ? 'Erro interno do servidor.' : mensagem });
     }
   });
 }

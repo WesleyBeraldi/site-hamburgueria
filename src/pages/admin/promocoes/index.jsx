@@ -25,19 +25,28 @@ function PromocoesAdmin() {
     setFormulario((atual) => ({ ...atual, [campo]: valor }));
   }
 
-  function enviar(event) {
+  async function enviar(event) {
     event.preventDefault();
     if (!formulario.nome.trim() || !formulario.preco.trim() || !formulario.descricao.trim()) {
       setErro('Preencha nome, descrição e preço promocional.');
       return;
     }
-    salvarPromocao(formulario);
-    setFormulario(null);
-    setErro('');
+    try {
+      await salvarPromocao(formulario);
+      setFormulario(null);
+      setErro('');
+    } catch (falha) {
+      setErro(falha.message);
+    }
   }
 
-  function excluir(promocao) {
-    if (window.confirm(`Remover a promoção ${promocao.nome}?`)) removerPromocao(promocao.id);
+  async function excluir(promocao) {
+    if (!window.confirm(`Remover a promoção ${promocao.nome}?`)) return;
+    try {
+      await removerPromocao(promocao.id);
+    } catch (falha) {
+      setErro(falha.message);
+    }
   }
 
   const acao = <button type="button" className={styles.botaoPrimario} onClick={() => setFormulario({ ...vazio })}><Plus size={17} /> Nova promoção</button>;

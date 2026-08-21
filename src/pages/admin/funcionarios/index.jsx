@@ -18,15 +18,27 @@ function FuncionariosAdmin() {
     setFormulario((atual) => ({ ...atual, [campo]: valor }));
   }
 
-  function enviar(event) {
+  async function enviar(event) {
     event.preventDefault();
     if (!formulario.nome.trim() || !/^\d{4,6}$/.test(formulario.pin)) {
       setErro('Informe o nome e um PIN numérico de 4 a 6 dígitos.');
       return;
     }
-    salvarFuncionario(formulario);
-    setFormulario(null);
-    setErro('');
+    try {
+      await salvarFuncionario(formulario);
+      setFormulario(null);
+      setErro('');
+    } catch (falha) {
+      setErro(falha.message);
+    }
+  }
+
+  async function mudarStatus(funcionario) {
+    try {
+      await alternarFuncionario(funcionario.id);
+    } catch (falha) {
+      setErro(falha.message);
+    }
   }
 
   const acao = <button type="button" className={styles.botaoPrimario} onClick={() => setFormulario({ ...vazio })}><UserRoundPlus size={17} /> Cadastrar garçom</button>;
@@ -66,7 +78,7 @@ function FuncionariosAdmin() {
                 <tr key={funcionario.id}>
                   <td><strong>{funcionario.nome}</strong><span className={styles.textoSecundario}>{funcionario.id}</span></td>
                   <td>{funcionario.cargo}</td>
-                  <td><button type="button" className={`${styles.status} ${funcionario.status === 'Ativo' ? styles.statusAtivo : styles.statusInativo}`} onClick={() => alternarFuncionario(funcionario.id)}>{funcionario.status}</button></td>
+                  <td><button type="button" className={`${styles.status} ${funcionario.status === 'Ativo' ? styles.statusAtivo : styles.statusInativo}`} onClick={() => mudarStatus(funcionario)}>{funcionario.status}</button></td>
                   <td>••••</td>
                   <td>{funcionario.comandas}</td>
                   <td>{funcionario.vendas}</td>
@@ -77,6 +89,7 @@ function FuncionariosAdmin() {
           </table>
         </div>
       </section>
+      {erro && !formulario && <div className={styles.erro}>{erro}</div>}
     </AdminLayout>
   );
 }
