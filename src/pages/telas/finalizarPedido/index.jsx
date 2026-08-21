@@ -21,6 +21,7 @@ function FinalizarPedidos() {
     observacao: ''
   });
   const [erro, setErro] = useState('');
+  const [processando, setProcessando] = useState(false);
   const {
     carrinho: itens,
     setCarrinho: setItens,
@@ -85,7 +86,7 @@ function FinalizarPedidos() {
     setDadosCliente((atuais) => ({ ...atuais, [campo]: valor }));
   }
 
-  function finalizarPedido() {
+  async function finalizarPedido() {
     const obrigatorios = [
       dadosCliente.nome,
       dadosCliente.telefone,
@@ -111,11 +112,19 @@ function FinalizarPedidos() {
       dinheiro: 'Dinheiro'
     };
 
-    criarPedidoDelivery({
-      ...dadosCliente,
-      pagamento: nomesPagamento[formaPagamento]
-    });
-    navigate('/pedido-finalizado');
+    setProcessando(true);
+    setErro('');
+    try {
+      await criarPedidoDelivery({
+        ...dadosCliente,
+        pagamento: nomesPagamento[formaPagamento]
+      });
+      navigate('/pedido-finalizado');
+    } catch (falha) {
+      setErro(falha.message);
+    } finally {
+      setProcessando(false);
+    }
   }
 
   useEffect(() => {
@@ -745,9 +754,9 @@ function FinalizarPedidos() {
               type="button"
               className={styles.botaoFinalizar}
               onClick={finalizarPedido}
-              disabled={itens.length === 0}
+              disabled={itens.length === 0 || processando}
             >
-              Finalizar pedido
+              {processando ? 'Enviando pedido...' : 'Finalizar pedido'}
             </button>
 
             {erro && <div className={styles.mensagemErro}>{erro}</div>}

@@ -149,6 +149,117 @@ test('persiste adicionais, produtos, vínculos e imagens compartilhadas', async 
   await assert.rejects(stat(imagemNoDisco), { code: 'ENOENT' });
 });
 
+test('persiste pedidos, calcula preços no servidor e permite acompanhamento seguro', async () => {
+  const adicionalInvalido = await chamar('/api/pedidos', {
+    metodo: 'POST',
+    dados: {
+      nome: 'Cliente teste',
+      telefone: '(11) 99999-0000',
+      email: 'cliente@teste.local',
+      rua: 'Rua de teste',
+      numero: '10',
+      bairro: 'Centro',
+      pagamento: 'Pix',
+      itens: [{ produtoId: 7, quantidade: 3, adicionaisIds: [1] }]
+    }
+  });
+  assert.equal(adicionalInvalido.status, 400);
+
+  const criacao = await chamar('/api/pedidos', {
+    metodo: 'POST',
+    dados: {
+      nome: 'Cliente teste',
+      telefone: '(11) 99999-0000',
+      email: 'cliente@teste.local',
+      rua: 'Rua de teste',
+      numero: '10',
+      bairro: 'Centro',
+      complemento: 'Casa',
+      referencia: 'Próximo à praça',
+      observacao: 'Tocar a campainha',
+      pagamento: 'Pix',
+      itens: [{
+        produtoId: 1,
+        quantidade: 2,
+        adicionaisIds: [1],
+        preco: 0,
+        observacao: 'Sem tomate'
+      }]
+    }
+  });
+  assert.equal(criacao.status, 201);
+  assert.match(criacao.corpo.pedido.id, /^#PED\d+$/);
+  assert.ok(criacao.corpo.tokenAcompanhamento);
+  assert.equal(criacao.corpo.pedido.itens[0].preco, 39.9);
+  assert.equal(criacao.corpo.pedido.subtotal, 79.8);
+  assert.equal(criacao.corpo.pedido.taxaEntrega, 7.9);
+  assert.equal(criacao.corpo.pedido.total, 87.7);
+  assert.equal(banco.prepare('SELECT COUNT(*) AS total FROM pedidos').get().total, 1);
+
+  const codigo = encodeURIComponent(criacao.corpo.pedido.id);
+  const acessoInvalido = await chamar(`/api/pedidos/${codigo}/acompanhamento?token=invalido`);
+  assert.equal(acessoInvalido.status, 404);
+
+  const acompanhamento = await chamar(
+    `/api/pedidos/${codigo}/acompanhamento?token=${encodeURIComponent(criacao.corpo.tokenAcompanhamento)}`
+  );
+  assert.equal(acompanhamento.status, 200);
+  assert.equal(acompanhamento.corpo.pedido.status, 'Recebido');
+
+  const listaSemLogin = await chamar('/api/admin/pedidos');
+  assert.equal(listaSemLogin.status, 401);
+
+  const login = await chamar('/api/admin/login', {
+    metodo: 'POST',
+    dados: { usuario: 'admin', senha: 'senha-segura' }
+  });
+  const token = login.corpo.token;
+  const lista = await chamar('/api/admin/pedidos', { token });
+  assert.equal(lista.status, 200);
+  assert.equal(lista.corpo.pedidos[0].id, criacao.corpo.pedido.id);
+  assert.equal(lista.corpo.pedidos[0].tokenAcompanhamento, undefined);
+
+  const status = await chamar(`/api/admin/pedidos/${codigo}/status`, {
+    metodo: 'PATCH',
+    token,
+    dados: { status: 'Em preparo' }
+  });
+  assert.equal(status.status, 200);
+  assert.equal(status.corpo.pedido.status, 'Em preparo');
+
+  const acompanhamentoAtualizado = await chamar(
+    `/api/pedidos/${codigo}/acompanhamento?token=${encodeURIComponent(criacao.corpo.tokenAcompanhamento)}`
+  );
+  assert.equal(acompanhamentoAtualizado.corpo.pedido.status, 'Em preparo');
+
+  const configuracaoSemLogin = await chamar('/api/admin/configuracao', {
+    metodo: 'PUT',
+    dados: {}
+  });
+  assert.equal(configuracaoSemLogin.status, 401);
+
+  const configuracao = await chamar('/api/admin/configuracao', {
+    metodo: 'PUT',
+    token,
+    dados: {
+      nomeLoja: 'Hamburgueria Teste',
+      telefone: '(11) 4000-0000',
+      email: 'loja@teste.local',
+      endereco: 'Rua da Loja, 1',
+      taxaEntrega: 8.5,
+      tempoEntrega: '30–40 min',
+      pedidoMinimo: 25,
+      lojaAberta: true
+    }
+  });
+  assert.equal(configuracao.status, 200);
+  assert.equal(configuracao.corpo.configuracao.taxaEntrega, 8.5);
+
+  const catalogo = await chamar('/api/catalogo');
+  assert.equal(catalogo.corpo.configuracao.nomeLoja, 'Hamburgueria Teste');
+  assert.equal(catalogo.corpo.configuracao.pedidoMinimo, 25);
+});
+
 test('não recria o catálogo quando todos os produtos forem removidos', async () => {
   const caminhoBanco = join(pastaTemporaria, 'catalogo-vazio.sqlite');
   const administrador = {

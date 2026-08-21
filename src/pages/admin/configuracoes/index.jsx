@@ -6,19 +6,34 @@ import { useApp } from '../../../context/appContext';
 import styles from '../shared.module.css';
 
 function ConfiguracoesAdmin() {
-  const { configuracao, setConfiguracao, restaurarDemonstracao } = useApp();
+  const { configuracao, salvarConfiguracao, restaurarDemonstracao } = useApp();
   const [dados, setDados] = useState({ ...configuracao });
   const [salvo, setSalvo] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState('');
 
   function alterar(campo, valor) {
     setDados((atuais) => ({ ...atuais, [campo]: valor }));
   }
 
-  function enviar(event) {
+  async function enviar(event) {
     event.preventDefault();
-    setConfiguracao({ ...dados, taxaEntrega: Number(dados.taxaEntrega), pedidoMinimo: Number(dados.pedidoMinimo) });
-    setSalvo(true);
-    setTimeout(() => setSalvo(false), 2000);
+    setSalvando(true);
+    setErro('');
+    try {
+      const configuracaoSalva = await salvarConfiguracao({
+        ...dados,
+        taxaEntrega: Number(dados.taxaEntrega),
+        pedidoMinimo: Number(dados.pedidoMinimo)
+      });
+      setDados(configuracaoSalva);
+      setSalvo(true);
+      setTimeout(() => setSalvo(false), 2000);
+    } catch (falha) {
+      setErro(falha.message);
+    } finally {
+      setSalvando(false);
+    }
   }
 
   function restaurar() {
@@ -45,14 +60,15 @@ function ConfiguracoesAdmin() {
               <div className={styles.campo}><label htmlFor="lojaAberta">Funcionamento</label><select id="lojaAberta" value={dados.lojaAberta ? 'aberta' : 'fechada'} onChange={(event) => alterar('lojaAberta', event.target.value === 'aberta')}><option value="aberta">Loja aberta</option><option value="fechada">Loja fechada</option></select></div>
             </div>
             {salvo && <div className={styles.sucesso}>Configurações salvas com sucesso.</div>}
-            <div className={styles.rodapeFormulario}><button type="submit" className={styles.botaoPrimario}><Save size={17} /> Salvar configurações</button></div>
+            {erro && <div className={styles.aviso}>{erro}</div>}
+            <div className={styles.rodapeFormulario}><button type="submit" className={styles.botaoPrimario} disabled={salvando}><Save size={17} /> {salvando ? 'Salvando...' : 'Salvar configurações'}</button></div>
           </form>
         </section>
 
         <aside>
           <section className={styles.card}>
             <div className={styles.topoCard}><div><h2>Ambiente demonstrativo</h2><p>Ferramentas úteis durante o desenvolvimento.</p></div><Settings size={25} color="#ffc107" /></div>
-            <div className={styles.aviso}>Produtos, fotos e adicionais já são compartilhados pelo backend. Pedidos, promoções, funcionários e configurações ainda usam o navegador durante a próxima etapa da integração.</div>
+            <div className={styles.aviso}>Produtos, fotos, adicionais, pedidos delivery e configurações são compartilhados pelo backend. Promoções, funcionários, mesas e comandas ainda ficam neste navegador.</div>
             <div className={styles.rodapeFormulario}><button type="button" className={styles.botaoPerigo} onClick={restaurar}><RotateCcw size={17} /> Restaurar dados locais</button></div>
           </section>
         </aside>

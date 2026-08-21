@@ -15,6 +15,15 @@ import {
   listarCatalogo
 } from './catalog.js';
 import { removerImagemLocal, salvarImagemDataUrl } from './imageStore.js';
+import {
+  atualizarConfiguracao,
+  atualizarStatusPedido,
+  buscarPedidoAcompanhamento,
+  buscarPedidoAdmin,
+  criarPedidoDelivery,
+  listarPedidosAdmin,
+  obterConfiguracao
+} from './orders.js';
 import { criarHashToken, criarTokenSessao, verificarSenha } from './security.js';
 
 const LIMITE_CORPO = 2 * 1024 * 1024;
@@ -112,7 +121,7 @@ async function processarImagemAtualizada(imagem, imagemAnterior, pastaUploads) {
   return imagemAnterior ?? null;
 }
 
-async function rotaApi({ banco, pastaUploads, requisicao, resposta, caminho }) {
+async function rotaApi({ banco, pastaUploads, requisicao, resposta, caminho, url }) {
   if (requisicao.method === 'OPTIONS') {
     cabecalhosSeguranca(resposta);
     resposta.writeHead(204, { Allow: 'GET, POST, PUT, PATCH, DELETE, OPTIONS' });
@@ -127,7 +136,26 @@ async function rotaApi({ banco, pastaUploads, requisicao, resposta, caminho }) {
 
   if (requisicao.method === 'GET' && caminho === '/api/catalogo') {
     resposta.setHeader('Cache-Control', 'no-store');
-    responderJson(resposta, 200, listarCatalogo(banco));
+    responderJson(resposta, 200, { ...listarCatalogo(banco), configuracao: obterConfiguracao(banco) });
+    return true;
+  }
+
+  if (requisicao.method === 'POST' && caminho === '/api/pedidos') {
+    const dados = await lerJson(requisicao);
+    try {
+      responderJson(resposta, 201, criarPedidoDelivery(banco, dados));
+    } catch (erro) {
+      tratarErroDados(erro);
+    }
+    return true;
+  }
+
+  const acompanhamento = caminho.match(/^\/api\/pedidos\/([^/]+)\/acompanhamento$/);
+  if (requisicao.method === 'GET' && acompanhamento) {
+    resposta.setHeader('Cache-Control', 'no-store');
+    const pedido = buscarPedidoAcompanhamento(banco, acompanhamento[1], url.searchParams.get('token'));
+    if (!pedido) throw new ErroHttp(404, 'Pedido não encontrado ou acesso inválido.');
+    responderJson(resposta, 200, { pedido });
     return true;
   }
 
@@ -166,6 +194,43 @@ async function rotaApi({ banco, pastaUploads, requisicao, resposta, caminho }) {
 
   if (!caminho.startsWith('/api/admin/')) return false;
   obterAdministrador(banco, requisicao);
+
+  if (requisicao.method === 'GET' && caminho === '/api/admin/pedidos') {
+    resposta.setHeader('Cache-Control', 'no-store');
+    responderJson(resposta, 200, { pedidos: listarPedidosAdmin(banco) });
+    return true;
+  }
+
+  const pedidoStatus = caminho.match(/^\/api\/admin\/pedidos\/([^/]+)\/status$/);
+  if (requisicao.method === 'PATCH' && pedidoStatus) {
+    const dados = await lerJson(requisicao);
+    try {
+      const pedido = atualizarStatusPedido(banco, pedidoStatus[1], dados.status);
+      if (!pedido) throw new ErroHttp(404, 'Pedido não encontrado.');
+      responderJson(resposta, 200, { pedido });
+    } catch (erro) {
+      tratarErroDados(erro);
+    }
+    return true;
+  }
+
+  const pedidoId = caminho.match(/^\/api\/admin\/pedidos\/([^/]+)$/);
+  if (requisicao.method === 'GET' && pedidoId) {
+    const pedido = buscarPedidoAdmin(banco, pedidoId[1]);
+    if (!pedido) throw new ErroHttp(404, 'Pedido não encontrado.');
+    responderJson(resposta, 200, { pedido });
+    return true;
+  }
+
+  if (requisicao.method === 'PUT' && caminho === '/api/admin/configuracao') {
+    const dados = await lerJson(requisicao);
+    try {
+      responderJson(resposta, 200, { configuracao: atualizarConfiguracao(banco, dados) });
+    } catch (erro) {
+      tratarErroDados(erro);
+    }
+    return true;
+  }
 
   if (requisicao.method === 'POST' && caminho === '/api/admin/produtos') {
     const dados = await lerJson(requisicao);
@@ -321,7 +386,7 @@ export function criarServidor({ banco, pastaUploads, pastaDist = null }) {
 
     try {
       if (caminho.startsWith('/api/')) {
-        const atendida = await rotaApi({ banco, pastaUploads, requisicao, resposta, caminho });
+        const atendida = await rotaApi({ banco, pastaUploads, requisicao, resposta, caminho, url });
         if (!atendida) responderJson(resposta, 404, { erro: 'Rota da API não encontrada.' });
         return;
       }

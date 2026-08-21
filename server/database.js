@@ -70,9 +70,74 @@ const SCHEMA = `
     FOREIGN KEY (adicional_id) REFERENCES adicionais(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS configuracoes (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    nome_loja TEXT NOT NULL,
+    telefone TEXT NOT NULL,
+    email TEXT NOT NULL,
+    endereco TEXT NOT NULL,
+    taxa_entrega_centavos INTEGER NOT NULL CHECK (taxa_entrega_centavos >= 0),
+    tempo_entrega TEXT NOT NULL,
+    pedido_minimo_centavos INTEGER NOT NULL CHECK (pedido_minimo_centavos >= 0),
+    loja_aberta INTEGER NOT NULL DEFAULT 1 CHECK (loja_aberta IN (0, 1)),
+    atualizado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS pedidos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    codigo TEXT UNIQUE,
+    token_acompanhamento_hash TEXT NOT NULL UNIQUE,
+    origem TEXT NOT NULL DEFAULT 'Delivery',
+    status TEXT NOT NULL DEFAULT 'Recebido',
+    cliente TEXT NOT NULL,
+    telefone TEXT NOT NULL,
+    email TEXT NOT NULL,
+    rua TEXT NOT NULL,
+    numero TEXT NOT NULL,
+    bairro TEXT NOT NULL,
+    complemento TEXT,
+    referencia TEXT,
+    observacao TEXT,
+    pagamento TEXT NOT NULL,
+    subtotal_centavos INTEGER NOT NULL CHECK (subtotal_centavos >= 0),
+    taxa_entrega_centavos INTEGER NOT NULL CHECK (taxa_entrega_centavos >= 0),
+    total_centavos INTEGER NOT NULL CHECK (total_centavos >= 0),
+    previsao TEXT NOT NULL,
+    criado_em TEXT NOT NULL,
+    atualizado_em TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS pedido_itens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pedido_id INTEGER NOT NULL,
+    produto_id INTEGER,
+    nome_snapshot TEXT NOT NULL,
+    descricao_snapshot TEXT NOT NULL,
+    preco_unitario_centavos INTEGER NOT NULL CHECK (preco_unitario_centavos >= 0),
+    imagem_url_snapshot TEXT,
+    quantidade INTEGER NOT NULL CHECK (quantidade > 0),
+    observacao TEXT,
+    FOREIGN KEY (pedido_id) REFERENCES pedidos(id) ON DELETE CASCADE,
+    FOREIGN KEY (produto_id) REFERENCES produtos(id) ON DELETE SET NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS pedido_item_adicionais (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pedido_item_id INTEGER NOT NULL,
+    adicional_id INTEGER,
+    nome_snapshot TEXT NOT NULL,
+    preco_centavos INTEGER NOT NULL CHECK (preco_centavos >= 0),
+    FOREIGN KEY (pedido_item_id) REFERENCES pedido_itens(id) ON DELETE CASCADE,
+    FOREIGN KEY (adicional_id) REFERENCES adicionais(id) ON DELETE SET NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_produtos_categoria ON produtos(categoria_id);
   CREATE INDEX IF NOT EXISTS idx_produto_adicionais_adicional ON produto_adicionais(adicional_id);
   CREATE INDEX IF NOT EXISTS idx_sessoes_admin_expiracao ON sessoes_admin(expira_em);
+  CREATE INDEX IF NOT EXISTS idx_pedidos_criado_em ON pedidos(criado_em DESC);
+  CREATE INDEX IF NOT EXISTS idx_pedidos_status ON pedidos(status);
+  CREATE INDEX IF NOT EXISTS idx_pedido_itens_pedido ON pedido_itens(pedido_id);
+  CREATE INDEX IF NOT EXISTS idx_pedido_adicionais_item ON pedido_item_adicionais(pedido_item_id);
 `;
 
 function executarTransacao(banco, operacao) {
@@ -176,6 +241,23 @@ function criarCatalogoInicial(banco) {
   });
 }
 
+function criarConfiguracaoInicial(banco) {
+  banco.prepare(`
+    INSERT OR IGNORE INTO configuracoes (
+      id, nome_loja, telefone, email, endereco, taxa_entrega_centavos,
+      tempo_entrega, pedido_minimo_centavos, loja_aberta
+    ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, 1)
+  `).run(
+    'Hamburgueria',
+    '(11) 99999-9999',
+    'contato@hamburgueria.com',
+    'Rua Principal, 100 - Centro',
+    790,
+    '35–45 min',
+    2000
+  );
+}
+
 export function abrirBanco({ caminho, administrador }) {
   if (caminho !== ':memory:') mkdirSync(dirname(caminho), { recursive: true });
 
@@ -184,6 +266,7 @@ export function abrirBanco({ caminho, administrador }) {
   banco.exec(SCHEMA);
   criarAdministradorInicial(banco, administrador);
   criarCatalogoInicial(banco);
+  criarConfiguracaoInicial(banco);
   return banco;
 }
 

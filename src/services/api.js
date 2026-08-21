@@ -50,6 +50,14 @@ export function buscarCatalogo() {
   return requisicao('/api/catalogo');
 }
 
+export function criarPedidoApi(dados) {
+  return requisicao('/api/pedidos', { metodo: 'POST', dados });
+}
+
+export function acompanharPedidoApi(codigo, token) {
+  return requisicao(`/api/pedidos/${encodeURIComponent(codigo)}/acompanhamento?token=${encodeURIComponent(token)}`);
+}
+
 export function loginAdmin(usuario, senha) {
   return requisicao('/api/admin/login', { metodo: 'POST', dados: { usuario, senha } });
 }
@@ -60,6 +68,22 @@ export function validarSessaoAdmin() {
 
 export function logoutAdmin() {
   return requisicao('/api/admin/sessao', { metodo: 'DELETE', autenticar: true });
+}
+
+export function listarPedidosAdminApi() {
+  return requisicao('/api/admin/pedidos', { autenticar: true });
+}
+
+export function atualizarStatusPedidoApi(codigo, status) {
+  return requisicao(`/api/admin/pedidos/${encodeURIComponent(codigo)}/status`, {
+    metodo: 'PATCH',
+    dados: { status },
+    autenticar: true
+  });
+}
+
+export function atualizarConfiguracaoApi(dados) {
+  return requisicao('/api/admin/configuracao', { metodo: 'PUT', dados, autenticar: true });
 }
 
 export function criarProdutoApi(dados) {

@@ -10,8 +10,13 @@ Aplicação responsiva com cliente, painel administrativo e módulo do garçom. 
 - Upload de fotos WebP/JPG/PNG para o servidor.
 - Mesmo cardápio compartilhado pelo cliente, administrador e garçom.
 - Operações administrativas protegidas por token.
+- Pedidos delivery, itens e adicionais salvos no SQLite.
+- Preços, pedido mínimo, taxa de entrega e total calculados pelo servidor.
+- Acompanhamento do pedido pelo cliente com token individual.
+- Atualização de status no painel administrativo.
+- Configurações da loja compartilhadas pelo backend.
 
-Pedidos, promoções, funcionários, mesas, comandas e configurações ainda usam o `localStorage`. Eles serão migrados nas próximas etapas sem alterar o desenho das telas.
+Promoções, funcionários, mesas e comandas ainda usam o `localStorage`. Eles serão migrados nas próximas etapas sem alterar o desenho das telas.
 
 ## Requisitos
 
@@ -73,8 +78,14 @@ Em produção, defina `NODE_ENV=production` e `ADMIN_PASSWORD`. O servidor recus
 
 - `GET /api/saude`
 - `GET /api/catalogo`
+- `POST /api/pedidos`
+- `GET /api/pedidos/:codigo/acompanhamento?token=...`
 - `POST /api/admin/login`
 - `GET|DELETE /api/admin/sessao`
+- `GET /api/admin/pedidos`
+- `GET /api/admin/pedidos/:codigo`
+- `PATCH /api/admin/pedidos/:codigo/status`
+- `PUT /api/admin/configuracao`
 - `POST /api/admin/produtos`
 - `PUT|DELETE /api/admin/produtos/:id`
 - `PATCH /api/admin/produtos/:id/status`
