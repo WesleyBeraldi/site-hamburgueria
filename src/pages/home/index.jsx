@@ -279,6 +279,12 @@ function Home() {
     ? adicionaisSalvos
     : adicionaisPadrao;
 
+  const adicionaisProduto = adicionais.filter((adicional) => {
+    if (adicional.ativo === false) return false;
+    if (!Array.isArray(produtoSelecionado?.adicionaisIds)) return true;
+    return produtoSelecionado.adicionaisIds.some((id) => String(id) === String(adicional.id));
+  });
+
   const produtosFiltrados =
     categoriaAtiva === 'Todos'
       ? produtos
@@ -1284,7 +1290,7 @@ function Home() {
 
               <div className={styles.listaAdicionais}>
 
-                {adicionais.map((adicional) => {
+                {adicionaisProduto.map((adicional) => {
 
                   const selecionado =
                     adicionaisSelecionados.some(
@@ -1326,6 +1332,10 @@ function Home() {
                     </button>
                   );
                 })}
+
+                {adicionaisProduto.length === 0 && (
+                  <p className={styles.semAdicionais}>Este produto não possui adicionais disponíveis.</p>
+                )}
 
               </div>
 

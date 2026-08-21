@@ -182,6 +182,7 @@
 .abaAtiva { border-color: #ffc107; background: #ffc107; color: #111; }
 
 .acoes { display: flex; align-items: center; gap: 7px; }
+.acoesCabecalho { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
 .vazio { padding: 44px 20px; color: #777; text-align: center; }
 .vazio svg { margin-bottom: 12px; color: #5f4a06; }
 .vazio h3 { margin: 0 0 7px; color: #ddd; }
@@ -205,6 +206,7 @@
 .produtoConteudo { padding: 17px; }
 .produtoConteudo h3 { margin: 0; color: white; font-size: 18px; }
 .produtoConteudo p { min-height: 38px; margin: 9px 0; color: #838383; font-size: 12px; line-height: 1.55; }
+.contagemAdicionais { display: block; color: #6f6f6f; font-size: 10px; }
 .produtoRodape { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
 .preco { color: #ffc107; font-size: 19px; font-weight: 900; }
 .categoria { color: #8f8f8f; font-size: 11px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; }
@@ -221,6 +223,70 @@
 .rodapeFormulario { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
 .erro { border: 1px solid rgba(255, 91, 91, 0.3); border-radius: 9px; background: rgba(255, 91, 91, 0.06); padding: 11px 13px; color: #ff8e8e; font-size: 12px; }
 .sucesso { border: 1px solid rgba(38, 198, 108, 0.3); border-radius: 9px; background: rgba(38, 198, 108, 0.06); padding: 11px 13px; color: #55df8f; font-size: 12px; }
+
+.uploadImagem {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  align-items: center;
+  gap: 22px;
+  border: 1px solid #303030;
+  border-radius: 14px;
+  background: #101010;
+  padding: 16px;
+}
+
+.previaImagem {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  place-items: center;
+  border: 1px dashed #494949;
+  border-radius: 11px;
+  background: #181818;
+}
+
+.previaImagem img { width: 100%; height: 100%; object-fit: cover; }
+.previaImagem > div { display: grid; max-width: 160px; place-items: center; gap: 9px; color: #66520d; text-align: center; }
+.previaImagem span { color: #777; font-size: 11px; line-height: 1.5; }
+.uploadConteudo h2 { margin: 0; color: white; font-size: 18px; }
+.uploadConteudo p { max-width: 620px; margin: 8px 0 16px; color: #777; font-size: 12px; line-height: 1.6; }
+.uploadConteudo .botaoSecundario { width: fit-content; }
+.arquivoInput { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+
+.tituloCampoComAcao { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
+.tituloCampoComAcao p { margin: 5px 0 0; color: #777; font-size: 11px; }
+.gradeSelecaoAdicionais { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.opcaoAdicional {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #333;
+  border-radius: 11px;
+  background: #111;
+  padding: 12px;
+  color: #aaa;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.opcaoAdicional > span { display: grid; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; border: 1px solid #424242; border-radius: 7px; }
+.opcaoAdicional strong,
+.opcaoAdicional small { display: block; }
+.opcaoAdicional strong { overflow: hidden; color: #ddd; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.opcaoAdicional small { margin-top: 4px; color: #777; font-size: 10px; }
+.opcaoAdicionalAtiva { border-color: #ffc107; background: rgba(255, 193, 7, 0.07); }
+.opcaoAdicionalAtiva > span { border-color: #ffc107; background: #ffc107; color: #111; }
+.opcaoAdicionalAtiva strong { color: #ffc107; }
+.opcaoAdicional:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.listaAdicionaisAdmin { display: grid; gap: 9px; margin-top: 16px; }
+.adicionalLinha { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 13px; border: 1px solid #2d2d2d; border-radius: 11px; background: #111; padding: 13px; }
+.adicionalLinha strong,
+.adicionalLinha span { display: block; }
+.adicionalLinha strong { color: #eee; font-size: 13px; }
+.adicionalLinha span { margin-top: 4px; color: #6f6f6f; font-size: 10px; }
 
 .detalheGrid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.75fr); gap: 18px; }
 .listaInfo { display: grid; gap: 0; }
@@ -273,6 +339,7 @@
   .gradeProdutos,
   .gradePromocoes,
   .gradeMesas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gradeSelecaoAdicionais { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 760px) {
@@ -282,6 +349,9 @@
   .qrBox { max-width: 280px; }
   .gridFormulario { grid-template-columns: 1fr; }
   .campoCompleto { grid-column: auto; }
+  .uploadImagem { grid-template-columns: 1fr; }
+  .previaImagem { max-width: 420px; }
+  .tituloCampoComAcao { align-items: flex-start; flex-direction: column; }
 }
 
 @media (max-width: 560px) {
@@ -295,4 +365,9 @@
   .topoCard { align-items: flex-start; }
   .rodapeFormulario { flex-direction: column-reverse; }
   .rodapeFormulario button { width: 100%; }
+  .acoesCabecalho { width: 100%; }
+  .acoesCabecalho button { flex: 1; }
+  .gradeSelecaoAdicionais { grid-template-columns: 1fr; }
+  .adicionalLinha { grid-template-columns: minmax(0, 1fr) auto; }
+  .adicionalLinha .acoes { grid-column: 1 / -1; justify-content: flex-end; }
 }

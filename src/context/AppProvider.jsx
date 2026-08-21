@@ -14,6 +14,7 @@ import { AppContext } from './appContext';
 
 const CHAVES = {
   produtos: 'hamburgueria_produtos',
+  adicionais: 'hamburgueria_adicionais',
   promocoes: 'hamburgueria_promocoes',
   funcionarios: 'hamburgueria_funcionarios',
   mesas: 'hamburgueria_mesas',
@@ -67,8 +68,22 @@ function agoraFormatado() {
   }).format(new Date());
 }
 
+function normalizarProdutos(lista) {
+  const idsPadrao = adicionaisIniciais.map((adicional) => adicional.id);
+
+  return lista.map((produto) => {
+    const produtoInicial = produtosIniciais.find((item) => item.id === produto.id);
+
+    return {
+      ...produto,
+      adicionaisIds: produto.adicionaisIds ?? produtoInicial?.adicionaisIds ?? idsPadrao
+    };
+  });
+}
+
 export function AppProvider({ children }) {
-  const [produtos, setProdutos] = useState(() => lerLocal(CHAVES.produtos, produtosIniciais));
+  const [produtos, setProdutos] = useState(() => normalizarProdutos(lerLocal(CHAVES.produtos, produtosIniciais)));
+  const [adicionais, setAdicionais] = useState(() => lerLocal(CHAVES.adicionais, adicionaisIniciais));
   const [promocoes, setPromocoes] = useState(() => lerLocal(CHAVES.promocoes, promocoesIniciais));
   const [funcionarios, setFuncionarios] = useState(() => lerLocal(CHAVES.funcionarios, funcionariosIniciais));
   const [mesas, setMesas] = useState(() => lerLocal(CHAVES.mesas, mesasIniciais));
@@ -81,6 +96,7 @@ export function AppProvider({ children }) {
   const [garcomSessao, setGarcomSessao] = useState(() => lerSessao(CHAVES.garcom));
 
   useEffect(() => localStorage.setItem(CHAVES.produtos, JSON.stringify(produtos)), [produtos]);
+  useEffect(() => localStorage.setItem(CHAVES.adicionais, JSON.stringify(adicionais)), [adicionais]);
   useEffect(() => localStorage.setItem(CHAVES.promocoes, JSON.stringify(promocoes)), [promocoes]);
   useEffect(() => localStorage.setItem(CHAVES.funcionarios, JSON.stringify(funcionarios)), [funcionarios]);
   useEffect(() => localStorage.setItem(CHAVES.mesas, JSON.stringify(mesas)), [mesas]);
@@ -142,7 +158,8 @@ export function AppProvider({ children }) {
       ...dados,
       id: Date.now(),
       ativo: true,
-      imagem: produtosIniciais[0].imagem
+      imagem: dados.imagem || produtosIniciais[0].imagem,
+      adicionaisIds: dados.adicionaisIds ?? []
     };
     setProdutos((atuais) => [...atuais, novo]);
     return novo.id;
@@ -154,6 +171,40 @@ export function AppProvider({ children }) {
 
   function alternarProduto(id) {
     setProdutos((atuais) => atuais.map((produto) => produto.id === id ? { ...produto, ativo: !produto.ativo } : produto));
+  }
+
+  function salvarAdicional(dados) {
+    const preco = numeroPreco(dados.preco);
+
+    if (dados.id) {
+      setAdicionais((atuais) => atuais.map((adicional) => adicional.id === dados.id
+        ? { ...adicional, ...dados, preco }
+        : adicional));
+      return dados.id;
+    }
+
+    const novo = {
+      ...dados,
+      id: Date.now(),
+      preco,
+      ativo: true
+    };
+    setAdicionais((atuais) => [...atuais, novo]);
+    return novo.id;
+  }
+
+  function removerAdicional(id) {
+    setAdicionais((atuais) => atuais.filter((adicional) => adicional.id !== id));
+    setProdutos((atuais) => atuais.map((produto) => ({
+      ...produto,
+      adicionaisIds: (produto.adicionaisIds ?? []).filter((adicionalId) => adicionalId !== id)
+    })));
+  }
+
+  function alternarAdicional(id) {
+    setAdicionais((atuais) => atuais.map((adicional) => adicional.id === id
+      ? { ...adicional, ativo: adicional.ativo === false }
+      : adicional));
   }
 
   function salvarPromocao(dados) {
@@ -336,6 +387,7 @@ export function AppProvider({ children }) {
 
   function restaurarDemonstracao() {
     setProdutos(produtosIniciais);
+    setAdicionais(adicionaisIniciais);
     setPromocoes(promocoesIniciais);
     setFuncionarios(funcionariosIniciais);
     setMesas(mesasIniciais);
@@ -348,8 +400,8 @@ export function AppProvider({ children }) {
 
   const valor = {
     produtos,
+    adicionais,
     promocoes,
-    adicionais: adicionaisIniciais,
     funcionarios,
     mesas,
     pedidos,
@@ -368,6 +420,9 @@ export function AppProvider({ children }) {
     salvarProduto,
     removerProduto,
     alternarProduto,
+    salvarAdicional,
+    removerAdicional,
+    alternarAdicional,
     salvarPromocao,
     removerPromocao,
     salvarFuncionario,
