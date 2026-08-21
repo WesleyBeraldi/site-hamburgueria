@@ -28,6 +28,7 @@ function FormularioProduto() {
     : formularioVazio);
   const [erro, setErro] = useState('');
   const [processandoImagem, setProcessandoImagem] = useState(false);
+  const [salvando, setSalvando] = useState(false);
 
   function alterar(campo, valor) {
     setDados((atuais) => ({ ...atuais, [campo]: valor }));
@@ -59,15 +60,22 @@ function FormularioProduto() {
     }
   }
 
-  function enviar(event) {
+  async function enviar(event) {
     event.preventDefault();
     if (!dados.nome.trim() || !dados.descricao.trim() || !String(dados.preco).trim()) {
       setErro('Preencha nome, descrição e preço do produto.');
       return;
     }
 
-    salvarProduto({ ...dados, preco: String(dados.preco).replace('.', ',') });
-    navigate('/admin/cardapio');
+    setSalvando(true);
+    try {
+      await salvarProduto({ ...dados, preco: String(dados.preco).replace('.', ',') });
+      navigate('/admin/cardapio');
+    } catch (falha) {
+      setErro(falha.message);
+    } finally {
+      setSalvando(false);
+    }
   }
 
   const acao = <button type="button" className={styles.botaoSecundario} onClick={() => navigate('/admin/cardapio')}><ArrowLeft size={17} /> Voltar</button>;
@@ -129,7 +137,7 @@ function FormularioProduto() {
           {erro && <div className={styles.erro}>{erro}</div>}
           <div className={styles.rodapeFormulario}>
             <button type="button" className={styles.botaoSecundario} onClick={() => navigate('/admin/cardapio')}>Cancelar</button>
-            <button type="submit" className={styles.botaoPrimario}><Save size={17} /> Salvar produto</button>
+            <button type="submit" className={styles.botaoPrimario} disabled={salvando || processandoImagem}><Save size={17} /> {salvando ? 'Salvando...' : 'Salvar produto'}</button>
           </div>
         </form>
       </section>

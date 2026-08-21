@@ -22,7 +22,7 @@ function ConfiguracoesAdmin() {
   }
 
   function restaurar() {
-    if (window.confirm('Restaurar todos os dados demonstrativos do sistema?')) {
+    if (window.confirm('Restaurar os dados locais de demonstração? Produtos, fotos e adicionais do backend não serão alterados.')) {
       restaurarDemonstracao();
       window.location.reload();
     }
@@ -52,8 +52,8 @@ function ConfiguracoesAdmin() {
         <aside>
           <section className={styles.card}>
             <div className={styles.topoCard}><div><h2>Ambiente demonstrativo</h2><p>Ferramentas úteis durante o desenvolvimento.</p></div><Settings size={25} color="#ffc107" /></div>
-            <div className={styles.aviso}>Os dados ainda ficam salvos somente neste navegador. Quando o backend estiver pronto, essa camada será substituída pela API sem alterar as telas.</div>
-            <div className={styles.rodapeFormulario}><button type="button" className={styles.botaoPerigo} onClick={restaurar}><RotateCcw size={17} /> Restaurar demonstração</button></div>
+            <div className={styles.aviso}>Produtos, fotos e adicionais já são compartilhados pelo backend. Pedidos, promoções, funcionários e configurações ainda usam o navegador durante a próxima etapa da integração.</div>
+            <div className={styles.rodapeFormulario}><button type="button" className={styles.botaoPerigo} onClick={restaurar}><RotateCcw size={17} /> Restaurar dados locais</button></div>
           </section>
         </aside>
       </div>
