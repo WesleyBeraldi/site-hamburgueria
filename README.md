@@ -33,13 +33,30 @@ O carrinho permanece no navegador somente até o cliente finalizar a compra. Dep
 Copy-Item .env.example .env
 ```
 
-4. Edite o `.env` e informe a mesma conta usada no Workbench:
+4. No editor SQL conectado como administrador, crie bancos separados para a aplicação e para os testes, além de um usuário restrito:
+
+```sql
+CREATE DATABASE IF NOT EXISTS hamburgueria
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+CREATE DATABASE IF NOT EXISTS hamburgueria_testes
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+
+CREATE USER IF NOT EXISTS 'hamburgueria_app'@'localhost'
+  IDENTIFIED BY 'troque-por-uma-senha-local-segura';
+GRANT ALL PRIVILEGES ON hamburgueria.*
+  TO 'hamburgueria_app'@'localhost';
+GRANT ALL PRIVILEGES ON hamburgueria_testes.*
+  TO 'hamburgueria_app'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+5. Edite o `.env` com a conta exclusiva da aplicação, usando a mesma senha definida no SQL:
 
 ```dotenv
 DB_HOST=127.0.0.1
 DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=sua-senha-do-mysql
+DB_USER=hamburgueria_app
+DB_PASSWORD=sua-senha-local-da-aplicacao
 DB_NAME=hamburgueria
 
 ADMIN_USER=admin
@@ -49,7 +66,7 @@ ADMIN_PASSWORD=uma-senha-administrativa-segura
 
 O `.env` é ignorado pelo Git. Nunca envie senhas ao repositório.
 
-Ao iniciar a API, o banco `hamburgueria`, as tabelas, os índices, as chaves estrangeiras e os dados iniciais são criados automaticamente. O arquivo [`server/schema.mysql.sql`](server/schema.mysql.sql) também pode ser aberto no Workbench para consultar o esquema completo.
+Ao iniciar a API, as tabelas, os índices, as chaves estrangeiras e os dados iniciais são criados automaticamente no banco `hamburgueria`. O arquivo [`server/schema.mysql.sql`](server/schema.mysql.sql) também pode ser aberto no Workbench para consultar o esquema completo. O backend não precisa armazenar a senha do usuário `root`.
 
 ## Executar localmente
 
@@ -81,7 +98,7 @@ npm run build     # frontend de produção
 npm start         # API, uploads e frontend já compilado
 ```
 
-Os testes de integração criam um banco temporário com sufixo `_teste_<processo>` e o removem ao terminar. Eles nunca usam o banco `hamburgueria` como alvo de limpeza.
+Os testes de integração usam e removem o banco isolado `hamburgueria_testes`. Eles nunca usam o banco `hamburgueria` como alvo de limpeza. A permissão sobre `hamburgueria_testes.*` permanece registrada no MySQL, permitindo que o banco seja recriado na próxima execução.
 
 ## Rotas principais da API
 

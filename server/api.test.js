@@ -28,7 +28,7 @@ if (!executarIntegracao) {
   let pastaUploads;
   let urlBase;
 
-  const nomeBanco = `${process.env.DB_NAME || 'hamburgueria'}_teste_${process.pid}`;
+  const nomeBanco = `${process.env.DB_NAME || 'hamburgueria'}_testes`;
   const configuracaoMySql = {
     host: process.env.DB_HOST || '127.0.0.1',
     port: Number(process.env.DB_PORT) || 3306,
@@ -68,8 +68,8 @@ if (!executarIntegracao) {
   });
 
   after(async () => {
-    await fecharServidor(servidor);
-    await fecharBanco(banco);
+    if (servidor) await fecharServidor(servidor);
+    if (banco) await fecharBanco(banco);
     const conexao = await mysql.createConnection({
       host: configuracaoMySql.host,
       port: configuracaoMySql.port,
@@ -78,7 +78,7 @@ if (!executarIntegracao) {
     });
     await conexao.query(`DROP DATABASE IF EXISTS \`${nomeBanco}\``);
     await conexao.end();
-    await rm(pastaTemporaria, { recursive: true, force: true });
+    if (pastaTemporaria) await rm(pastaTemporaria, { recursive: true, force: true });
   });
 
   test('expõe saúde e dados públicos persistidos no MySQL', async () => {
