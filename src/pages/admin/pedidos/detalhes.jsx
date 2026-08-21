@@ -1,4 +1,5 @@
 import { ArrowLeft, MapPin, Phone, UserRound } from 'lucide-react';
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import AdminLayout from '../../../components/AdminLayout';
@@ -13,7 +14,21 @@ function DetalhesPedido() {
   const { id } = useParams();
   const { pedidos, atualizarStatusPedido } = useApp();
   const navigate = useNavigate();
+  const [atualizando, setAtualizando] = useState(false);
+  const [erro, setErro] = useState('');
   const pedido = pedidos.find((item) => item.id.replace('#', '') === id);
+
+  async function alterarStatus(status) {
+    setAtualizando(true);
+    setErro('');
+    try {
+      await atualizarStatusPedido(pedido.id, status);
+    } catch (falha) {
+      setErro(falha.message);
+    } finally {
+      setAtualizando(false);
+    }
+  }
 
   if (!pedido) {
     return (
@@ -40,11 +55,12 @@ function DetalhesPedido() {
       <section className={styles.card}>
         <div className={styles.topoCard}>
           <div><h2>Acompanhamento</h2><p>Atualize o status conforme o andamento do pedido.</p></div>
-          <select className={styles.seletor} value={pedido.status} onChange={(event) => atualizarStatusPedido(pedido.id, event.target.value)} aria-label="Status do pedido">
+          <select className={styles.seletor} value={pedido.status} onChange={(event) => alterarStatus(event.target.value)} aria-label="Status do pedido" disabled={atualizando}>
             {fluxo.map((status) => <option key={status} value={status}>{status}</option>)}
             <option value="Cancelado">Cancelado</option>
           </select>
         </div>
+        {erro && <div className={styles.aviso}>{erro}</div>}
         <div className={styles.linhaStatus}>
           {fluxo.map((status, indice) => (
             <div key={status} className={`${styles.etapa} ${pedido.status !== 'Cancelado' && indice <= indiceAtual ? styles.etapaAtiva : ''}`}>{status}</div>

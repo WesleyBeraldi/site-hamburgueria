@@ -3,8 +3,10 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useApp } from '../context/appContext';
 
 export function RequireAdmin() {
-  const { adminSessao } = useApp();
+  const { adminSessao, sessaoAdminCarregando } = useApp();
   const location = useLocation();
+
+  if (sessaoAdminCarregando) return null;
 
   if (!adminSessao) {
     return <Navigate to="/admin/login" replace state={{ origem: location.pathname }} />;

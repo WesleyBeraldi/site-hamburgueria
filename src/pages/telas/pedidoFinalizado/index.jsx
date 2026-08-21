@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
 import xBacon from '../../../assets/xbacon.png';
@@ -6,7 +7,29 @@ import styles from './index.module.css';
 
 function PedidoFinalizado() {
 
-  const { pedidoAtual, configuracao } = useApp();
+  const { pedidoAtual, configuracao, acompanharPedido } = useApp();
+
+  useEffect(() => {
+    const codigo = pedidoAtual?.id;
+    const token = pedidoAtual?.tokenAcompanhamento;
+    if (!codigo || !token || ['Entregue', 'Cancelado'].includes(pedidoAtual.status)) return undefined;
+
+    let ativo = true;
+    async function atualizar() {
+      try {
+        if (ativo) await acompanharPedido(codigo, token);
+      } catch {
+        // Mantém os últimos dados conhecidos caso a conexão oscile.
+      }
+    }
+
+    atualizar();
+    const intervalo = setInterval(atualizar, 10000);
+    return () => {
+      ativo = false;
+      clearInterval(intervalo);
+    };
+  }, [acompanharPedido, pedidoAtual?.id, pedidoAtual?.status, pedidoAtual?.tokenAcompanhamento]);
 
   const pedidoDemonstracao = {
     numero: '#PED25678',
@@ -74,8 +97,7 @@ function PedidoFinalizado() {
   );
 
 
-  const total =
-    subtotal + pedido.taxaEntrega;
+  const total = pedido.total ?? subtotal + pedido.taxaEntrega;
 
 
   return (

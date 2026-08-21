@@ -11,6 +11,8 @@ function CardapioAdmin() {
   const navigate = useNavigate();
   const [busca, setBusca] = useState('');
   const [categoria, setCategoria] = useState('Todos');
+  const [erro, setErro] = useState('');
+  const [processandoId, setProcessandoId] = useState(null);
 
   const categorias = ['Todos', ...new Set(produtos.map((produto) => produto.categoria))];
   const filtrados = produtos.filter((produto) => {
@@ -26,8 +28,29 @@ function CardapioAdmin() {
     </div>
   );
 
-  function excluir(produto) {
-    if (window.confirm(`Remover ${produto.nome} do cardápio?`)) removerProduto(produto.id);
+  async function excluir(produto) {
+    if (!window.confirm(`Remover ${produto.nome} do cardápio?`)) return;
+    setProcessandoId(produto.id);
+    setErro('');
+    try {
+      await removerProduto(produto.id);
+    } catch (falha) {
+      setErro(falha.message);
+    } finally {
+      setProcessandoId(null);
+    }
+  }
+
+  async function mudarStatus(produto) {
+    setProcessandoId(produto.id);
+    setErro('');
+    try {
+      await alternarProduto(produto.id);
+    } catch (falha) {
+      setErro(falha.message);
+    } finally {
+      setProcessandoId(null);
+    }
   }
 
   return (
@@ -46,7 +69,7 @@ function CardapioAdmin() {
           <article className={styles.produtoCard} key={produto.id}>
             <div className={styles.produtoImagem}>
               <img src={produto.imagem} alt={produto.nome} />
-              <button type="button" className={`${styles.status} ${produto.ativo ? styles.statusAtivo : styles.statusInativo}`} onClick={() => alternarProduto(produto.id)}>{produto.ativo ? 'Ativo' : 'Inativo'}</button>
+              <button type="button" disabled={processandoId === produto.id} className={`${styles.status} ${produto.ativo ? styles.statusAtivo : styles.statusInativo}`} onClick={() => mudarStatus(produto)}>{processandoId === produto.id ? 'Salvando...' : produto.ativo ? 'Ativo' : 'Inativo'}</button>
             </div>
             <div className={styles.produtoConteudo}>
               <span className={styles.categoria}>{produto.categoria}</span>
@@ -64,6 +87,8 @@ function CardapioAdmin() {
           </article>
         ))}
       </section>
+
+      {erro && <div className={styles.erro}>{erro}</div>}
 
       {filtrados.length === 0 && <section className={styles.card}><div className={styles.vazio}><Package size={36} /><h3>Nenhum produto encontrado</h3><p>Use outros filtros ou cadastre um novo produto.</p></div></section>}
     </AdminLayout>

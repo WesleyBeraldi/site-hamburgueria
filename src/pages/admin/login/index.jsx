@@ -14,8 +14,9 @@ function LoginAdmin() {
     const [senha, setSenha] = useState('');
     const [mostrarSenha, setMostrarSenha] = useState(false);
     const [erro, setErro] = useState('');
+    const [processando, setProcessando] = useState(false);
 
-    function fazerLogin(event) {
+    async function fazerLogin(event) {
 
         event.preventDefault();
 
@@ -26,14 +27,21 @@ function LoginAdmin() {
             return;
         }
 
-        if (!entrarAdmin(usuario, senha)) {
-            setErro('Usuário ou senha incorretos.');
-            return;
-        }
+        setProcessando(true);
+        try {
+            if (!await entrarAdmin(usuario, senha)) {
+                setErro('Usuário ou senha incorretos.');
+                return;
+            }
 
-        navigate(location.state?.origem ?? '/admin/dashboard', {
-            replace: true
-        });
+            navigate(location.state?.origem ?? '/admin/dashboard', {
+                replace: true
+            });
+        } catch (falha) {
+            setErro(falha.message);
+        } finally {
+            setProcessando(false);
+        }
     }
 
 
@@ -244,8 +252,9 @@ function LoginAdmin() {
                             <button
                                 type="submit"
                                 className={styles.botaoEntrar}
+                                disabled={processando}
                             >
-                                Entrar no painel
+                                {processando ? 'Entrando...' : 'Entrar no painel'}
 
                                 <span>
                                     →
@@ -265,9 +274,8 @@ function LoginAdmin() {
                         </div>
 
                         <div className={styles.credenciaisDemo}>
-                            <strong>Acesso demonstrativo</strong>
-                            <span>Usuário: admin</span>
-                            <span>Senha: admin123</span>
+                            <strong>Acesso protegido pelo servidor</strong>
+                            <span>Use o usuário e a senha configurados no backend.</span>
                         </div>
 
                     </div>
