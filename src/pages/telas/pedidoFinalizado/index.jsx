@@ -1,60 +1,32 @@
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 
-import xBacon from '../../../assets/xbacon.png';
 import { useApp } from '../../../context/appContext';
 import styles from './index.module.css';
 
 function PedidoFinalizado() {
 
-  const { pedidoAtual, configuracao } = useApp();
+  const { pedidoAtual, pedidoAtualCarregando, configuracao } = useApp();
 
-  const pedidoDemonstracao = {
-    numero: '#PED25678',
+  if (pedidoAtualCarregando) {
+    return (
+      <div className="carregamentoAplicacao" role="status">
+        <span />
+        <strong>Atualizando os dados do pedido...</strong>
+      </div>
+    );
+  }
+  if (!pedidoAtual?.id || !pedidoAtual?.tokenAcompanhamento) return <Navigate to="/" replace />;
 
-    data: '14/08/2026',
-    horario: '19:42',
-
-    previsao: '35–45 min',
-
-    pagamento: 'Pix',
-
-    endereco:
-      'Rua das Palmeiras, 123 - Centro',
-
-    itens: [
-      {
-        id: 1,
-        nome: 'Combo X-Bacon',
-        descricao:
-          'X-Bacon artesanal, batata frita crocante e refrigerante.',
-        quantidade: 1,
-        preco: 42.40,
-        imagem: xBacon
-      },
-
-      {
-        id: 2,
-        nome: 'Batata com Cheddar',
-        descricao:
-          'Batata frita crocante com cheddar cremoso e bacon.',
-        quantidade: 1,
-        preco: 24.90,
-        imagem: xBacon
-      }
-    ],
-
-    taxaEntrega: 7.90
-  };
-
-  const pedido = pedidoAtual ?? pedidoDemonstracao;
-  const dataPedido = pedido.data ?? new Intl.DateTimeFormat('pt-BR').format(
-    pedido.criadoEm ? new Date(pedido.criadoEm) : new Date()
-  );
+  const pedido = pedidoAtual;
+  const dataPedido = pedido.criadoEm
+    ? new Intl.DateTimeFormat('pt-BR').format(new Date(pedido.criadoEm))
+    : '';
   const fluxo = ['Recebido', 'Em preparo', 'Saiu para entrega', 'Entregue'];
   const statusNormalizado = pedido.status === 'Pedido recebido'
     ? 'Recebido'
-    : pedido.status ?? 'Em preparo';
-  const indiceStatus = Math.max(0, fluxo.indexOf(statusNormalizado));
+    : pedido.status ?? 'Recebido';
+  const pedidoCancelado = statusNormalizado === 'Cancelado';
+  const indiceStatus = fluxo.indexOf(statusNormalizado);
 
   function classeEtapa(indice) {
     if (indice < indiceStatus) {
@@ -74,8 +46,8 @@ function PedidoFinalizado() {
   );
 
 
-  const total =
-    subtotal + pedido.taxaEntrega;
+  const total = Number(pedido.total);
+  const pagamentoConfirmado = pedido.pagamentoStatus === 'Pago';
 
 
   return (
@@ -93,11 +65,13 @@ function PedidoFinalizado() {
             to="/"
             className={styles.logo}
           >
-            Logo
+            {configuracao.logo
+              ? <img src={configuracao.logo} alt={configuracao.nomeLoja || 'Logo da loja'} decoding="async" />
+              : (configuracao.nomeLoja || 'Cardápio online')}
           </Link>
 
 
-          <nav className={styles.menu}>
+          <nav className={styles.menu} aria-label="Navegação principal">
 
             <Link to="/">
               Início
@@ -130,7 +104,7 @@ function PedidoFinalizado() {
           CONTEÚDO
       ========================= */}
 
-      <main className={styles.conteudoPagina}>
+      <main id="conteudo-principal" className={styles.conteudoPagina}>
 
 
         {/* =========================
@@ -161,18 +135,18 @@ function PedidoFinalizado() {
           <div className={styles.textoConfirmacao}>
 
             <span>
-              PEDIDO REALIZADO COM SUCESSO
+              {pedidoCancelado ? 'PEDIDO CANCELADO' : 'PEDIDO REALIZADO COM SUCESSO'}
             </span>
 
             <h1>
               Pedido
-              <strong> confirmado!</strong>
+              <strong>{pedidoCancelado ? ' cancelado.' : ' confirmado!'}</strong>
             </h1>
 
             <p>
-              Obrigado pela preferência! Seu pedido
-              foi recebido e já estamos preparando tudo
-              com muito carinho.
+              {pedidoCancelado
+                ? 'Este pedido foi cancelado. Entre em contato com a hamburgueria se precisar de ajuda.'
+                : 'Obrigado pela preferência! Seu pedido foi recebido e já estamos preparando tudo com muito carinho.'}
             </p>
 
           </div>
@@ -316,8 +290,16 @@ function PedidoFinalizado() {
               </strong>
 
               <p>
-                Pagamento selecionado
+                Status: {pedido.pagamentoStatus}
               </p>
+
+              {pedido.pagamento === 'Dinheiro' && (
+                <p>{pedido.semTroco === true
+                  ? 'Não precisa de troco'
+                  : pedido.trocoPara != null
+                    ? `Troco para R$ ${Number(pedido.trocoPara).toFixed(2).replace('.', ',')}`
+                    : 'Troco não informado'}</p>
+              )}
             </div>
 
           </div>
@@ -369,6 +351,15 @@ function PedidoFinalizado() {
           </div>
 
         </section>
+
+        {pedido.pagamento === 'Pix' && pedido.pixChave && (
+          <section className={styles.dadosPix}>
+            <strong>Dados do Pix</strong>
+            <span>Beneficiário: {pedido.pixBeneficiario}</span>
+            <code>{pedido.pixChave}</code>
+            <p>O pagamento ainda precisa ser confirmado pela hamburgueria.</p>
+          </section>
+        )}
 
 
         {/* =========================
@@ -540,6 +531,8 @@ function PedidoFinalizado() {
                   <img
                     src={item.imagem}
                     alt={item.nome}
+                    loading="lazy"
+                    decoding="async"
                   />
 
 
@@ -619,7 +612,7 @@ function PedidoFinalizado() {
             <div className={styles.totalResumo}>
 
               <span>
-                Total pago
+                {pagamentoConfirmado ? 'Total pago' : 'Total do pedido'}
               </span>
 
               <strong>

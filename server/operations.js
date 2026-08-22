@@ -5,8 +5,18 @@ import { executarTransacao } from './database.js';
 import { criarHashSenha, criarHashToken } from './security.js';
 
 const PAGAMENTOS = new Set(['Pix', 'Cartão na entrega', 'Cartão', 'Dinheiro', 'A definir']);
+const PAGAMENTOS_DELIVERY = new Set(['Pix', 'Cartão na entrega', 'Dinheiro']);
 const STATUS_DELIVERY = new Set(['Recebido', 'Em preparo', 'Saiu para entrega', 'Entregue', 'Cancelado']);
 const STATUS_MESA = new Set(['Recebido', 'Em preparo', 'Pronto', 'Entregue na mesa', 'Cancelado']);
+const PAGAMENTO_AGUARDANDO = 'Aguardando pagamento';
+const PAGAMENTO_ENTREGA = 'Pagamento na entrega';
+const PAGAMENTO_PAGO = 'Pago';
+const PAGAMENTO_CANCELADO = 'Cancelado';
+const MAX_LINHAS_PEDIDO = 100;
+const MAX_UNIDADES_PEDIDO = 500;
+const MAX_ADICIONAIS_POR_ITEM = 50;
+const MAX_TOTAL_CENTAVOS = 4_294_967_295;
+const STATUS_TERMINAIS = new Set(['Entregue', 'Entregue na mesa', 'Cancelado']);
 
 function erroDominio(mensagem, status = 400) {
   const erro = new Error(mensagem);
@@ -21,6 +31,25 @@ function texto(valor, limite = 255) {
 function dataIso(valor) {
   if (!valor) return null;
   return new Date(valor).toISOString();
+}
+
+function dataOpcional(valor, campo) {
+  if (!valor) return null;
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) throw erroDominio(`Informe uma data válida para ${campo}.`);
+  return data;
+}
+
+function promocaoDisponivel(linha, agora = new Date()) {
+  if (!linha || !linha.ativo) return false;
+  const inicio = linha.inicio_em ? new Date(linha.inicio_em) : null;
+  const fim = linha.fim_em ? new Date(linha.fim_em) : null;
+  return (!inicio || inicio <= agora) && (!fim || fim >= agora);
+}
+
+function normalizarStatusPagamento(status, forma) {
+  if (status === 'Pendente') return forma === 'Pix' ? PAGAMENTO_AGUARDANDO : PAGAMENTO_ENTREGA;
+  return status || (forma === 'Pix' ? PAGAMENTO_AGUARDANDO : PAGAMENTO_ENTREGA);
 }
 
 function horaPtBr(valor) {
@@ -50,6 +79,35 @@ function normalizarToken(nome) {
   return `${base}-${randomUUID().replaceAll('-', '').slice(0, 12)}`;
 }
 
+function normalizarBairro(valor) {
+  return texto(valor, 120)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('pt-BR');
+}
+
+function lerAreasEntrega(valor) {
+  if (!valor) return [];
+  try {
+    const areas = typeof valor === 'string' ? JSON.parse(valor) : valor;
+    return Array.isArray(areas) ? areas : [];
+  } catch {
+    return [];
+  }
+}
+
+function validarUrlOpcional(valor, campo) {
+  const url = texto(valor, 500);
+  if (!url) return '';
+  try {
+    const analisada = new URL(url);
+    if (!['http:', 'https:'].includes(analisada.protocol)) throw new Error();
+  } catch {
+    throw erroDominio(`Informe uma URL válida para ${campo}.`);
+  }
+  return url;
+}
+
 function mapearConfiguracao(linha) {
   return {
     nomeLoja: linha.nome_loja,
@@ -59,7 +117,21 @@ function mapearConfiguracao(linha) {
     taxaEntrega: Number(linha.taxa_entrega_centavos) / 100,
     tempoEntrega: linha.tempo_entrega,
     pedidoMinimo: Number(linha.pedido_minimo_centavos) / 100,
-    lojaAberta: Boolean(linha.loja_aberta)
+    lojaAberta: Boolean(linha.loja_aberta),
+    pixChave: linha.pix_chave ?? '',
+    pixBeneficiario: linha.pix_beneficiario ?? '',
+    logo: linha.logo_url ?? '',
+    whatsapp: linha.whatsapp ?? '',
+    horarioFuncionamento: linha.horario_funcionamento ?? '',
+    instagramUrl: linha.instagram_url ?? '',
+    facebookUrl: linha.facebook_url ?? '',
+    entregaAtiva: Boolean(linha.entrega_ativa),
+    aceitaCartao: Boolean(linha.aceita_cartao),
+    aceitaDinheiro: Boolean(linha.aceita_dinheiro),
+    areasEntrega: lerAreasEntrega(linha.areas_entrega_json).map((area) => ({
+      bairro: area.bairro,
+      taxa: Number(area.taxaCentavos) / 100
+    }))
   };
 }
 
@@ -75,27 +147,63 @@ export async function salvarConfiguracao(banco, dados) {
   const email = texto(dados.email, 160);
   const endereco = texto(dados.endereco, 255);
   const tempoEntrega = texto(dados.tempoEntrega, 60);
+  const pixChave = texto(dados.pixChave, 180);
+  const pixBeneficiario = texto(dados.pixBeneficiario, 160);
+  const logo = texto(dados.logo, 500);
+  const whatsapp = texto(dados.whatsapp, 40);
+  const horarioFuncionamento = texto(dados.horarioFuncionamento, 2000);
+  const instagramUrl = validarUrlOpcional(dados.instagramUrl, 'o Instagram');
+  const facebookUrl = validarUrlOpcional(dados.facebookUrl, 'o Facebook');
   const taxaEntregaCentavos = precoParaCentavos(dados.taxaEntrega);
   const pedidoMinimoCentavos = precoParaCentavos(dados.pedidoMinimo);
+  const aceitaCartao = dados.aceitaCartao !== false;
+  const aceitaDinheiro = dados.aceitaDinheiro !== false;
+  const areasRecebidas = Array.isArray(dados.areasEntrega) ? dados.areasEntrega : [];
+  const bairros = new Set();
+  const areasEntrega = areasRecebidas.map((area) => {
+    const bairro = texto(area?.bairro, 120);
+    const taxaCentavos = precoParaCentavos(area?.taxa);
+    const bairroNormalizado = normalizarBairro(bairro);
+    if (!bairro || !Number.isInteger(taxaCentavos) || taxaCentavos < 0) {
+      throw erroDominio('Informe bairro e taxa válidos em todas as áreas de entrega.');
+    }
+    if (bairros.has(bairroNormalizado)) throw erroDominio(`O bairro ${bairro} está repetido nas áreas de entrega.`);
+    bairros.add(bairroNormalizado);
+    return { bairro, taxaCentavos };
+  });
 
-  if (!nomeLoja || !telefone || !email || !endereco || !tempoEntrega) {
+  if (!nomeLoja || !telefone || !email || !endereco || !tempoEntrega || !horarioFuncionamento) {
     throw erroDominio('Preencha todos os dados da lanchonete.');
+  }
+  if (!/^\S+@\S+\.\S+$/.test(email)) throw erroDominio('Informe um e-mail válido para a loja.');
+  if (pixChave && !pixBeneficiario) {
+    throw erroDominio('Informe o beneficiário da chave Pix ou deixe a configuração Pix vazia.');
   }
   if (!Number.isInteger(taxaEntregaCentavos) || taxaEntregaCentavos < 0
       || !Number.isInteger(pedidoMinimoCentavos) || pedidoMinimoCentavos < 0) {
     throw erroDominio('Informe valores válidos para entrega e pedido mínimo.');
   }
+  if (!pixChave && !aceitaCartao && !aceitaDinheiro) {
+    throw erroDominio('Habilite ao menos uma forma de pagamento.');
+  }
 
   await banco.execute(`
     INSERT INTO configuracoes
       (id, nome_loja, telefone, email, endereco, taxa_entrega_centavos,
-       tempo_entrega, pedido_minimo_centavos, loja_aberta)
-    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+       tempo_entrega, pedido_minimo_centavos, loja_aberta, pix_chave, pix_beneficiario,
+       logo_url, whatsapp, horario_funcionamento, instagram_url, facebook_url,
+       entrega_ativa, aceita_cartao, aceita_dinheiro, areas_entrega_json)
+    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       nome_loja = VALUES(nome_loja), telefone = VALUES(telefone), email = VALUES(email),
       endereco = VALUES(endereco), taxa_entrega_centavos = VALUES(taxa_entrega_centavos),
       tempo_entrega = VALUES(tempo_entrega), pedido_minimo_centavos = VALUES(pedido_minimo_centavos),
-      loja_aberta = VALUES(loja_aberta)
+      loja_aberta = VALUES(loja_aberta), pix_chave = VALUES(pix_chave),
+      pix_beneficiario = VALUES(pix_beneficiario), logo_url = VALUES(logo_url),
+      whatsapp = VALUES(whatsapp), horario_funcionamento = VALUES(horario_funcionamento),
+      instagram_url = VALUES(instagram_url), facebook_url = VALUES(facebook_url),
+      entrega_ativa = VALUES(entrega_ativa), aceita_cartao = VALUES(aceita_cartao),
+      aceita_dinheiro = VALUES(aceita_dinheiro), areas_entrega_json = VALUES(areas_entrega_json)
   `, [
     nomeLoja,
     telefone,
@@ -104,7 +212,18 @@ export async function salvarConfiguracao(banco, dados) {
     taxaEntregaCentavos,
     tempoEntrega,
     pedidoMinimoCentavos,
-    dados.lojaAberta === false ? 0 : 1
+    dados.lojaAberta === false ? 0 : 1,
+    pixChave || null,
+    pixChave ? pixBeneficiario : null,
+    logo || null,
+    whatsapp || null,
+    horarioFuncionamento,
+    instagramUrl || null,
+    facebookUrl || null,
+    dados.entregaAtiva === false ? 0 : 1,
+    aceitaCartao ? 1 : 0,
+    aceitaDinheiro ? 1 : 0,
+    areasEntrega.length ? JSON.stringify(areasEntrega) : null
   ]);
   return buscarConfiguracao(banco);
 }
@@ -121,7 +240,10 @@ function mapearPromocao(linha) {
     imagem: linha.imagem_url || linha.imagem_produto || null,
     destaque: linha.destaque ?? '',
     tipo: linha.tipo ?? '',
-    ativo: Boolean(linha.ativo)
+    ativo: Boolean(linha.ativo),
+    disponivel: promocaoDisponivel(linha),
+    inicioEm: dataIso(linha.inicio_em),
+    fimEm: dataIso(linha.fim_em)
   };
 }
 
@@ -130,7 +252,9 @@ export async function listarPromocoes(banco, { somenteAtivas = false } = {}) {
     SELECT pr.*, p.imagem_url AS imagem_produto
     FROM promocoes pr
     LEFT JOIN produtos p ON p.id = pr.produto_id
-    ${somenteAtivas ? 'WHERE pr.ativo = 1' : ''}
+    ${somenteAtivas ? `WHERE pr.ativo = 1
+      AND (pr.inicio_em IS NULL OR pr.inicio_em <= CURRENT_TIMESTAMP)
+      AND (pr.fim_em IS NULL OR pr.fim_em >= CURRENT_TIMESTAMP)` : ''}
     ORDER BY pr.id
   `);
   return linhas.map(mapearPromocao);
@@ -142,17 +266,21 @@ async function validarPromocao(banco, dados) {
   const descricao = texto(dados.descricao, 2000);
   const precoAnteriorCentavos = precoParaCentavos(dados.precoAntigo || 0);
   const precoCentavos = precoParaCentavos(dados.preco);
+  const inicioEm = dataOpcional(dados.inicioEm, 'o início da promoção');
+  const fimEm = dataOpcional(dados.fimEm, 'o fim da promoção');
   if (!nome || !categoria || !descricao) throw erroDominio('Preencha nome, categoria e descrição da promoção.');
   if (!Number.isInteger(precoAnteriorCentavos) || precoAnteriorCentavos < 0
-      || !Number.isInteger(precoCentavos) || precoCentavos < 0) {
+      || !Number.isInteger(precoCentavos) || precoCentavos <= 0) {
     throw erroDominio('Informe preços válidos para a promoção.');
   }
-
-  let produtoId = Number(dados.produtoId) || null;
-  if (!produtoId) {
-    const [produtos] = await banco.execute('SELECT id FROM produtos WHERE nome = ? LIMIT 1', [nome]);
-    produtoId = produtos[0] ? Number(produtos[0].id) : null;
+  if (inicioEm && fimEm && inicioEm >= fimEm) {
+    throw erroDominio('O fim da promoção deve ser posterior ao início.');
   }
+
+  const produtoId = Number(dados.produtoId) || null;
+  if (!produtoId) throw erroDominio('Vincule a promoção a um produto do cardápio.');
+  const [produtos] = await banco.execute('SELECT id FROM produtos WHERE id = ? AND ativo = 1', [produtoId]);
+  if (!produtos[0]) throw erroDominio('O produto vinculado à promoção não está disponível.', 409);
 
   return {
     produtoId,
@@ -164,7 +292,9 @@ async function validarPromocao(banco, dados) {
     imagem: texto(dados.imagem, 500) || null,
     destaque: texto(dados.destaque, 100) || null,
     tipo: texto(dados.tipo, 100) || null,
-    ativo: dados.ativo === false ? 0 : 1
+    ativo: dados.ativo === false ? 0 : 1,
+    inicioEm,
+    fimEm
   };
 }
 
@@ -175,24 +305,24 @@ export async function salvarPromocao(banco, dados, id = null) {
     const [resultado] = await banco.execute(`
       UPDATE promocoes
       SET produto_id = ?, nome = ?, categoria = ?, descricao = ?, preco_anterior_centavos = ?,
-          preco_centavos = ?, imagem_url = ?, destaque = ?, tipo = ?, ativo = ?
+          preco_centavos = ?, imagem_url = ?, destaque = ?, tipo = ?, ativo = ?, inicio_em = ?, fim_em = ?
       WHERE id = ?
     `, [
       promocao.produtoId, promocao.nome, promocao.categoria, promocao.descricao,
       promocao.precoAnteriorCentavos, promocao.precoCentavos, promocao.imagem,
-      promocao.destaque, promocao.tipo, promocao.ativo, promocaoId
+      promocao.destaque, promocao.tipo, promocao.ativo, promocao.inicioEm, promocao.fimEm, promocaoId
     ]);
     if (!resultado.affectedRows) throw erroDominio('Promoção não encontrada.', 404);
   } else {
     const [resultado] = await banco.execute(`
       INSERT INTO promocoes
         (produto_id, nome, categoria, descricao, preco_anterior_centavos,
-         preco_centavos, imagem_url, destaque, tipo, ativo)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         preco_centavos, imagem_url, destaque, tipo, ativo, inicio_em, fim_em)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       promocao.produtoId, promocao.nome, promocao.categoria, promocao.descricao,
       promocao.precoAnteriorCentavos, promocao.precoCentavos, promocao.imagem,
-      promocao.destaque, promocao.tipo, promocao.ativo
+      promocao.destaque, promocao.tipo, promocao.ativo, promocao.inicioEm, promocao.fimEm
     ]);
     promocaoId = Number(resultado.insertId);
   }
@@ -310,15 +440,19 @@ async function listarAdicionaisDeItens(banco, tabela, campo, itensIds) {
   return mapa;
 }
 
-export async function listarComandas(banco) {
-  const [comandas] = await banco.query(`
+export async function listarComandas(banco, { funcionarioId = null } = {}) {
+  const parametros = [];
+  const filtroFuncionario = funcionarioId == null ? '' : 'AND c.funcionario_id = ?';
+  if (funcionarioId != null) parametros.push(funcionarioId);
+  const [comandas] = await banco.execute(`
     SELECT c.*, m.numero AS mesa_numero, f.nome AS garcom
     FROM comandas c
     INNER JOIN mesas m ON m.id = c.mesa_id
     INNER JOIN funcionarios f ON f.id = c.funcionario_id
     WHERE c.status <> 'Encerrada'
+      ${filtroFuncionario}
     ORDER BY c.aberta_em DESC
-  `);
+  `, parametros);
   if (comandas.length === 0) return [];
   const ids = comandas.map((comanda) => Number(comanda.id));
   const marcadores = ids.map(() => '?').join(', ');
@@ -366,7 +500,12 @@ export async function listarPedidos(banco, { id = null } = {}) {
     parametros.push(id);
   }
   const [pedidos] = await banco.execute(`
-    SELECT p.*, m.numero AS mesa_numero, f.nome AS garcom
+    SELECT p.*, m.numero AS mesa_numero, f.nome AS garcom,
+      (SELECT pg.status FROM pagamentos pg WHERE pg.pedido_id = p.id ORDER BY pg.id DESC LIMIT 1) AS pagamento_status,
+      (SELECT pg.pix_chave FROM pagamentos pg WHERE pg.pedido_id = p.id ORDER BY pg.id DESC LIMIT 1) AS pix_chave,
+      (SELECT pg.pix_beneficiario FROM pagamentos pg WHERE pg.pedido_id = p.id ORDER BY pg.id DESC LIMIT 1) AS pix_beneficiario,
+      (SELECT pg.sem_troco FROM pagamentos pg WHERE pg.pedido_id = p.id ORDER BY pg.id DESC LIMIT 1) AS sem_troco,
+      (SELECT pg.troco_para_centavos FROM pagamentos pg WHERE pg.pedido_id = p.id ORDER BY pg.id DESC LIMIT 1) AS troco_para_centavos
     FROM pedidos p
     LEFT JOIN mesas m ON m.id = p.mesa_id
     LEFT JOIN funcionarios f ON f.id = p.funcionario_id
@@ -387,6 +526,7 @@ export async function listarPedidos(banco, { id = null } = {}) {
     if (!itensPorPedido.has(pedidoId)) itensPorPedido.set(pedidoId, []);
     itensPorPedido.get(pedidoId).push({
       id: item.produto_id ? Number(item.produto_id) : null,
+      promocaoId: item.promocao_id ? Number(item.promocao_id) : null,
       nome: item.nome_produto,
       descricao: item.descricao_produto ?? '',
       imagem: item.imagem_url,
@@ -408,11 +548,15 @@ export async function listarPedidos(banco, { id = null } = {}) {
       origem: pedido.origem === 'delivery' ? 'Delivery' : `Mesa ${pedido.mesa_numero}`,
       status: pedido.status,
       pagamento: pedido.pagamento,
+      pagamentoStatus: normalizarStatusPagamento(pedido.pagamento_status, pedido.pagamento),
+      pixChave: pedido.pix_chave ?? '',
+      pixBeneficiario: pedido.pix_beneficiario ?? '',
+      semTroco: pedido.sem_troco === null ? null : Boolean(pedido.sem_troco),
+      trocoPara: pedido.troco_para_centavos === null ? null : Number(pedido.troco_para_centavos) / 100,
       horario: horaPtBr(pedido.criado_em),
       criadoEm: dataIso(pedido.criado_em),
       endereco,
       referencia: pedido.referencia ?? '',
-      observacao: pedido.observacao ?? '',
       itens: itensPorPedido.get(Number(pedido.id)) ?? [],
       taxaEntrega: Number(pedido.taxa_entrega_centavos) / 100,
       total: Number(pedido.total_centavos) / 100,
@@ -424,24 +568,57 @@ export async function listarPedidos(banco, { id = null } = {}) {
   });
 }
 
-async function buscarItensValidados(conexao, itensRecebidos) {
+export async function buscarItensValidados(conexao, itensRecebidos) {
   if (!Array.isArray(itensRecebidos) || itensRecebidos.length === 0) {
     throw erroDominio('Adicione ao menos um produto ao pedido.');
   }
+  if (itensRecebidos.length > MAX_LINHAS_PEDIDO) {
+    throw erroDominio(`O pedido pode ter no máximo ${MAX_LINHAS_PEDIDO} itens diferentes.`);
+  }
 
   const itens = [];
+  let totalUnidades = 0;
   for (const item of itensRecebidos) {
-    const produtoId = Number(item.id ?? item.produtoId);
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw erroDominio('Um item do pedido possui formato inválido.');
+    }
+    const produtoId = Number(item.produtoId ?? item.id);
+    const promocaoId = item.promocaoId == null || item.promocaoId === ''
+      ? null
+      : Number(item.promocaoId);
     const quantidade = Number(item.quantidade);
-    if (!Number.isInteger(produtoId) || !Number.isInteger(quantidade) || quantidade < 1 || quantidade > 50) {
+    if (!Number.isInteger(produtoId)
+        || (promocaoId !== null && (!Number.isInteger(promocaoId) || promocaoId <= 0))
+        || !Number.isInteger(quantidade) || quantidade < 1 || quantidade > 50) {
       throw erroDominio('Um item do pedido possui produto ou quantidade inválida.');
     }
+    totalUnidades += quantidade;
+    if (totalUnidades > MAX_UNIDADES_PEDIDO) {
+      throw erroDominio(`O pedido pode ter no máximo ${MAX_UNIDADES_PEDIDO} unidades.`);
+    }
     const [produtos] = await conexao.execute(`
-      SELECT * FROM produtos WHERE id = ? AND ativo = 1
+      SELECT * FROM produtos WHERE id = ? AND ativo = 1 FOR UPDATE
     `, [produtoId]);
     const produto = produtos[0];
     if (!produto) throw erroDominio('Um produto do pedido não está mais disponível.', 409);
 
+    let promocao = null;
+    if (promocaoId !== null) {
+      const [promocoes] = await conexao.execute(`
+        SELECT * FROM promocoes WHERE id = ? AND produto_id = ? FOR UPDATE
+      `, [promocaoId, produtoId]);
+      promocao = promocoes[0];
+      if (!promocao || !promocaoDisponivel(promocao)) {
+        throw erroDominio('A promoção selecionada não está mais disponível.', 409);
+      }
+    }
+
+    if (item.adicionais != null && !Array.isArray(item.adicionais)) {
+      throw erroDominio('A lista de adicionais de um item é inválida.');
+    }
+    if ((item.adicionais?.length ?? 0) > MAX_ADICIONAIS_POR_ITEM) {
+      throw erroDominio(`Cada item pode ter no máximo ${MAX_ADICIONAIS_POR_ITEM} adicionais.`);
+    }
     const adicionaisIds = [...new Set((item.adicionais ?? []).map((adicional) => Number(adicional?.id ?? adicional)))]
       .filter((adicionalId) => Number.isInteger(adicionalId) && adicionalId > 0);
     let adicionais = [];
@@ -452,6 +629,7 @@ async function buscarItensValidados(conexao, itensRecebidos) {
         FROM adicionais a
         INNER JOIN produto_adicionais pa ON pa.adicional_id = a.id AND pa.produto_id = ?
         WHERE a.id IN (${marcadores}) AND a.ativo = 1
+        FOR UPDATE
       `, [produtoId, ...adicionaisIds]);
       if (linhas.length !== adicionaisIds.length) throw erroDominio('Um adicional não está disponível para o produto.', 409);
       adicionais = linhas.map((linha) => ({
@@ -460,13 +638,14 @@ async function buscarItensValidados(conexao, itensRecebidos) {
         precoCentavos: Number(linha.preco_centavos)
       }));
     }
-    const precoCentavos = Number(produto.preco_centavos)
+    const precoCentavos = Number(promocao?.preco_centavos ?? produto.preco_centavos)
       + adicionais.reduce((total, adicional) => total + adicional.precoCentavos, 0);
     itens.push({
       produtoId,
-      nome: produto.nome,
-      descricao: produto.descricao,
-      imagem: produto.imagem_url,
+      promocaoId,
+      nome: promocao?.nome ?? produto.nome,
+      descricao: promocao?.descricao ?? produto.descricao,
+      imagem: promocao?.imagem_url || produto.imagem_url,
       precoCentavos,
       quantidade,
       observacao: texto(item.observacao, 1000) || null,
@@ -480,11 +659,11 @@ async function inserirItensPedido(conexao, pedidoId, itens) {
   for (const item of itens) {
     const [resultado] = await conexao.execute(`
       INSERT INTO pedido_itens
-        (pedido_id, produto_id, nome_produto, descricao_produto, imagem_url,
+        (pedido_id, produto_id, promocao_id, nome_produto, descricao_produto, imagem_url,
          preco_unitario_centavos, quantidade, observacao)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
-      pedidoId, item.produtoId, item.nome, item.descricao, item.imagem,
+      pedidoId, item.produtoId, item.promocaoId, item.nome, item.descricao, item.imagem,
       item.precoCentavos, item.quantidade, item.observacao
     ]);
     for (const adicional of item.adicionais) {
@@ -497,6 +676,22 @@ async function inserirItensPedido(conexao, pedidoId, itens) {
   }
 }
 
+export function calcularTotaisPedido(itens, taxaEntregaCentavos) {
+  const subtotalCentavos = itens.reduce(
+    (total, item) => total + Number(item.precoCentavos) * Number(item.quantidade),
+    0
+  );
+  const totalCentavos = subtotalCentavos + Number(taxaEntregaCentavos);
+  if (!Number.isSafeInteger(subtotalCentavos) || !Number.isSafeInteger(totalCentavos)
+      || subtotalCentavos < 0 || totalCentavos < 0 || totalCentavos > MAX_TOTAL_CENTAVOS) {
+    throw erroDominio('O valor total do pedido excede o limite permitido.');
+  }
+  return {
+    subtotalCentavos,
+    totalCentavos
+  };
+}
+
 export async function criarPedidoDelivery(banco, dados) {
   const nome = texto(dados.nome, 160);
   const telefone = texto(dados.telefone, 40);
@@ -505,47 +700,124 @@ export async function criarPedidoDelivery(banco, dados) {
   const numero = texto(dados.numero, 30);
   const bairro = texto(dados.bairro, 120);
   const pagamento = texto(dados.pagamento, 40);
+  const modalidade = texto(dados.modalidade, 20);
+  const chaveIdempotencia = texto(dados.chaveIdempotencia, 100);
   if (!nome || !telefone || !email || !rua || !numero || !bairro) {
     throw erroDominio('Preencha os dados do cliente e o endereço de entrega.');
   }
   if (!/^\S+@\S+\.\S+$/.test(email)) throw erroDominio('Informe um e-mail válido.');
-  if (!PAGAMENTOS.has(pagamento) || pagamento === 'A definir') throw erroDominio('Selecione uma forma de pagamento válida.');
+  if (!/^\d{10,11}$/.test(telefone.replace(/\D/g, ''))) throw erroDominio('Informe um telefone válido com DDD.');
+  if (modalidade !== 'delivery') throw erroDominio('A modalidade de atendimento informada não está disponível.');
+  if (!/^[a-zA-Z0-9_-]{16,100}$/.test(chaveIdempotencia)) {
+    throw erroDominio('Não foi possível identificar esta tentativa de pedido. Atualize a página e tente novamente.');
+  }
+  if (!PAGAMENTOS_DELIVERY.has(pagamento)) throw erroDominio('Selecione uma forma de pagamento válida.');
 
-  const tokenAcompanhamento = randomUUID();
-  const pedidoId = await executarTransacao(banco, async (conexao) => {
-    const [configuracoes] = await conexao.execute('SELECT * FROM configuracoes WHERE id = 1 FOR UPDATE');
-    const configuracao = configuracoes[0];
-    if (!configuracao?.loja_aberta) throw erroDominio('A loja está fechada no momento.', 409);
-
-    const itens = await buscarItensValidados(conexao, dados.itens);
-    const subtotal = itens.reduce((total, item) => total + item.precoCentavos * item.quantidade, 0);
-    if (subtotal < Number(configuracao.pedido_minimo_centavos)) {
-      throw erroDominio(`O pedido mínimo é R$ ${formatarPreco(configuracao.pedido_minimo_centavos)}.`, 409);
+  const informouSemTroco = dados.semTroco !== undefined && dados.semTroco !== null;
+  const informouTrocoPara = dados.trocoPara !== undefined && dados.trocoPara !== null && dados.trocoPara !== '';
+  let semTroco = null;
+  let trocoParaCentavos = null;
+  if (pagamento === 'Dinheiro') {
+    semTroco = dados.semTroco === true;
+    if (semTroco === informouTrocoPara) {
+      throw erroDominio('Para pagamento em dinheiro, escolha sem troco ou informe o valor entregue.');
     }
-    const taxaEntrega = Number(configuracao.taxa_entrega_centavos);
-    const total = subtotal + taxaEntrega;
-    const [resultado] = await conexao.execute(`
-      INSERT INTO pedidos
-        (token_acompanhamento_hash, origem, cliente, telefone, email, status, pagamento,
-         rua, numero, bairro, complemento, referencia, observacao,
-         taxa_entrega_centavos, total_centavos)
-      VALUES (?, 'delivery', ?, ?, ?, 'Recebido', ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      criarHashToken(tokenAcompanhamento), nome, telefone, email, pagamento,
-      rua, numero, bairro, texto(dados.complemento, 160) || null,
-      texto(dados.referencia, 255) || null, texto(dados.observacao, 2000) || null,
-      taxaEntrega, total
-    ]);
-    await inserirItensPedido(conexao, resultado.insertId, itens);
-    await conexao.execute(`
-      INSERT INTO pagamentos (pedido_id, forma, status, valor_centavos)
-      VALUES (?, ?, 'Pendente', ?)
-    `, [resultado.insertId, pagamento, total]);
-    return Number(resultado.insertId);
-  });
+    if (informouTrocoPara) {
+      trocoParaCentavos = precoParaCentavos(dados.trocoPara);
+      if (!Number.isInteger(trocoParaCentavos) || trocoParaCentavos <= 0) {
+        throw erroDominio('Informe um valor válido para o troco.');
+      }
+    }
+  } else if (informouSemTroco || informouTrocoPara) {
+    throw erroDominio('As opções de troco só podem ser usadas no pagamento em dinheiro.');
+  }
+
+  const hashIdempotencia = criarHashToken(chaveIdempotencia);
+  const [pedidosExistentes] = await banco.execute(
+    'SELECT id FROM pedidos WHERE chave_idempotencia_hash = ?',
+    [hashIdempotencia]
+  );
+  if (pedidosExistentes[0]) {
+    const [pedidoExistente] = await listarPedidos(banco, { id: Number(pedidosExistentes[0].id) });
+    return { ...pedidoExistente, tokenAcompanhamento: chaveIdempotencia };
+  }
+
+  let pedidoId;
+  try {
+    pedidoId = await executarTransacao(banco, async (conexao) => {
+      const [configuracoes] = await conexao.execute('SELECT * FROM configuracoes WHERE id = 1 FOR UPDATE');
+      const configuracao = configuracoes[0];
+      if (!configuracao?.loja_aberta) throw erroDominio('A loja está fechada no momento.', 409);
+      if (!configuracao.entrega_ativa) throw erroDominio('A entrega está indisponível no momento.', 409);
+      if (pagamento === 'Pix' && !texto(configuracao.pix_chave, 180)) {
+        throw erroDominio('O pagamento por Pix não está disponível no momento.', 409);
+      }
+      if (pagamento === 'Cartão na entrega' && !configuracao.aceita_cartao) {
+        throw erroDominio('O pagamento com cartão na entrega está indisponível.', 409);
+      }
+      if (pagamento === 'Dinheiro' && !configuracao.aceita_dinheiro) {
+        throw erroDominio('O pagamento em dinheiro está indisponível.', 409);
+      }
+
+      const itens = await buscarItensValidados(conexao, dados.itens);
+      const areasEntrega = lerAreasEntrega(configuracao.areas_entrega_json);
+      const areaEntrega = areasEntrega.find((area) => normalizarBairro(area.bairro) === normalizarBairro(bairro));
+      if (areasEntrega.length > 0 && !areaEntrega) {
+        throw erroDominio('O bairro informado está fora da área de entrega.', 409);
+      }
+      const taxaEntrega = areaEntrega
+        ? Number(areaEntrega.taxaCentavos)
+        : Number(configuracao.taxa_entrega_centavos);
+      const { subtotalCentavos, totalCentavos } = calcularTotaisPedido(itens, taxaEntrega);
+      if (subtotalCentavos < Number(configuracao.pedido_minimo_centavos)) {
+        throw erroDominio(`O pedido mínimo é R$ ${formatarPreco(configuracao.pedido_minimo_centavos)}.`, 409);
+      }
+      if (trocoParaCentavos !== null && trocoParaCentavos < totalCentavos) {
+        throw erroDominio('O valor entregue em dinheiro não pode ser menor que o total do pedido.', 409);
+      }
+
+      const statusPagamento = pagamento === 'Pix' ? PAGAMENTO_AGUARDANDO : PAGAMENTO_ENTREGA;
+      const [resultado] = await conexao.execute(`
+        INSERT INTO pedidos
+          (token_acompanhamento_hash, chave_idempotencia_hash, origem, cliente, telefone, email, status, pagamento,
+           rua, numero, bairro, complemento, referencia,
+           taxa_entrega_centavos, total_centavos)
+        VALUES (?, ?, 'delivery', ?, ?, ?, 'Recebido', ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        hashIdempotencia, hashIdempotencia, nome, telefone, email, pagamento,
+        rua, numero, areaEntrega?.bairro ?? bairro, texto(dados.complemento, 160) || null,
+        texto(dados.referencia, 255) || null, taxaEntrega, totalCentavos
+      ]);
+      await inserirItensPedido(conexao, resultado.insertId, itens);
+      await conexao.execute(`
+        INSERT INTO pagamentos
+          (pedido_id, forma, status, valor_centavos, pix_chave, pix_beneficiario,
+           sem_troco, troco_para_centavos)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        resultado.insertId,
+        pagamento,
+        statusPagamento,
+        totalCentavos,
+        pagamento === 'Pix' ? configuracao.pix_chave : null,
+        pagamento === 'Pix' ? configuracao.pix_beneficiario : null,
+        pagamento === 'Dinheiro' ? (semTroco ? 1 : 0) : null,
+        pagamento === 'Dinheiro' ? trocoParaCentavos : null
+      ]);
+      return Number(resultado.insertId);
+    });
+  } catch (erro) {
+    if (erro.code !== 'ER_DUP_ENTRY') throw erro;
+    const [existentes] = await banco.execute(
+      'SELECT id FROM pedidos WHERE chave_idempotencia_hash = ?',
+      [hashIdempotencia]
+    );
+    if (!existentes[0]) throw erro;
+    pedidoId = Number(existentes[0].id);
+  }
 
   const [pedido] = await listarPedidos(banco, { id: pedidoId });
-  return { ...pedido, tokenAcompanhamento };
+  return { ...pedido, tokenAcompanhamento: chaveIdempotencia };
 }
 
 export async function acompanharPedido(banco, codigo, token) {
@@ -562,11 +834,24 @@ export async function acompanharPedido(banco, codigo, token) {
 
 export async function atualizarStatusPedido(banco, codigo, status) {
   const id = idPedidoPeloCodigo(codigo);
-  const [linhas] = await banco.execute('SELECT origem FROM pedidos WHERE id = ?', [id]);
-  if (!linhas[0]) return null;
-  const permitidos = linhas[0].origem === 'delivery' ? STATUS_DELIVERY : STATUS_MESA;
-  if (!permitidos.has(status)) throw erroDominio('Status inválido para a origem deste pedido.');
-  await banco.execute('UPDATE pedidos SET status = ? WHERE id = ?', [status, id]);
+  if (!id) return null;
+  const atualizado = await executarTransacao(banco, async (conexao) => {
+    const [linhas] = await conexao.execute('SELECT origem, status FROM pedidos WHERE id = ? FOR UPDATE', [id]);
+    if (!linhas[0]) return false;
+    const permitidos = linhas[0].origem === 'delivery' ? STATUS_DELIVERY : STATUS_MESA;
+    if (!permitidos.has(status)) throw erroDominio('Status inválido para a origem deste pedido.');
+    if (STATUS_TERMINAIS.has(linhas[0].status) && status !== linhas[0].status) {
+      throw erroDominio('Um pedido concluído ou cancelado não pode voltar para outra etapa.', 409);
+    }
+    await conexao.execute('UPDATE pedidos SET status = ? WHERE id = ?', [status, id]);
+    if (status === 'Cancelado') {
+      await conexao.execute(`
+        UPDATE pagamentos SET status = ? WHERE pedido_id = ? AND status <> ?
+      `, [PAGAMENTO_CANCELADO, id, PAGAMENTO_PAGO]);
+    }
+    return true;
+  });
+  if (!atualizado) return null;
   const [pedido] = await listarPedidos(banco, { id });
   return pedido;
 }
@@ -618,6 +903,14 @@ export async function adicionarItemComanda(banco, comandaId, funcionarioId, dado
       adicionais: dados.adicionais,
       observacao: dados.observacao
     }]);
+    const [[totais]] = await conexao.execute(`
+      SELECT COUNT(*) AS linhas, COALESCE(SUM(quantidade), 0) AS unidades
+      FROM comanda_itens WHERE comanda_id = ?
+    `, [comandaId]);
+    if (Number(totais.linhas) >= MAX_LINHAS_PEDIDO
+        || Number(totais.unidades) + item.quantidade > MAX_UNIDADES_PEDIDO) {
+      throw erroDominio('A comanda atingiu o limite de itens permitido.');
+    }
     const [resultado] = await conexao.execute(`
       INSERT INTO comanda_itens
         (comanda_id, produto_id, nome_produto, preco_unitario_centavos, quantidade, observacao)
@@ -637,10 +930,19 @@ export async function adicionarItemComanda(banco, comandaId, funcionarioId, dado
 export async function removerItemComanda(banco, comandaId, itemId, funcionarioId) {
   await executarTransacao(banco, async (conexao) => {
     await obterComandaDoGarcom(conexao, comandaId, funcionarioId, { bloquear: true });
+    const [[totais]] = await conexao.execute(`
+      SELECT COUNT(*) AS linhas,
+        EXISTS(SELECT 1 FROM pedidos WHERE comanda_id = ?) AS possui_pedido
+      FROM comanda_itens WHERE comanda_id = ?
+    `, [comandaId, comandaId]);
+    if (Number(totais.possui_pedido) && Number(totais.linhas) <= 1) {
+      throw erroDominio('Não é possível remover o último item depois do envio à cozinha.', 409);
+    }
     const [resultado] = await conexao.execute(`
       DELETE FROM comanda_itens WHERE id = ? AND comanda_id = ?
     `, [itemId, comandaId]);
     if (!resultado.affectedRows) throw erroDominio('Item da comanda não encontrado.', 404);
+    await conexao.execute("UPDATE comandas SET status = 'Aberta' WHERE id = ?", [comandaId]);
   });
 }
 
@@ -672,7 +974,14 @@ async function copiarItensComandaParaPedido(conexao, comandaId, pedidoId) {
       `, [resultado.insertId, adicional.adicional_id, adicional.nome_adicional, adicional.preco_centavos]);
     }
   }
-  return itens.reduce((total, item) => total + Number(item.preco_unitario_centavos) * Number(item.quantidade), 0);
+  const total = itens.reduce(
+    (soma, item) => soma + Number(item.preco_unitario_centavos) * Number(item.quantidade),
+    0
+  );
+  if (!Number.isSafeInteger(total) || total < 0 || total > MAX_TOTAL_CENTAVOS) {
+    throw erroDominio('O valor total da comanda excede o limite permitido.');
+  }
+  return total;
 }
 
 export async function enviarComanda(banco, comandaId, funcionarioId) {
@@ -701,7 +1010,12 @@ export async function enviarComanda(banco, comandaId, funcionarioId) {
 
 export async function solicitarConta(banco, comandaId, funcionarioId) {
   await executarTransacao(banco, async (conexao) => {
-    await obterComandaDoGarcom(conexao, comandaId, funcionarioId, { bloquear: true });
+    const comanda = await obterComandaDoGarcom(conexao, comandaId, funcionarioId, { bloquear: true });
+    if (comanda.status !== 'Na cozinha') {
+      throw erroDominio('Envie as alterações da comanda para a cozinha antes de solicitar a conta.', 409);
+    }
+    const [pedidos] = await conexao.execute('SELECT id FROM pedidos WHERE comanda_id = ? FOR UPDATE', [comandaId]);
+    if (!pedidos[0]) throw erroDominio('Envie a comanda para a cozinha antes de solicitar a conta.', 409);
     await conexao.execute("UPDATE comandas SET status = 'Conta solicitada' WHERE id = ?", [comandaId]);
   });
 }
@@ -709,7 +1023,10 @@ export async function solicitarConta(banco, comandaId, funcionarioId) {
 export async function fecharComanda(banco, comandaId, funcionarioId, pagamento) {
   if (!PAGAMENTOS.has(pagamento) || pagamento === 'A definir') throw erroDominio('Selecione uma forma de pagamento válida.');
   await executarTransacao(banco, async (conexao) => {
-    await obterComandaDoGarcom(conexao, comandaId, funcionarioId, { bloquear: true });
+    const comanda = await obterComandaDoGarcom(conexao, comandaId, funcionarioId, { bloquear: true });
+    if (comanda.status !== 'Conta solicitada') {
+      throw erroDominio('Solicite a conta antes de confirmar o pagamento.', 409);
+    }
     const [pedidos] = await conexao.execute('SELECT * FROM pedidos WHERE comanda_id = ? FOR UPDATE', [comandaId]);
     const pedido = pedidos[0];
     if (!pedido) throw erroDominio('Envie a comanda para a cozinha antes de fechá-la.', 409);
@@ -728,13 +1045,12 @@ export async function fecharComanda(banco, comandaId, funcionarioId, pagamento) 
 }
 
 export async function listarDadosPublicos(banco) {
-  const [catalogo, promocoes, funcionarios, configuracao] = await Promise.all([
+  const [catalogo, promocoes, configuracao] = await Promise.all([
     listarCatalogo(banco),
     listarPromocoes(banco, { somenteAtivas: true }),
-    listarFuncionarios(banco, { somenteAtivos: true }),
     buscarConfiguracao(banco)
   ]);
-  return { ...catalogo, promocoes, funcionarios, configuracao };
+  return { ...catalogo, promocoes, configuracao };
 }
 
 export async function listarDadosAdmin(banco) {
@@ -750,11 +1066,11 @@ export async function listarDadosAdmin(banco) {
   return { ...catalogo, promocoes, funcionarios, mesas, comandas, pedidos, configuracao };
 }
 
-export async function listarDadosGarcom(banco) {
+export async function listarDadosGarcom(banco, funcionarioId) {
   const [catalogo, mesas, comandas, configuracao] = await Promise.all([
     listarCatalogo(banco),
     listarMesas(banco),
-    listarComandas(banco),
+    listarComandas(banco, { funcionarioId }),
     buscarConfiguracao(banco)
   ]);
   return { ...catalogo, mesas, comandas, configuracao };

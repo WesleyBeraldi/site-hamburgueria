@@ -60,24 +60,24 @@ function AdminPedidos() {
         <div className={styles.filtros}>
           <label className={styles.busca}>
             <Search size={17} />
-            <input value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar pedido, cliente ou item..." />
+            <input aria-label="Buscar pedidos" value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar pedido, cliente ou item..." />
           </label>
           <div className={styles.abas}>
             {['Todos', 'Delivery', 'Salão'].map((item) => (
-              <button type="button" key={item} className={`${styles.aba} ${origem === item ? styles.abaAtiva : ''}`} onClick={() => setOrigem(item)}>{item}</button>
+              <button type="button" key={item} aria-pressed={origem === item} className={`${styles.aba} ${origem === item ? styles.abaAtiva : ''}`} onClick={() => setOrigem(item)}>{item}</button>
             ))}
           </div>
         </div>
         <div className={styles.filtros}>
           <div className={styles.abas}>
             {filtrosStatus.map((item) => (
-              <button type="button" key={item} className={`${styles.aba} ${status === item ? styles.abaAtiva : ''}`} onClick={() => setStatus(item)}>{item}</button>
+              <button type="button" key={item} aria-pressed={status === item} className={`${styles.aba} ${status === item ? styles.abaAtiva : ''}`} onClick={() => setStatus(item)}>{item}</button>
             ))}
           </div>
         </div>
 
         <div className={styles.tabelaContainer}>
-          <table className={styles.tabela}>
+          <table className={styles.tabela} aria-label="Lista de pedidos">
             <thead><tr><th>Pedido</th><th>Cliente</th><th>Origem</th><th>Itens</th><th>Pagamento</th><th>Status</th><th>Horário</th><th>Total</th><th>Ações</th></tr></thead>
             <tbody>
               {filtrados.map((pedido) => (
@@ -86,7 +86,7 @@ function AdminPedidos() {
                   <td><strong>{pedido.cliente}</strong><span className={styles.textoSecundario}>{pedido.telefone}</span></td>
                   <td>{pedido.origem}</td>
                   <td><strong>{pedido.itens.length} {pedido.itens.length === 1 ? 'item' : 'itens'}</strong><span className={styles.textoSecundario}>{pedido.itens.map((item) => item.nome).join(', ')}</span></td>
-                  <td>{pedido.pagamento}</td>
+                  <td><strong>{pedido.pagamento}</strong><span className={styles.textoSecundario}>{pedido.pagamentoStatus}</span></td>
                   <td><span className={`${styles.status} ${classeStatus(pedido.status)}`}>{pedido.status}</span></td>
                   <td>{pedido.horario}</td>
                   <td><strong>{moeda(pedido.total)}</strong></td>

@@ -7,7 +7,7 @@
 .identificado > span { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 50%; background: #ffc107; color: #111; font-weight: 900; }
 .identificado strong,
 .identificado small { display: block; }
-.identificado small { margin-top: 4px; color: #777; }
+.identificado small { margin-top: 4px; color: #929292; }
 .campo { display: grid; gap: 8px; margin-top: 17px; }
 .campo label { color: #ddd; font-size: 12px; font-weight: 800; }
 .campo input,
@@ -34,7 +34,7 @@
 .linksDemo { display: grid; gap: 9px; }
 .linkDemo { display: flex; align-items: center; justify-content: space-between; border: 1px solid #303030; border-radius: 11px; background: #111; padding: 13px; color: white; text-decoration: none; }
 .linkDemo:hover { border-color: #8d6c00; }
-.linkDemo small { display: block; margin-top: 4px; color: #777; }
+.linkDemo small { display: block; margin-top: 4px; color: #929292; }
 .gradeMesas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 15px; }
 .mesa { border: 1px solid rgba(255, 193, 7, 0.22); border-radius: 15px; background: #151515; padding: 18px; }
 .mesaTopo { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
@@ -43,7 +43,7 @@
 .livre { border-color: rgba(52, 211, 120, 0.35); background: rgba(52, 211, 120, 0.07); color: #48d986; }
 .ocupada { border-color: rgba(255, 193, 7, 0.4); background: rgba(255, 193, 7, 0.08); color: #ffc107; }
 .mesa h2 { margin: 16px 0 5px; font-size: 18px; }
-.mesa p { margin: 0; color: #777; font-size: 12px; }
+.mesa p { margin: 0; color: #929292; font-size: 12px; }
 .mesaInfo { display: grid; gap: 7px; border-top: 1px solid #292929; margin-top: 15px; padding-top: 14px; color: #999; font-size: 11px; }
 .mesa .botaoPrincipal,
 .mesa .botaoSecundario { width: 100%; margin-top: 15px; }
@@ -51,7 +51,7 @@
 .painel { min-width: 0; border: 1px solid rgba(255, 193, 7, 0.2); border-radius: 15px; background: #151515; padding: 20px; }
 .topoPainel { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
 .topoPainel h2 { margin: 0; font-size: 18px; }
-.topoPainel p { margin: 5px 0 0; color: #777; font-size: 11px; }
+.topoPainel p { margin: 5px 0 0; color: #929292; font-size: 12px; }
 .categorias { display: flex; gap: 7px; overflow-x: auto; margin-bottom: 16px; padding-bottom: 4px; }
 .categoria { flex: 0 0 auto; min-height: 34px; border: 1px solid #333; border-radius: 999px; background: #171717; padding: 0 13px; color: #888; font: inherit; font-size: 11px; font-weight: 800; }
 .categoriaAtiva { border-color: #ffc107; background: #ffc107; color: #111; }
@@ -60,26 +60,26 @@
 .produto > div { min-width: 0; }
 .produto img { width: 70px; height: 70px; border-radius: 9px; object-fit: cover; }
 .produto h3 { margin: 0; font-size: 14px; }
-.produto p { display: -webkit-box; overflow: hidden; margin: 5px 0; color: #777; font-size: 10px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.produto p { display: -webkit-box; overflow: hidden; margin: 5px 0; color: #929292; font-size: 11px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .produtoRodape { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .produtoRodape strong { color: #ffc107; font-size: 13px; }
 .produtoRodape button { display: grid; width: 30px; height: 30px; place-items: center; border: 0; border-radius: 8px; background: #ffc107; color: #111; cursor: pointer; }
 .resumo { position: sticky; top: 95px; }
 .itemComanda { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; border-bottom: 1px solid #2b2b2b; padding: 13px 0; }
 .itemComanda h3 { margin: 0; font-size: 13px; }
-.itemComanda p { margin: 5px 0 0; color: #777; font-size: 10px; }
+.itemComanda p { margin: 5px 0 0; color: #929292; font-size: 11px; }
 .itemComanda strong { color: #ffc107; font-size: 13px; }
-.itemComanda button { border: 0; background: transparent; color: #777; cursor: pointer; }
+.itemComanda button { border: 0; background: transparent; color: #929292; cursor: pointer; }
 .total { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #51400c; margin-top: 14px; padding-top: 17px; }
 .total span { color: #888; }
 .total strong { color: #ffc107; font-size: 23px; }
 .acoesComanda { display: grid; gap: 9px; margin-top: 18px; }
-.vazio { padding: 32px 10px; color: #777; font-size: 12px; line-height: 1.6; text-align: center; }
+.vazio { padding: 32px 10px; color: #929292; font-size: 12px; line-height: 1.6; text-align: center; }
 .modalFundo { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(0, 0, 0, 0.78); padding: 18px; }
-.modal { width: min(100%, 520px); max-height: 92vh; overflow-y: auto; border: 1px solid rgba(255, 193, 7, 0.35); border-radius: 18px; background: #171717; padding: 22px; }
+.modal { width: min(100%, 520px); max-height: min(92vh, calc(100dvh - 36px)); overflow-y: auto; overscroll-behavior: contain; border: 1px solid rgba(255, 193, 7, 0.35); border-radius: 18px; background: #171717; padding: 22px; }
 .modalTopo { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
 .modalTopo h2 { margin: 0; }
-.modalTopo p { margin: 6px 0 0; color: #777; font-size: 12px; }
+.modalTopo p { margin: 6px 0 0; color: #929292; font-size: 12px; }
 .modalTopo button { border: 0; background: transparent; color: #999; cursor: pointer; }
 .adicionais { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 17px; }
 .adicional { display: flex; align-items: center; justify-content: space-between; gap: 9px; border: 1px solid #303030; border-radius: 10px; background: #111; padding: 11px; color: #ccc; font-size: 11px; cursor: pointer; }
@@ -88,5 +88,42 @@
 .quantidade { display: flex; align-items: center; gap: 12px; }
 .quantidade button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid #3a3a3a; border-radius: 8px; background: #111; color: white; cursor: pointer; }
 @media (max-width: 940px) { .gradeMesas { grid-template-columns: repeat(3, 1fr); } .comandaLayout { grid-template-columns: 1fr; } .resumo { position: static; } }
-@media (max-width: 650px) { .gradeMesas { grid-template-columns: repeat(2, 1fr); } .gradeProdutos { grid-template-columns: minmax(0, 1fr); } .topoPainel { align-items: flex-start; flex-wrap: wrap; } }
-@media (max-width: 420px) { .gradeMesas { grid-template-columns: 1fr; } .acessoCard { padding: 23px 18px; } .adicionais { grid-template-columns: 1fr; } .modalRodape { align-items: stretch; flex-direction: column; } }
+@media (max-width: 650px) {
+  .gradeMesas { grid-template-columns: repeat(2, 1fr); }
+  .gradeProdutos { grid-template-columns: minmax(0, 1fr); }
+  .topoPainel { align-items: flex-start; flex-wrap: wrap; }
+
+  .campo input,
+  .campo select,
+  .campo textarea { min-height: 44px; font-size: 16px; }
+
+  .acessoCard > p,
+  .campo label,
+  .erro,
+  .botaoPrincipal,
+  .botaoSecundario,
+  .botaoPerigo,
+  .status,
+  .mesa p,
+  .mesaInfo,
+  .topoPainel p,
+  .categoria,
+  .produto p,
+  .itemComanda p,
+  .vazio,
+  .modalTopo p,
+  .adicional { font-size: 14px; }
+
+  .categoria,
+  .produtoRodape button,
+  .itemComanda button,
+  .modalTopo button,
+  .quantidade button { min-width: 44px; min-height: 44px; }
+}
+
+@media (max-width: 420px) {
+  .gradeMesas { grid-template-columns: 1fr; }
+  .acessoCard { padding: 23px 18px; }
+  .adicionais { grid-template-columns: 1fr; }
+  .modalRodape { align-items: stretch; flex-direction: column; }
+}

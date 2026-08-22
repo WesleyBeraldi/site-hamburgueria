@@ -5,7 +5,12 @@ import { config } from './config.js';
 import { abrirBanco, fecharBanco } from './database.js';
 import { aguardarServidor, fecharServidor } from './runtime.js';
 
-const banco = await abrirBanco({ mysql: config.mysql, administrador: config.administrador });
+const banco = await abrirBanco({
+  mysql: config.mysql,
+  administrador: config.administrador,
+  incluirDadosDemonstracao: config.incluirDadosDemonstracao,
+  pinFuncionarioDemonstracao: config.pinFuncionarioDemonstracao
+});
 const api = criarServidor({ banco, pastaUploads: config.pastaUploads });
 const vite = await criarServidorVite();
 

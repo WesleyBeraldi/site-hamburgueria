@@ -11,10 +11,10 @@ Aplicação responsiva com três áreas integradas: cliente, administrador e gar
 - funcionários com PIN protegido por `scrypt` e token individual para QR Code;
 - sessões do garçom, mesas, comandas e itens da comanda;
 - vínculo automático entre garçom, mesa, comanda e pedido do salão;
-- configurações da lanchonete;
+- identidade e operação da lanchonete: nome, logo, contatos, horário, redes sociais, status, delivery, áreas, taxas, mínimo e pagamentos;
 - dados de dashboard e relatórios calculados a partir dos registros compartilhados.
 
-O carrinho permanece no navegador somente até o cliente finalizar a compra. Depois disso, o servidor recalcula os preços usando o catálogo do banco e grava o pedido no MySQL.
+O carrinho permanece no navegador somente até o cliente finalizar a compra. Depois disso, o servidor recalcula preços, taxa por bairro e pedido mínimo usando o banco, valida a operação e grava pedido, itens e pagamento na mesma transação. Cada tentativa leva uma chave idempotente para que reenvios não criem pedidos duplicados.
 
 ## Requisitos
 
@@ -66,7 +66,7 @@ ADMIN_PASSWORD=uma-senha-administrativa-segura
 
 O `.env` é ignorado pelo Git. Nunca envie senhas ao repositório.
 
-Ao iniciar a API, as tabelas, os índices, as chaves estrangeiras e os dados iniciais são criados automaticamente no banco `hamburgueria`. O arquivo [`server/schema.mysql.sql`](server/schema.mysql.sql) também pode ser aberto no Workbench para consultar o esquema completo. O backend não precisa armazenar a senha do usuário `root`.
+Em desenvolvimento, a API pode criar o banco ausente. Em produção, o banco deve ser provisionado antes da primeira inicialização; a aplicação cria ou atualiza as tabelas dentro dele, mas não solicita privilégio global de `CREATE DATABASE`. O arquivo [`server/schema.mysql.sql`](server/schema.mysql.sql) também pode ser aberto no Workbench para consultar o esquema completo. O backend não precisa armazenar a senha do usuário `root`.
 
 ## Executar localmente
 
@@ -80,11 +80,12 @@ Esse comando inicia a API e o site juntos. O frontend normalmente fica em `http:
 ## Acessos iniciais
 
 - Cliente: `/`
+- Política de privacidade: `/politica-de-privacidade`
+- Termos de uso: `/termos-de-uso`
 - Administrador: `/admin/login`, com as credenciais definidas em `ADMIN_USER` e `ADMIN_PASSWORD`
-- Garçom Carlos: `/garcom/acesso/carlos-7f3a9d2c`, PIN `1234`
-- Garçonete Ana: `/garcom/acesso/ana-4b8e1c6f`, PIN `5678`
+- Garçom: cadastre o funcionário no painel administrativo e abra o QR Code individual por esse painel
 
-Os PINs acima existem apenas nos dados de demonstração. No banco eles são armazenados como hash. O QR Code contém somente o token de identificação do funcionário; a sessão autenticada é criada apenas depois da validação do PIN.
+Em desenvolvimento, o banco pode receber dados demonstrativos. Em produção eles ficam desativados por padrão: a loja nasce fechada, sem produtos, adicionais, promoções, funcionários ou pedidos fictícios. Use `SEED_DEMO_DATA=1` somente em ambientes descartáveis. Os tokens demonstrativos são aleatórios e, sem `DEMO_WAITER_PIN`, o PIN inicial também é aleatório: defina um novo PIN no painel antes de usar esse funcionário. Se precisar de um PIN conhecido em um ambiente descartável, configure explicitamente `DEMO_WAITER_PIN` com 4 a 6 dígitos. Contas demonstrativas legadas com credenciais conhecidas são revogadas automaticamente e devem ser redefinidas pelo administrador. PINs são armazenados como hash, e tokens de acesso só aparecem em rotas administrativas autenticadas. O QR Code identifica o funcionário, mas a sessão só é criada depois da validação do PIN.
 
 ## Comandos
 
@@ -128,4 +129,8 @@ Os testes de integração usam e removem o banco isolado `hamburgueria_testes`. 
 
 ## Produção
 
-Defina `NODE_ENV=production`, senhas fortes e uma conta MySQL com acesso somente ao banco da aplicação. Fotos enviadas ficam em `server/uploads/`; em hospedagem, use volume persistente para essa pasta e para o MySQL.
+Defina `NODE_ENV=production`, `ADMIN_PASSWORD` com pelo menos 12 caracteres e todas as variáveis `DB_HOST`, `DB_USER`, `DB_PASSWORD` e `DB_NAME`. Use uma conta MySQL com acesso somente ao banco já provisionado da aplicação. Antes de abrir pedidos, cadastre o cardápio e preencha **Configurações** com identidade, contatos, horário, áreas atendidas, taxas, mínimo e pagamentos reais. O Pix só aparece com chave e beneficiário; cartão e dinheiro podem ser desligados separadamente. Fotos e logo enviadas ficam em `server/uploads/`; em hospedagem, use volume persistente para essa pasta e para o MySQL.
+
+O sistema atual registra pedidos de **delivery** no site público e comandas do salão no acesso do garçom. Não há checkout de retirada. Pagamentos de delivery ficam como “Aguardando pagamento” ou “Pagamento na entrega”; antes da operação comercial, o cliente precisa definir o processo externo de conciliação/baixa, pois esta versão não integra gateway nem oferece confirmação manual de pagamento do delivery.
+
+Os textos de privacidade e termos são modelos operacionais. O proprietário precisa revisá-los com orientação jurídica, definir retenção de dados, fornecedores, políticas de cancelamento e regras locais antes da venda ou publicação comercial.

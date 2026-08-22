@@ -1,14 +1,25 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { useApp } from '../../../context/appContext';
 import styles from './index.module.css';
 
+function criarChavePedido() {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 function FinalizarPedidos() {
   const navigate = useNavigate();
 
   const [rolouPagina, setRolouPagina] = useState(false);
-  const [formaPagamento, setFormaPagamento] = useState('pix');
+  const [formaPagamento, setFormaPagamento] = useState('cartao');
+  const [trocoOpcao, setTrocoOpcao] = useState('sem');
+  const [trocoPara, setTrocoPara] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const chaveTentativa = useRef(null);
+  if (chaveTentativa.current == null) chaveTentativa.current = criarChavePedido();
   const [dadosCliente, setDadosCliente] = useState({
     nome: '',
     telefone: '',
@@ -17,8 +28,7 @@ function FinalizarPedidos() {
     numero: '',
     bairro: '',
     complemento: '',
-    referencia: '',
-    observacao: ''
+    referencia: ''
   });
   const [erro, setErro] = useState('');
   const {
@@ -43,7 +53,7 @@ function FinalizarPedidos() {
         chaveItem(item) === chave
           ? {
               ...item,
-              quantidade: item.quantidade + 1
+              quantidade: Math.min(50, item.quantidade + 1)
             }
           : item
       )
@@ -77,15 +87,40 @@ function FinalizarPedidos() {
     0
   );
 
-  const taxaEntrega = Number(configuracao.taxaEntrega);
+  const areasEntrega = configuracao.areasEntrega ?? [];
+  const areaSelecionada = areasEntrega.find((area) => area.bairro === dadosCliente.bairro);
+  const taxaDefinida = areasEntrega.length === 0 || Boolean(areaSelecionada);
+  const taxaEntrega = areasEntrega.length > 0
+    ? Number(areaSelecionada?.taxa ?? 0)
+    : Number(configuracao.taxaEntrega);
 
   const total = subtotal + taxaEntrega;
+  const pedidoMinimo = Number(configuracao.pedidoMinimo);
+  const minimoAtingido = subtotal >= pedidoMinimo;
+  const lojaDisponivel = Boolean(configuracao.lojaAberta && configuracao.entregaAtiva);
+  const formasDisponiveis = [
+    configuracao.pixChave ? 'pix' : null,
+    configuracao.aceitaCartao ? 'cartao' : null,
+    configuracao.aceitaDinheiro ? 'dinheiro' : null
+  ].filter(Boolean);
+  const pagamentoSelecionado = formasDisponiveis.includes(formaPagamento)
+    ? formaPagamento
+    : (formasDisponiveis[0] ?? '');
 
   function alterarCampo(campo, valor) {
     setDadosCliente((atuais) => ({ ...atuais, [campo]: valor }));
   }
 
+  function formatarTelefone(valor) {
+    const digitos = valor.replace(/\D/g, '').slice(0, 11);
+    if (digitos.length <= 2) return digitos;
+    if (digitos.length <= 6) return `(${digitos.slice(0, 2)}) ${digitos.slice(2)}`;
+    if (digitos.length <= 10) return `(${digitos.slice(0, 2)}) ${digitos.slice(2, 6)}-${digitos.slice(6)}`;
+    return `(${digitos.slice(0, 2)}) ${digitos.slice(2, 7)}-${digitos.slice(7)}`;
+  }
+
   async function finalizarPedido() {
+    if (enviando) return;
     const obrigatorios = [
       dadosCliente.nome,
       dadosCliente.telefone,
@@ -100,8 +135,33 @@ function FinalizarPedidos() {
       return;
     }
 
+    if (!lojaDisponivel) {
+      setErro(configuracao.lojaAberta ? 'A entrega está indisponível no momento.' : 'A loja está fechada no momento.');
+      return;
+    }
+
+    if (!minimoAtingido) {
+      setErro(`Faltam R$ ${(pedidoMinimo - subtotal).toFixed(2).replace('.', ',')} para atingir o pedido mínimo.`);
+      return;
+    }
+
     if (obrigatorios.some((campo) => !campo.trim())) {
       setErro('Preencha os dados do cliente e o endereço de entrega.');
+      return;
+    }
+
+    if (!/^\d{10,11}$/.test(dadosCliente.telefone.replace(/\D/g, ''))) {
+      setErro('Informe um telefone válido com DDD.');
+      return;
+    }
+
+    if (!formasDisponiveis.includes(pagamentoSelecionado)) {
+      setErro('Selecione uma forma de pagamento disponível.');
+      return;
+    }
+
+    if (pagamentoSelecionado === 'dinheiro' && trocoOpcao === 'valor' && Number(trocoPara) < total) {
+      setErro('O valor entregue em dinheiro não pode ser menor que o total do pedido.');
       return;
     }
 
@@ -112,14 +172,24 @@ function FinalizarPedidos() {
     };
 
     setErro('');
+    setEnviando(true);
     try {
       await criarPedidoDelivery({
         ...dadosCliente,
-        pagamento: nomesPagamento[formaPagamento]
+        modalidade: 'delivery',
+        chaveIdempotencia: chaveTentativa.current,
+        pagamento: nomesPagamento[pagamentoSelecionado],
+        ...(pagamentoSelecionado === 'dinheiro'
+          ? trocoOpcao === 'sem'
+            ? { semTroco: true }
+            : { trocoPara: Number(trocoPara) }
+          : {})
       });
       navigate('/pedido-finalizado');
     } catch (falha) {
       setErro(falha.message);
+    } finally {
+      setEnviando(false);
     }
   }
 
@@ -158,7 +228,9 @@ function FinalizarPedidos() {
             to="/"
             className={styles.logo}
           >
-            Logo
+            {configuracao.logo
+              ? <img src={configuracao.logo} alt={configuracao.nomeLoja || 'Logo da loja'} decoding="async" />
+              : (configuracao.nomeLoja || 'Cardápio online')}
           </Link>
 
           
@@ -179,7 +251,7 @@ function FinalizarPedidos() {
           CONTEÚDO
       ========================= */}
 
-      <main className={styles.conteudoPagina}>
+      <main id="conteudo-principal" className={styles.conteudoPagina}>
 
         {/* TÍTULO */}
 
@@ -214,6 +286,13 @@ function FinalizarPedidos() {
             </p>
           </div>
         </div>
+
+        {!lojaDisponivel && (
+          <div className={styles.avisoOperacao} role="status">
+            <strong>{configuracao.lojaAberta ? 'Entrega indisponível' : 'Loja fechada'}</strong>
+            <span>Você pode revisar o cardápio, mas não é possível concluir um pedido agora.</span>
+          </div>
+        )}
 
 
         <div className={styles.layoutPagamento}>
@@ -256,10 +335,12 @@ function FinalizarPedidos() {
               <div className={styles.gridCliente}>
 
                 <div className={styles.campo}>
-                  <label>Nome completo</label>
+                  <label htmlFor="nomeCliente">Nome completo</label>
 
                   <input
+                    id="nomeCliente"
                     type="text"
+                    autoComplete="name"
                     placeholder="Digite seu nome"
                     value={dadosCliente.nome}
                     onChange={(event) => alterarCampo('nome', event.target.value)}
@@ -267,20 +348,26 @@ function FinalizarPedidos() {
                 </div>
 
                 <div className={styles.campo}>
-                  <label>Telefone</label>
+                  <label htmlFor="telefoneCliente">Telefone</label>
 
                   <input
+                    id="telefoneCliente"
                     type="tel"
+                    autoComplete="tel"
                     placeholder="(11) 99999-9999"
+                    inputMode="tel"
+                    maxLength={15}
                     value={dadosCliente.telefone}
-                    onChange={(event) => alterarCampo('telefone', event.target.value)}
+                    onChange={(event) => alterarCampo('telefone', formatarTelefone(event.target.value))}
                   />
                 </div>
 
                 <div className={`${styles.campo} ${styles.campoCompleto}`}>
-                  <label>E-mail</label>
+                  <label htmlFor="emailCliente">E-mail</label>
                   <input
+                    id="emailCliente"
                     type="email"
+                    autoComplete="email"
                     placeholder="seuemail@exemplo.com"
                     value={dadosCliente.email}
                     onChange={(event) => alterarCampo('email', event.target.value)}
@@ -326,10 +413,12 @@ function FinalizarPedidos() {
                 <div
                   className={`${styles.campo} ${styles.campoRua}`}
                 >
-                  <label>Rua</label>
+                  <label htmlFor="ruaCliente">Rua</label>
 
                   <input
+                    id="ruaCliente"
                     type="text"
+                    autoComplete="address-line1"
                     placeholder="Digite o nome da rua"
                     value={dadosCliente.rua}
                     onChange={(event) => alterarCampo('rua', event.target.value)}
@@ -337,10 +426,12 @@ function FinalizarPedidos() {
                 </div>
 
                 <div className={styles.campo}>
-                  <label>Número</label>
+                  <label htmlFor="numeroCliente">Número</label>
 
                   <input
+                    id="numeroCliente"
                     type="text"
+                    autoComplete="address-line2"
                     placeholder="123"
                     value={dadosCliente.numero}
                     onChange={(event) => alterarCampo('numero', event.target.value)}
@@ -349,25 +440,36 @@ function FinalizarPedidos() {
 
 
                 <div className={styles.campo}>
-                  <label>Bairro</label>
+                  <label htmlFor="bairroCliente">Bairro</label>
 
-                  <input
-                    type="text"
-                    placeholder="Digite seu bairro"
-                    value={dadosCliente.bairro}
-                    onChange={(event) => alterarCampo('bairro', event.target.value)}
-                  />
+                  {areasEntrega.length > 0 ? (
+                    <select id="bairroCliente" autoComplete="address-level3" value={dadosCliente.bairro} onChange={(event) => alterarCampo('bairro', event.target.value)}>
+                      <option value="">Selecione o bairro</option>
+                      {areasEntrega.map((area) => <option value={area.bairro} key={area.bairro}>{area.bairro} — R$ {Number(area.taxa).toFixed(2).replace('.', ',')}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      id="bairroCliente"
+                      type="text"
+                      autoComplete="address-level3"
+                      placeholder="Digite seu bairro"
+                      value={dadosCliente.bairro}
+                      onChange={(event) => alterarCampo('bairro', event.target.value)}
+                    />
+                  )}
                 </div>
 
 
                 <div className={styles.campo}>
-                  <label>
+                  <label htmlFor="complementoCliente">
                     Complemento
                     <span> (opcional)</span>
                   </label>
 
                   <input
+                    id="complementoCliente"
                     type="text"
+                    autoComplete="address-line3"
                     placeholder="Apto, bloco, casa..."
                     value={dadosCliente.complemento}
                     onChange={(event) => alterarCampo('complemento', event.target.value)}
@@ -378,12 +480,13 @@ function FinalizarPedidos() {
                 <div
                   className={`${styles.campo} ${styles.campoCompleto}`}
                 >
-                  <label>
+                  <label htmlFor="referenciaCliente">
                     Referência
                     <span> (opcional)</span>
                   </label>
 
                   <input
+                    id="referenciaCliente"
                     type="text"
                     placeholder="Ex: próximo ao mercado, padaria..."
                     value={dadosCliente.referencia}
@@ -427,20 +530,15 @@ function FinalizarPedidos() {
               </div>
 
 
-              <div className={styles.formasPagamento}>
+              <div className={styles.formasPagamento} role="group" aria-label="Formas de pagamento disponíveis">
 
                 {/* PIX */}
 
-                <button
+                {configuracao.pixChave && <button
                   type="button"
-                  onClick={() =>
-                    setFormaPagamento('pix')
-                  }
-                  className={`${styles.opcaoPagamento} ${
-                    formaPagamento === 'pix'
-                      ? styles.pagamentoAtivo
-                      : ''
-                  }`}
+                  onClick={() => setFormaPagamento('pix')}
+                  aria-pressed={pagamentoSelecionado === 'pix'}
+                  className={`${styles.opcaoPagamento} ${pagamentoSelecionado === 'pix' ? styles.pagamentoAtivo : ''}`}
                 >
 
                   <div className={styles.radioPagamento} />
@@ -454,22 +552,23 @@ function FinalizarPedidos() {
                     <strong>Pix</strong>
 
                     <span>
-                      Aprovação rápida e prática
+                      Aguarda confirmação do pagamento
                     </span>
                   </div>
 
-                </button>
+                </button>}
 
 
                 {/* CARTÃO */}
 
-                <button
+                {configuracao.aceitaCartao && <button
                   type="button"
                   onClick={() =>
                     setFormaPagamento('cartao')
                   }
+                  aria-pressed={pagamentoSelecionado === 'cartao'}
                   className={`${styles.opcaoPagamento} ${
-                    formaPagamento === 'cartao'
+                    pagamentoSelecionado === 'cartao'
                       ? styles.pagamentoAtivo
                       : ''
                   }`}
@@ -491,18 +590,19 @@ function FinalizarPedidos() {
                     </span>
                   </div>
 
-                </button>
+                </button>}
 
 
                 {/* DINHEIRO */}
 
-                <button
+                {configuracao.aceitaDinheiro && <button
                   type="button"
                   onClick={() =>
                     setFormaPagamento('dinheiro')
                   }
+                  aria-pressed={pagamentoSelecionado === 'dinheiro'}
                   className={`${styles.opcaoPagamento} ${
-                    formaPagamento === 'dinheiro'
+                    pagamentoSelecionado === 'dinheiro'
                       ? styles.pagamentoAtivo
                       : ''
                   }`}
@@ -524,28 +624,28 @@ function FinalizarPedidos() {
                     </span>
                   </div>
 
-                </button>
+                </button>}
 
               </div>
 
-            </section>
+              {pagamentoSelecionado === 'pix' && configuracao.pixChave && (
+                <div className={styles.dadosPix}>
+                  <strong>Dados para pagamento por Pix</strong>
+                  <span>Beneficiário: {configuracao.pixBeneficiario}</span>
+                  <code>{configuracao.pixChave}</code>
+                  <small>O pedido ficará aguardando pagamento até a confirmação.</small>
+                </div>
+              )}
 
+              {pagamentoSelecionado === 'dinheiro' && configuracao.aceitaDinheiro && (
+                <div className={styles.dadosTroco}>
+                  <strong>Você precisa de troco?</strong>
+                  <label><input type="radio" name="troco" checked={trocoOpcao === 'sem'} onChange={() => setTrocoOpcao('sem')} /> Não preciso de troco</label>
+                  <label><input type="radio" name="troco" checked={trocoOpcao === 'valor'} onChange={() => setTrocoOpcao('valor')} /> Troco para</label>
+                  {trocoOpcao === 'valor' && <input type="number" min={total} step="0.01" value={trocoPara} onChange={(event) => setTrocoPara(event.target.value)} placeholder={`Mínimo R$ ${total.toFixed(2).replace('.', ',')}`} />}
+                </div>
+              )}
 
-            {/* OBSERVAÇÃO */}
-
-            <section className={styles.cardFormulario}>
-              <div className={styles.tituloCard}>
-                <div className={styles.iconeCard}>✎</div>
-                <h2>Observações do pedido</h2>
-              </div>
-              <div className={`${styles.campo} ${styles.campoCompleto}`}>
-                <label>Alguma instrução especial? <span>(opcional)</span></label>
-                <textarea
-                  value={dadosCliente.observacao}
-                  onChange={(event) => alterarCampo('observacao', event.target.value)}
-                  placeholder="Ex: retirar cebola, entregar na portaria..."
-                />
-              </div>
             </section>
 
           </div>
@@ -601,6 +701,8 @@ function FinalizarPedidos() {
                   <img
                     src={item.imagem}
                     alt={item.nome}
+                    loading="lazy"
+                    decoding="async"
                   />
 
                   <div className={styles.infoResumoItem}>
@@ -617,6 +719,7 @@ function FinalizarPedidos() {
 
                       <button
                         type="button"
+                        aria-label={`Diminuir quantidade de ${item.nome}`}
                         onClick={() =>
                           diminuirQuantidade(chaveItem(item))
                         }
@@ -630,6 +733,8 @@ function FinalizarPedidos() {
 
                       <button
                         type="button"
+                        aria-label={`Aumentar quantidade de ${item.nome}`}
+                        disabled={item.quantidade >= 50}
                         onClick={() =>
                           aumentarQuantidade(chaveItem(item))
                         }
@@ -698,9 +803,16 @@ function FinalizarPedidos() {
                 <span>Taxa de entrega</span>
 
                 <strong>
-                  R$ {taxaEntrega
-                    .toFixed(2)
-                    .replace('.', ',')}
+                  {taxaDefinida
+                    ? `R$ ${taxaEntrega.toFixed(2).replace('.', ',')}`
+                    : 'Selecione o bairro'}
+                </strong>
+              </div>
+
+              <div>
+                <span>Pedido mínimo</span>
+                <strong className={minimoAtingido ? styles.valorValido : styles.valorPendente}>
+                  {minimoAtingido ? 'Atingido' : `Faltam R$ ${(pedidoMinimo - subtotal).toFixed(2).replace('.', ',')}`}
                 </strong>
               </div>
 
@@ -750,9 +862,9 @@ function FinalizarPedidos() {
               type="button"
               className={styles.botaoFinalizar}
               onClick={finalizarPedido}
-              disabled={itens.length === 0}
+              disabled={enviando || itens.length === 0 || !lojaDisponivel || !minimoAtingido || formasDisponiveis.length === 0}
             >
-              Finalizar pedido
+              {enviando ? 'Enviando pedido…' : 'Finalizar pedido'}
             </button>
 
             {erro && <div className={styles.mensagemErro}>{erro}</div>}
@@ -761,7 +873,7 @@ function FinalizarPedidos() {
             <div className={styles.seguranca}>
               <span>✓</span>
 
-              Ambiente seguro para finalizar seu pedido.
+              Valores e disponibilidade serão validados pelo servidor.
             </div>
 
           </aside>
@@ -782,11 +894,11 @@ function FinalizarPedidos() {
 
             <div>
               <strong>
-                Pagamento seguro
+                Formas de pagamento
               </strong>
 
               <p>
-                Seus dados protegidos.
+                Escolha entre as opções habilitadas pela loja.
               </p>
             </div>
           </div>

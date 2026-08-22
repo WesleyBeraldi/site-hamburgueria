@@ -64,6 +64,55 @@
   text-decoration: none;
 }
 
+.pagina > main {
+  width: 100%;
+}
+
+.erroCatalogo {
+  position: fixed;
+  top: 7.5rem;
+  left: 50%;
+  z-index: 1500;
+  display: flex;
+  width: min(calc(100% - 3rem), 72rem);
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.6rem;
+  border: 1px solid rgba(255, 107, 107, 0.45);
+  border-radius: 1.2rem;
+  background: rgba(36, 15, 15, 0.96);
+  padding: 1.4rem 1.6rem;
+  color: #ffd0d0;
+  box-shadow: 0 1.8rem 5rem rgba(0, 0, 0, 0.45);
+  transform: translateX(-50%);
+}
+
+.erroCatalogo strong,
+.erroCatalogo span { display: block; }
+.erroCatalogo strong { font-size: 1.4rem; }
+.erroCatalogo span { margin-top: 0.3rem; color: #cf9a9a; font-size: 1.2rem; }
+.erroCatalogo button { flex: 0 0 auto; border: 1px solid #ff8181; border-radius: 999px; background: transparent; padding: 0.8rem 1.3rem; color: #ffd0d0; font-weight: 700; }
+
+.semResultados {
+  grid-column: 1 / -1;
+  margin: 0;
+  border: 1px dashed #353535;
+  border-radius: 1.2rem;
+  padding: 3rem 1.8rem;
+  color: #8f8f8f;
+  font-size: 1.4rem;
+  text-align: center;
+}
+
+.logo img,
+.logoRodape img {
+  display: block;
+  width: auto;
+  max-width: 14rem;
+  height: 5rem;
+  object-fit: contain;
+}
+
 .menu {
   display: flex;
   align-items: center;
@@ -241,6 +290,21 @@
   margin: 0 auto;
   padding: 4rem 3rem 5rem;
 }
+
+.statusLoja {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-bottom: 1.4rem;
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 0.7rem 1.1rem;
+  font-size: 1.05rem;
+}
+
+.statusLoja strong { font-weight: 900; }
+.statusAberta { border-color: rgba(66, 217, 129, 0.55); background: rgba(66, 217, 129, 0.12); color: #7aeba9; }
+.statusFechada { border-color: rgba(255, 119, 119, 0.55); background: rgba(255, 119, 119, 0.12); color: #ff9a9a; }
 
 .textoPequeno {
   display: block;
@@ -1486,7 +1550,7 @@
 
 
 .secaoObservacao textarea::placeholder {
-  color: #666666;
+  color: #8f8f8f;
 
   font-size: 1.1rem;
 }
@@ -1762,7 +1826,7 @@
 
   padding: 2rem;
 
-  display: flex;
+  display: none;
   flex-direction: column;
 
   color: #eeeeee;
@@ -1788,6 +1852,7 @@
 }
 
 .carrinhoAberto {
+  display: flex;
   transform: translateX(0);
 }
 
@@ -2248,6 +2313,27 @@
   transform: translateY(-2px);
 }
 
+.finalizarPedido:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.progressoMinimo {
+  display: grid;
+  gap: 0.6rem;
+  margin-bottom: 1.2rem;
+  color: #ff9a9a;
+  font-size: 1.05rem;
+}
+
+.progressoMinimo > div:first-child { display: flex; justify-content: space-between; gap: 1rem; }
+.barraMinimo { height: 0.55rem; overflow: hidden; border-radius: 999px; background: #333; }
+.barraMinimo span { display: block; height: 100%; border-radius: inherit; background: #ff7777; transition: width 0.2s ease; }
+.minimoAtingido { color: #55df8f; }
+.minimoAtingido .barraMinimo span { background: #42d981; }
+.bloqueioCarrinho { margin: 0 0 1rem; color: #ff9a9a; font-size: 1.05rem; text-align: center; }
+
 .continuarComprando {
   width: 100%;
   margin-top: 1.2rem;
@@ -2523,7 +2609,7 @@
 
 .horario span,
 .contatoSobre span {
-  color: #777777;
+  color: #999999;
 
   font-size: 0.95rem;
   font-weight: 500;
@@ -2554,6 +2640,9 @@
 
 
 .botaoWhatsapp {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 13rem;
   min-height: 3.4rem;
 
@@ -2570,6 +2659,7 @@
 
   border: 2px solid #ffc107;
   border-radius: 2rem;
+  text-decoration: none;
 
   cursor: pointer;
 
@@ -2615,7 +2705,7 @@
 .rodapeFinal p {
   margin: 0;
 
-  color: #666666;
+  color: #8f8f8f;
 
   font-size: 0.95rem;
 }
@@ -3001,21 +3091,167 @@
 
 }
 
-@media (max-width: 480px) {
+.horario strong { white-space: pre-line; line-height: 1.6; }
 
-  .listaAdicionais {
+@media (max-width: 700px) {
+  .cardapio {
+    min-height: auto;
+    padding: 4rem 1.5rem 6rem;
+  }
+
+  .topoPromocoes {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .controlesPromocao {
+    align-self: flex-end;
+  }
+
+  .indicadoresPromocao { gap: 0; }
+
+  .indicadoresPromocao button,
+  .indicadoresPromocao button.indicadorAtivo {
+    position: relative;
+    width: 4.4rem;
+    height: 4.4rem;
+    background: transparent;
+  }
+
+  .indicadoresPromocao button::before {
+    width: 0.7rem;
+    height: 0.7rem;
+    border-radius: 999px;
+    background: #4a4a4a;
+    content: '';
+  }
+
+  .indicadoresPromocao button.indicadorAtivo::before {
+    width: 2.2rem;
+    background: #ffc107;
+  }
+
+  .listaPromocoes {
     grid-template-columns: 1fr;
   }
 
-  .resumoProdutoModal {
-    grid-template-columns: 80px 1fr;
+  .cardPromocao {
+    grid-template-columns: 1fr;
   }
+
+  .imagemPromocao {
+    min-height: 18rem;
+  }
+
+  .pagina button {
+    min-width: 4.4rem;
+    min-height: 4.4rem;
+    font-size: 1.4rem;
+  }
+
+  .botaoCarrinho,
+  .descricaoBanner,
+  .topoPromocoes span,
+  .tipoPromocao,
+  .seloProduto,
+  .subtituloCarrinho,
+  .continuarComprando,
+  .horario span,
+  .contatoSobre span,
+  .rodapeFinal p,
+  .rodapeFinal a {
+    font-size: 1.4rem;
+  }
+
+  .numeroCarrinho,
+  .seloPromocao {
+    font-size: 1.2rem;
+  }
+
+  .horario strong,
+  .contatoSobre strong {
+    font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .erroCatalogo {
+    top: 6.2rem;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .erroCatalogo button { width: 100%; }
+
+  .listaAdicionais { grid-template-columns: 1fr; }
+  .resumoProdutoModal { display: block; }
 
   .resumoProdutoModal img {
-    width: 80px;
-    height: 80px;
+    width: 8rem;
+    height: 8rem;
+    margin-bottom: 1.2rem;
   }
 
+  .topoModalProduto {
+    position: relative;
+    display: block;
+  }
+
+  .resumoProdutoModal > div { padding-right: 0; }
+
+  .fecharModalProduto {
+    position: absolute;
+    top: 0;
+    right: 0;
+  }
+
+  .tituloSecaoModal {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .carrinhoLateral {
+    padding: 1.6rem;
+  }
+
+  .itemCarrinho {
+    min-height: 0;
+    grid-template-columns: 8.8rem minmax(0, 1fr);
+    gap: 1.2rem;
+    padding: 1rem;
+  }
+
+  .itemCarrinho img {
+    width: 8.8rem;
+    height: 8.8rem;
+  }
+
+  .nomeRemover h3 {
+    font-size: 1.6rem;
+  }
+
+  .descricaoItemCarrinho {
+    font-size: 1.2rem;
+  }
+
+  .infoItemCarrinho .precoItemCarrinho {
+    font-size: 1.8rem;
+    white-space: nowrap;
+  }
+
+  .carrinhoLateral .controleQuantidade {
+    width: 13.2rem;
+    height: 4.4rem;
+    grid-template-columns: 4.4rem 1fr 4.4rem;
+  }
+
+  .carrinhoLateral .controleQuantidade button {
+    width: 4.4rem;
+    height: 4.4rem;
+    min-width: 4.4rem;
+    min-height: 4.4rem;
+  }
 }
 
 .semAdicionais {
@@ -3024,7 +3260,7 @@
   border: 1px dashed #363636;
   border-radius: 10px;
   padding: 18px;
-  color: #777777;
+  color: #929292;
   font-size: 12px;
   text-align: center;
 }

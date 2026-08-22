@@ -21,6 +21,7 @@ import {
   abrirComanda,
   alternarStatusFuncionario,
   atualizarStatusPedido,
+  buscarConfiguracao,
   buscarFuncionarioPorToken,
   criarPedidoDelivery,
   enviarComanda,
@@ -40,11 +41,54 @@ import { criarHashToken, criarTokenSessao, verificarSenha } from './security.js'
 const LIMITE_CORPO = 2 * 1024 * 1024;
 const DURACAO_SESSAO_ADMIN_MS = 12 * 60 * 60 * 1000;
 const DURACAO_SESSAO_GARCOM_MS = 8 * 60 * 60 * 1000;
+const JANELA_TENTATIVAS_LOGIN_MS = 15 * 60 * 1000;
 
 class ErroHttp extends Error {
   constructor(status, message) {
     super(message);
     this.status = status;
+  }
+}
+
+export function criarLimitadorTentativas({ limite = 5, janelaMs = JANELA_TENTATIVAS_LOGIN_MS } = {}) {
+  const registros = new Map();
+
+  function obter(chave, agora) {
+    const registro = registros.get(chave);
+    if (!registro || registro.inicio + janelaMs <= agora) {
+      registros.delete(chave);
+      return null;
+    }
+    return registro;
+  }
+
+  return {
+    permite(chave, agora = Date.now()) {
+      return (obter(chave, agora)?.tentativas ?? 0) < limite;
+    },
+    registrarFalha(chave, agora = Date.now()) {
+      const registro = obter(chave, agora);
+      registros.set(chave, registro
+        ? { ...registro, tentativas: registro.tentativas + 1 }
+        : { inicio: agora, tentativas: 1 });
+    },
+    limpar(chave) {
+      registros.delete(chave);
+    }
+  };
+}
+
+function chavesTentativa(requisicao, tipo, identificador) {
+  const endereco = requisicao.socket.remoteAddress || 'desconhecido';
+  return [
+    `${tipo}:ip:${endereco}`,
+    `${tipo}:identificador:${criarHashToken(String(identificador ?? ''))}`
+  ];
+}
+
+function validarLimiteLogin(limitador, chaves) {
+  if (chaves.some((chave) => !limitador.permite(chave))) {
+    throw new ErroHttp(429, 'Muitas tentativas de acesso. Aguarde alguns minutos e tente novamente.');
   }
 }
 
@@ -114,7 +158,7 @@ async function obterGarcom(banco, requisicao) {
 
   await banco.query('DELETE FROM sessoes_garcom WHERE expira_em <= CURRENT_TIMESTAMP(3)');
   const [linhas] = await banco.execute(`
-    SELECT f.id, f.nome, f.cargo, f.token_acesso
+    SELECT f.id, f.nome, f.cargo
     FROM sessoes_garcom s
     INNER JOIN funcionarios f ON f.id = s.funcionario_id
     WHERE s.token_hash = ? AND s.expira_em > CURRENT_TIMESTAMP(3) AND f.ativo = 1
@@ -124,8 +168,7 @@ async function obterGarcom(banco, requisicao) {
   return {
     id: String(sessao.id),
     nome: sessao.nome,
-    cargo: sessao.cargo,
-    acessoToken: sessao.token_acesso
+    cargo: sessao.cargo
   };
 }
 
@@ -135,7 +178,7 @@ function tratarErroDados(erro) {
   if (['ER_ROW_IS_REFERENCED_2', 'ER_NO_REFERENCED_ROW_2'].includes(erro.code)) {
     throw new ErroHttp(409, 'Este cadastro está vinculado a outro registro e não pode ser alterado.');
   }
-  throw new ErroHttp(400, erro.message || 'Não foi possível salvar os dados.');
+  throw erro;
 }
 
 async function criarSessao(banco, tabela, campoId, id, duracaoMs) {
@@ -152,13 +195,13 @@ async function processarImagemNova(imagem, pastaUploads) {
   return salvarImagemDataUrl(imagem, pastaUploads);
 }
 
-async function processarImagemAtualizada(imagem, imagemAnterior, pastaUploads) {
-  if (String(imagem ?? '').startsWith('data:')) return salvarImagemDataUrl(imagem, pastaUploads);
+async function processarImagemAtualizada(imagem, imagemAnterior, pastaUploads, prefixo = 'produto') {
+  if (String(imagem ?? '').startsWith('data:')) return salvarImagemDataUrl(imagem, pastaUploads, prefixo);
   if (imagem === null || imagem === '') return null;
   return imagemAnterior ?? null;
 }
 
-async function rotaPublica({ banco, requisicao, resposta, caminho, url }) {
+async function rotaPublica({ banco, requisicao, resposta, caminho, url, limitadorPedidos }) {
   if (requisicao.method === 'GET' && caminho === '/api/saude') {
     await banco.query('SELECT 1');
     responderJson(resposta, 200, { status: 'ok', banco: 'mysql-conectado' });
@@ -178,6 +221,11 @@ async function rotaPublica({ banco, requisicao, resposta, caminho, url }) {
   }
 
   if (requisicao.method === 'POST' && caminho === '/api/pedidos') {
+    const chaveLimite = `pedido:ip:${requisicao.socket.remoteAddress || 'desconhecido'}`;
+    if (!limitadorPedidos.permite(chaveLimite)) {
+      throw new ErroHttp(429, 'Muitas tentativas de pedido. Aguarde um minuto e tente novamente.');
+    }
+    limitadorPedidos.registrarFalha(chaveLimite);
     const dados = await lerJson(requisicao);
     try {
       const pedido = await criarPedidoDelivery(banco, dados);
@@ -199,10 +247,12 @@ async function rotaPublica({ banco, requisicao, resposta, caminho, url }) {
   return false;
 }
 
-async function rotaAdmin({ banco, pastaUploads, requisicao, resposta, caminho }) {
+async function rotaAdmin({ banco, pastaUploads, requisicao, resposta, caminho, limitadorAdmin }) {
   if (requisicao.method === 'POST' && caminho === '/api/admin/login') {
     const dados = await lerJson(requisicao);
     const identificador = String(dados.usuario ?? '').trim();
+    const chaves = chavesTentativa(requisicao, 'admin', identificador);
+    validarLimiteLogin(limitadorAdmin, chaves);
     const [linhas] = await banco.execute(`
       SELECT * FROM administradores
       WHERE (LOWER(usuario) = LOWER(?) OR LOWER(email) = LOWER(?)) AND ativo = 1
@@ -210,8 +260,10 @@ async function rotaAdmin({ banco, pastaUploads, requisicao, resposta, caminho })
     `, [identificador, identificador]);
     const administrador = linhas[0];
     if (!administrador || !verificarSenha(String(dados.senha ?? ''), administrador.senha_hash)) {
+      chaves.forEach((chave) => limitadorAdmin.registrarFalha(chave));
       throw new ErroHttp(401, 'Usuário ou senha incorretos.');
     }
+    chaves.forEach((chave) => limitadorAdmin.limpar(chave));
     const sessao = await criarSessao(
       banco,
       'sessoes_admin',
@@ -383,20 +435,38 @@ async function rotaAdmin({ banco, pastaUploads, requisicao, resposta, caminho })
   }
 
   if (requisicao.method === 'PUT' && caminho === '/api/admin/configuracao') {
-    responderJson(resposta, 200, { configuracao: await salvarConfiguracao(banco, await lerJson(requisicao)) });
+    const anterior = await buscarConfiguracao(banco);
+    const dados = await lerJson(requisicao);
+    let logo;
+    let novaLogo = null;
+    try {
+      logo = await processarImagemAtualizada(dados.logo, anterior.logo, pastaUploads, 'logo');
+      if (logo !== anterior.logo) novaLogo = logo;
+      const configuracao = await salvarConfiguracao(banco, { ...dados, logo });
+      if (anterior.logo && anterior.logo !== logo) await removerImagemLocal(anterior.logo, pastaUploads);
+      responderJson(resposta, 200, { configuracao });
+    } catch (erro) {
+      if (novaLogo) await removerImagemLocal(novaLogo, pastaUploads);
+      tratarErroDados(erro);
+    }
     return true;
   }
 
   return false;
 }
 
-async function rotaGarcom({ banco, requisicao, resposta, caminho }) {
+async function rotaGarcom({ banco, requisicao, resposta, caminho, limitadorGarcom }) {
   if (requisicao.method === 'POST' && caminho === '/api/garcom/login') {
     const dados = await lerJson(requisicao);
-    const funcionario = await buscarFuncionarioPorToken(banco, String(dados.token ?? ''));
+    const tokenAcesso = String(dados.token ?? '');
+    const chaves = chavesTentativa(requisicao, 'garcom', tokenAcesso);
+    validarLimiteLogin(limitadorGarcom, chaves);
+    const funcionario = await buscarFuncionarioPorToken(banco, tokenAcesso);
     if (!funcionario || !verificarSenha(String(dados.pin ?? ''), funcionario.pin_hash)) {
-      throw new ErroHttp(401, 'QR Code ou PIN incorreto.');
+      chaves.forEach((chave) => limitadorGarcom.registrarFalha(chave));
+      throw new ErroHttp(401, 'Não foi possível autenticar com os dados informados.');
     }
+    chaves.forEach((chave) => limitadorGarcom.limpar(chave));
     const sessao = await criarSessao(
       banco,
       'sessoes_garcom',
@@ -428,7 +498,7 @@ async function rotaGarcom({ banco, requisicao, resposta, caminho }) {
   const garcom = await obterGarcom(banco, requisicao);
 
   if (requisicao.method === 'GET' && caminho === '/api/garcom/dados') {
-    responderJson(resposta, 200, await listarDadosGarcom(banco));
+    responderJson(resposta, 200, await listarDadosGarcom(banco, garcom.id));
     return true;
   }
 
@@ -534,13 +604,31 @@ async function servirFrontend({ requisicao, resposta, caminho, pastaUploads, pas
   return enviarArquivo(resposta, resolve(pastaDist, 'index.html'), 'no-cache');
 }
 
-export function criarServidor({ banco, pastaUploads, pastaDist = null }) {
+export function criarServidor({ banco, pastaUploads, pastaDist = null, limitePedidosPorMinuto = 30 }) {
+  const limitadorAdmin = criarLimitadorTentativas({ limite: 10 });
+  const limitadorGarcom = criarLimitadorTentativas({ limite: 5 });
+  const limitadorPedidos = criarLimitadorTentativas({ limite: limitePedidosPorMinuto, janelaMs: 60 * 1000 });
   return createServer(async (requisicao, resposta) => {
-    const url = new URL(requisicao.url, 'http://localhost');
-    const caminho = decodeURIComponent(url.pathname);
     try {
+      const url = new URL(requisicao.url, 'http://localhost');
+      let caminho;
+      try {
+        caminho = decodeURIComponent(url.pathname);
+      } catch {
+        throw new ErroHttp(400, 'A URL informada é inválida.');
+      }
       if (caminho.startsWith('/api/')) {
-        const atendida = await rotaApi({ banco, pastaUploads, requisicao, resposta, caminho, url });
+        const atendida = await rotaApi({
+          banco,
+          pastaUploads,
+          requisicao,
+          resposta,
+          caminho,
+          url,
+          limitadorAdmin,
+          limitadorGarcom,
+          limitadorPedidos
+        });
         if (!atendida) responderJson(resposta, 404, { erro: 'Rota da API não encontrada.' });
         return;
       }

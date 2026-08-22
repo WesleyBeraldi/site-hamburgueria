@@ -15,6 +15,7 @@ function DetalhesPedido() {
   const { pedidos, atualizarStatusPedido } = useApp();
   const navigate = useNavigate();
   const [erro, setErro] = useState('');
+  const [processando, setProcessando] = useState(false);
   const pedido = pedidos.find((item) => item.id.replace('#', '') === id);
 
   if (!pedido) {
@@ -38,11 +39,15 @@ function DetalhesPedido() {
   );
 
   async function mudarStatus(status) {
+    if (processando || status === pedido.status) return;
     setErro('');
+    setProcessando(true);
     try {
       await atualizarStatusPedido(pedido.id, status);
     } catch (falha) {
       setErro(falha.message);
+    } finally {
+      setProcessando(false);
     }
   }
 
@@ -51,12 +56,12 @@ function DetalhesPedido() {
       <section className={styles.card}>
         <div className={styles.topoCard}>
           <div><h2>Acompanhamento</h2><p>Atualize o status conforme o andamento do pedido.</p></div>
-          <select className={styles.seletor} value={pedido.status} onChange={(event) => mudarStatus(event.target.value)} aria-label="Status do pedido">
+          <select disabled={processando || ['Entregue', 'Entregue na mesa', 'Cancelado'].includes(pedido.status)} className={styles.seletor} value={pedido.status} onChange={(event) => mudarStatus(event.target.value)} aria-label="Status do pedido">
             {fluxo.map((status) => <option key={status} value={status}>{status}</option>)}
             <option value="Cancelado">Cancelado</option>
           </select>
         </div>
-        {erro && <div className={styles.erro}>{erro}</div>}
+        {erro && <div className={styles.erro} role="alert">{erro}</div>}
         <div className={styles.linhaStatus}>
           {fluxo.map((status, indice) => (
             <div key={status} className={`${styles.etapa} ${pedido.status !== 'Cancelado' && indice <= indiceAtual ? styles.etapaAtiva : ''}`}>{status}</div>
@@ -70,7 +75,7 @@ function DetalhesPedido() {
             <div className={styles.topoCard}><div><h2>Itens do pedido</h2><p>{pedido.itens.length} {pedido.itens.length === 1 ? 'item' : 'itens'} registrados</p></div></div>
             {pedido.itens.map((item, indice) => (
               <div className={styles.itemPedido} key={`${item.id}-${indice}`}>
-                <img src={item.imagem} alt={item.nome} />
+                <img src={item.imagem} alt={item.nome} loading="lazy" decoding="async" />
                 <div>
                   <h4>{item.quantidade}x {item.nome}</h4>
                   {item.adicionais?.length > 0 && <p>Adicionais: {item.adicionais.map((adicional) => adicional.nome ?? adicional).join(', ')}</p>}
@@ -82,12 +87,6 @@ function DetalhesPedido() {
             <div className={styles.totalGrande}><span>Total do pedido</span><strong>{moeda(pedido.total)}</strong></div>
           </section>
 
-          {pedido.observacao && (
-            <section className={styles.card}>
-              <div className={styles.topoCard}><div><h2>Observações</h2><p>Informações enviadas com o pedido</p></div></div>
-              <div className={styles.aviso}>{pedido.observacao}</div>
-            </section>
-          )}
         </div>
 
         <aside>
@@ -106,6 +105,8 @@ function DetalhesPedido() {
             <div className={styles.topoCard}><div><h2>Pagamento</h2><p>Resumo financeiro</p></div></div>
             <div className={styles.listaInfo}>
               <div className={styles.linhaInfo}><span>Forma de pagamento</span><strong>{pedido.pagamento}</strong></div>
+              <div className={styles.linhaInfo}><span>Status do pagamento</span><strong>{pedido.pagamentoStatus}</strong></div>
+              {pedido.pagamento === 'Dinheiro' && <div className={styles.linhaInfo}><span>Troco</span><strong>{pedido.semTroco === true ? 'Não precisa de troco' : pedido.trocoPara != null ? `Para R$ ${Number(pedido.trocoPara).toFixed(2).replace('.', ',')}` : 'Não informado'}</strong></div>}
               <div className={styles.linhaInfo}><span>Subtotal</span><strong>{moeda(subtotal)}</strong></div>
               <div className={styles.linhaInfo}><span>Taxa de entrega</span><strong>{moeda(pedido.taxaEntrega ?? 0)}</strong></div>
             </div>

@@ -20,6 +20,8 @@ import ConfiguracoesAdmin from './pages/admin/configuracoes';
 import AcessoGarcom from './pages/garcom/acesso';
 import MesasGarcom from './pages/garcom/mesas';
 import ComandaGarcom from './pages/garcom/comanda';
+import PoliticaPrivacidade from './pages/legal/privacidade';
+import TermosUso from './pages/legal/termos';
 
 function App() {
   return (
@@ -28,6 +30,8 @@ function App() {
       <Route path="/finalizar-pedido" element={<FinalizarPedidos />} />
       <Route path="/pedido-finalizado" element={<PedidoFinalizado />} />
       <Route path="/pedidoFinalizado" element={<Navigate to="/pedido-finalizado" replace />} />
+      <Route path="/politica-de-privacidade" element={<PoliticaPrivacidade />} />
+      <Route path="/termos-de-uso" element={<TermosUso />} />
 
       <Route path="/admin/login" element={<LoginAdmin />} />
       <Route element={<RequireAdmin />}>

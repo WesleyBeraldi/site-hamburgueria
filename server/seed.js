@@ -134,8 +134,8 @@ export const promocoesSeed = [
 ];
 
 export const funcionariosSeed = [
-  { id: 1, nome: 'Carlos Silva', cargo: 'Garçom', pin: '1234', token: 'carlos-7f3a9d2c' },
-  { id: 2, nome: 'Ana Souza', cargo: 'Garçonete', pin: '5678', token: 'ana-4b8e1c6f' }
+  { id: 1, nome: 'Carlos Silva', cargo: 'Garçom' },
+  { id: 2, nome: 'Ana Souza', cargo: 'Garçonete' }
 ];
 
 export const mesasSeed = Array.from({ length: 12 }, (_, indice) => ({
@@ -233,7 +233,6 @@ export const pedidosSeed = [
     rua: 'Rua das Palmeiras',
     numero: '123',
     bairro: 'Centro',
-    observacao: 'Sem cebola.',
     taxaEntregaCentavos: 790,
     totalCentavos: 6770,
     criadoEm: '2026-08-18T19:32:00.000Z',
@@ -245,10 +244,10 @@ export const pedidosSeed = [
 ];
 
 export const configuracaoSeed = {
-  nomeLoja: 'Hamburgueria',
-  telefone: '(11) 99999-9999',
-  email: 'contato@hamburgueria.com',
-  endereco: 'Rua Principal, 100 - Centro',
+  nomeLoja: '',
+  telefone: '',
+  email: '',
+  endereco: '',
   taxaEntregaCentavos: 790,
   tempoEntrega: '35–45 min',
   pedidoMinimoCentavos: 2000,

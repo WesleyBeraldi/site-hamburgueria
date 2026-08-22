@@ -13,6 +13,8 @@ function FuncionariosAdmin() {
   const navigate = useNavigate();
   const [formulario, setFormulario] = useState(null);
   const [erro, setErro] = useState('');
+  const [processando, setProcessando] = useState(false);
+  const [alterandoId, setAlterandoId] = useState(null);
 
   function alterar(campo, valor) {
     setFormulario((atual) => ({ ...atual, [campo]: valor }));
@@ -20,24 +22,32 @@ function FuncionariosAdmin() {
 
   async function enviar(event) {
     event.preventDefault();
+    if (processando) return;
     if (!formulario.nome.trim() || !/^\d{4,6}$/.test(formulario.pin)) {
       setErro('Informe o nome e um PIN numérico de 4 a 6 dígitos.');
       return;
     }
+    setProcessando(true);
     try {
       await salvarFuncionario(formulario);
       setFormulario(null);
       setErro('');
     } catch (falha) {
       setErro(falha.message);
+    } finally {
+      setProcessando(false);
     }
   }
 
   async function mudarStatus(funcionario) {
+    if (alterandoId) return;
+    setAlterandoId(funcionario.id);
     try {
       await alternarFuncionario(funcionario.id);
     } catch (falha) {
       setErro(falha.message);
+    } finally {
+      setAlterandoId(null);
     }
   }
 
@@ -61,9 +71,9 @@ function FuncionariosAdmin() {
               <div className={styles.campo}><label htmlFor="cargoFuncionario">Cargo</label><select id="cargoFuncionario" value={formulario.cargo} onChange={(event) => alterar('cargo', event.target.value)}><option>Garçom</option><option>Garçonete</option><option>Atendente</option></select></div>
               <div className={styles.campo}><label htmlFor="pinFuncionario">PIN de acesso</label><input id="pinFuncionario" type="password" inputMode="numeric" maxLength="6" value={formulario.pin} onChange={(event) => alterar('pin', event.target.value.replace(/\D/g, ''))} placeholder="4 a 6 dígitos" /></div>
             </div>
-            {erro && <div className={styles.erro}>{erro}</div>}
+            {erro && <div className={styles.erro} role="alert">{erro}</div>}
             <div className={styles.aviso}>O QR Code guarda apenas um identificador seguro do funcionário. O PIN nunca é inserido no código.</div>
-            <div className={styles.rodapeFormulario}><button type="button" className={styles.botaoSecundario} onClick={() => setFormulario(null)}>Cancelar</button><button type="submit" className={styles.botaoPrimario}><Save size={17} /> Salvar funcionário</button></div>
+            <div className={styles.rodapeFormulario}><button disabled={processando} type="button" className={styles.botaoSecundario} onClick={() => setFormulario(null)}>Cancelar</button><button disabled={processando} type="submit" className={styles.botaoPrimario}><Save size={17} /> {processando ? 'Salvando…' : 'Salvar funcionário'}</button></div>
           </form>
         </section>
       )}
@@ -71,14 +81,14 @@ function FuncionariosAdmin() {
       <section className={styles.card}>
         <div className={styles.topoCard}><div><h2>Equipe cadastrada</h2><p>Controle status, acesso e desempenho.</p></div></div>
         <div className={styles.tabelaContainer}>
-          <table className={styles.tabela}>
+          <table className={styles.tabela} aria-label="Funcionários cadastrados">
             <thead><tr><th>Funcionário</th><th>Cargo</th><th>Status</th><th>PIN</th><th>Comandas</th><th>Vendas</th><th>Ações</th></tr></thead>
             <tbody>
               {funcionarios.map((funcionario) => (
                 <tr key={funcionario.id}>
                   <td><strong>{funcionario.nome}</strong><span className={styles.textoSecundario}>{funcionario.id}</span></td>
                   <td>{funcionario.cargo}</td>
-                  <td><button type="button" className={`${styles.status} ${funcionario.status === 'Ativo' ? styles.statusAtivo : styles.statusInativo}`} onClick={() => mudarStatus(funcionario)}>{funcionario.status}</button></td>
+                  <td><button disabled={alterandoId === funcionario.id} type="button" className={`${styles.status} ${funcionario.status === 'Ativo' ? styles.statusAtivo : styles.statusInativo}`} onClick={() => mudarStatus(funcionario)}>{alterandoId === funcionario.id ? 'Atualizando…' : funcionario.status}</button></td>
                   <td>••••</td>
                   <td>{funcionario.comandas}</td>
                   <td>{funcionario.vendas}</td>
@@ -89,7 +99,7 @@ function FuncionariosAdmin() {
           </table>
         </div>
       </section>
-      {erro && !formulario && <div className={styles.erro}>{erro}</div>}
+      {erro && !formulario && <div className={styles.erro} role="alert">{erro}</div>}
     </AdminLayout>
   );
 }

@@ -8,7 +8,7 @@ function LoginAdmin() {
 
     const navigate = useNavigate();
     const location = useLocation();
-    const { entrarAdmin } = useApp();
+    const { entrarAdmin, configuracao } = useApp();
 
     const [usuario, setUsuario] = useState('');
     const [senha, setSenha] = useState('');
@@ -61,7 +61,7 @@ function LoginAdmin() {
                         className={styles.logo}
                         onClick={() => navigate('/')}
                     >
-                        Logo
+                        {configuracao.nomeLoja || 'Administração'}
                     </div>
 
                     <button
@@ -240,7 +240,7 @@ function LoginAdmin() {
 
                             {erro && (
 
-                                <div className={styles.erro}>
+                                <div className={styles.erro} role="alert">
                                     {erro}
                                 </div>
 

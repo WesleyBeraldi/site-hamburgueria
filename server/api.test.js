@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,15 +7,163 @@ import { after, before, test } from 'node:test';
 
 import mysql from 'mysql2/promise';
 
-import { criarServidor } from './app.js';
+import { criarLimitadorTentativas, criarServidor } from './app.js';
 import { precoParaCentavos } from './catalog.js';
 import { abrirBanco, fecharBanco } from './database.js';
+import { buscarItensValidados, calcularTotaisPedido } from './operations.js';
 import { aguardarServidor, fecharServidor } from './runtime.js';
 
 test('converte preços brasileiros e decimais para centavos', () => {
   assert.equal(precoParaCentavos('34,90'), 3490);
   assert.equal(precoParaCentavos('1.234,56'), 123456);
   assert.equal(precoParaCentavos(7.9), 790);
+});
+
+function conexaoCatalogo({ promocao = null } = {}) {
+  const produto = {
+    id: 5,
+    nome: 'Combo X-Bacon',
+    descricao: 'Produto do cardápio',
+    imagem_url: '/produto.webp',
+    preco_centavos: 4990,
+    ativo: 1
+  };
+  return {
+    async execute(sql, parametros) {
+      if (sql.includes('FROM produtos WHERE id')) {
+        return [[Number(parametros[0]) === produto.id ? produto : null].filter(Boolean)];
+      }
+      if (sql.includes('FROM promocoes WHERE id')) {
+        const corresponde = promocao
+          && Number(parametros[0]) === Number(promocao.id)
+          && Number(parametros[1]) === Number(promocao.produto_id);
+        return [[corresponde ? promocao : null].filter(Boolean)];
+      }
+      throw new Error(`Consulta inesperada no teste: ${sql}`);
+    }
+  };
+}
+
+function promocaoTeste(sobrescritas = {}) {
+  return {
+    id: 101,
+    produto_id: 5,
+    nome: 'Combo promocional',
+    descricao: 'Oferta válida',
+    imagem_url: '/promocao.webp',
+    preco_centavos: 4240,
+    ativo: 1,
+    inicio_em: null,
+    fim_em: null,
+    ...sobrescritas
+  };
+}
+
+test('recalcula produto normal e ignora preço adulterado pelo navegador', async () => {
+  const [item] = await buscarItensValidados(conexaoCatalogo(), [{
+    produtoId: 5,
+    quantidade: 2,
+    preco: 0.01
+  }]);
+  assert.equal(item.precoCentavos, 4990);
+  assert.deepEqual(calcularTotaisPedido([item], 790), {
+    subtotalCentavos: 9980,
+    totalCentavos: 10770
+  });
+});
+
+test('aplica promoção vinculada e calcula o total no servidor', async () => {
+  const [item] = await buscarItensValidados(conexaoCatalogo({ promocao: promocaoTeste() }), [{
+    produtoId: 5,
+    promocaoId: 101,
+    quantidade: 1,
+    preco: 9999
+  }]);
+  assert.equal(item.promocaoId, 101);
+  assert.equal(item.nome, 'Combo promocional');
+  assert.equal(item.precoCentavos, 4240);
+  assert.equal(calcularTotaisPedido([item], 790).totalCentavos, 5030);
+});
+
+test('rejeita promoção vencida', async () => {
+  const promocao = promocaoTeste({ fim_em: new Date(Date.now() - 60_000) });
+  await assert.rejects(
+    buscarItensValidados(conexaoCatalogo({ promocao }), [{ produtoId: 5, promocaoId: 101, quantidade: 1 }]),
+    (erro) => erro.status === 409
+  );
+});
+
+test('rejeita promoção desativada', async () => {
+  const promocao = promocaoTeste({ ativo: 0 });
+  await assert.rejects(
+    buscarItensValidados(conexaoCatalogo({ promocao }), [{ produtoId: 5, promocaoId: 101, quantidade: 1 }]),
+    (erro) => erro.status === 409
+  );
+});
+
+test('rejeita formatos e volumes abusivos antes de persistir o pedido', async () => {
+  await assert.rejects(
+    buscarItensValidados(conexaoCatalogo(), [null]),
+    (erro) => erro.status === 400 && /formato inválido/i.test(erro.message)
+  );
+  await assert.rejects(
+    buscarItensValidados(conexaoCatalogo(), [{ produtoId: 5, quantidade: -1 }]),
+    (erro) => erro.status === 400 && /quantidade inválida/i.test(erro.message)
+  );
+  await assert.rejects(
+    buscarItensValidados(conexaoCatalogo(), Array.from({ length: 101 }, () => ({ produtoId: 5, quantidade: 1 }))),
+    (erro) => erro.status === 400 && /no máximo 100/i.test(erro.message)
+  );
+  await assert.rejects(
+    buscarItensValidados(conexaoCatalogo(), Array.from({ length: 11 }, () => ({ produtoId: 5, quantidade: 50 }))),
+    (erro) => erro.status === 400 && /no máximo 500/i.test(erro.message)
+  );
+  await assert.rejects(
+    buscarItensValidados(conexaoCatalogo(), [{ produtoId: 5, quantidade: 1, adicionais: '1,2' }]),
+    (erro) => erro.status === 400 && /lista de adicionais/i.test(erro.message)
+  );
+  assert.throws(
+    () => calcularTotaisPedido([{ precoCentavos: 100_000_000, quantidade: 50 }], 0),
+    (erro) => erro.status === 400 && /excede o limite/i.test(erro.message)
+  );
+});
+
+test('limita tentativas repetidas de autenticação', () => {
+  const limitador = criarLimitadorTentativas({ limite: 3, janelaMs: 1000 });
+  assert.equal(limitador.permite('acesso', 0), true);
+  limitador.registrarFalha('acesso', 0);
+  limitador.registrarFalha('acesso', 1);
+  limitador.registrarFalha('acesso', 2);
+  assert.equal(limitador.permite('acesso', 3), false);
+  assert.equal(limitador.permite('acesso', 1000), true);
+});
+
+test('não expõe detalhes internos quando o banco falha', async () => {
+  const bancoComFalha = {
+    async execute() { throw new Error('segredo-interno-do-mysql'); },
+    async query() { throw new Error('segredo-interno-do-mysql'); }
+  };
+  const servidorComFalha = criarServidor({ banco: bancoComFalha, pastaUploads: tmpdir() });
+  await aguardarServidor(servidorComFalha, 0);
+  const erroOriginal = console.error;
+  const errosRegistrados = [];
+  console.error = (...argumentos) => errosRegistrados.push(argumentos);
+  try {
+    const base = `http://127.0.0.1:${servidorComFalha.address().port}`;
+    const urlInvalida = await fetch(`${base}/api/%`);
+    assert.equal(urlInvalida.status, 400);
+    assert.match((await urlInvalida.json()).erro, /URL informada é inválida/i);
+
+    const resposta = await fetch(`${base}/api/publico/inicial`);
+    const corpo = await resposta.json();
+    assert.equal(resposta.status, 500);
+    assert.equal(corpo.erro, 'Erro interno do servidor.');
+    assert.equal(JSON.stringify(corpo).includes('segredo-interno-do-mysql'), false);
+    assert.ok(errosRegistrados.some((argumentos) => argumentos.some((valor) => String(valor).includes('segredo-interno-do-mysql'))));
+  } finally {
+    console.error = erroOriginal;
+    await fecharServidor(servidorComFalha);
+  }
 });
 
 const executarIntegracao = process.env.RUN_MYSQL_TESTS === '1' || Boolean(process.env.DB_PASSWORD);
@@ -27,6 +176,36 @@ if (!executarIntegracao) {
   let pastaTemporaria;
   let pastaUploads;
   let urlBase;
+  let tokenGarcomDemonstracao;
+  let tokenGarcomAna;
+  let tokenSessaoGarcom;
+  let idGarcomDemonstracao;
+  let tokenAdmin;
+
+  const configuracaoValida = {
+    nomeLoja: 'Hambúrguer Teste',
+    telefone: '(11) 4000-1234',
+    whatsapp: '(11) 98888-7777',
+    email: 'contato@hamburguerteste.local',
+    endereco: 'Rua da Integração, 100 - Centro',
+    horarioFuncionamento: 'Segunda a domingo: 18h às 23h',
+    instagramUrl: 'https://instagram.com/hamburguerteste',
+    facebookUrl: '',
+    taxaEntrega: 7.9,
+    tempoEntrega: '30–45 min',
+    pedidoMinimo: 20,
+    lojaAberta: true,
+    entregaAtiva: true,
+    aceitaCartao: true,
+    aceitaDinheiro: true,
+    pixChave: '',
+    pixBeneficiario: '',
+    logo: '',
+    areasEntrega: [
+      { bairro: 'Centro', taxa: 5 },
+      { bairro: 'Bairro Sul', taxa: 8.5 }
+    ]
+  };
 
   const nomeBanco = `${process.env.DB_NAME || 'hamburgueria'}_testes`;
   const configuracaoMySql = {
@@ -58,10 +237,39 @@ if (!executarIntegracao) {
     return { status: resposta.status, corpo: await resposta.json() };
   }
 
+  async function salvarConfiguracaoTeste(sobrescritas = {}) {
+    return chamar('/api/admin/configuracao', {
+      metodo: 'PUT',
+      token: tokenAdmin,
+      dados: { ...configuracaoValida, ...sobrescritas }
+    });
+  }
+
+  function dadosPedido(sobrescritas = {}) {
+    return {
+      nome: 'Cliente Teste',
+      telefone: '(11) 90000-0000',
+      email: `cliente-${randomUUID()}@teste.local`,
+      rua: 'Rua do Teste',
+      numero: '10',
+      bairro: 'Centro',
+      modalidade: 'delivery',
+      chaveIdempotencia: randomUUID(),
+      pagamento: 'Cartão na entrega',
+      itens: [{ id: 1, quantidade: 1 }],
+      ...sobrescritas
+    };
+  }
+
   before(async () => {
     pastaTemporaria = await mkdtemp(join(tmpdir(), 'hamburgueria-api-'));
     pastaUploads = join(pastaTemporaria, 'uploads');
-    banco = await abrirBanco({ mysql: configuracaoMySql, administrador });
+    banco = await abrirBanco({
+      mysql: configuracaoMySql,
+      administrador,
+      incluirDadosDemonstracao: true,
+      pinFuncionarioDemonstracao: '246810'
+    });
     servidor = criarServidor({ banco, pastaUploads });
     await aguardarServidor(servidor, 0);
     urlBase = `http://127.0.0.1:${servidor.address().port}`;
@@ -91,7 +299,7 @@ if (!executarIntegracao) {
     assert.equal(publico.corpo.produtos.length, 7);
     assert.equal(publico.corpo.adicionais.length, 6);
     assert.equal(publico.corpo.promocoes.length, 5);
-    assert.equal(publico.corpo.funcionarios.length, 2);
+    assert.equal('funcionarios' in publico.corpo, false);
   });
 
   test('autentica o administrador e protege os dados gerenciais', async () => {
@@ -109,6 +317,19 @@ if (!executarIntegracao) {
     assert.equal(dados.status, 200);
     assert.equal(dados.corpo.pedidos.length, 4);
     assert.equal(dados.corpo.mesas.length, 12);
+    tokenGarcomDemonstracao = dados.corpo.funcionarios.find((item) => item.nome === 'Carlos Silva').token;
+    tokenGarcomAna = dados.corpo.funcionarios.find((item) => item.nome === 'Ana Souza').token;
+    tokenAdmin = login.corpo.token;
+
+    const configurada = await salvarConfiguracaoTeste();
+    assert.equal(configurada.status, 200);
+    const publico = await chamar('/api/publico/inicial');
+    assert.equal(publico.corpo.configuracao.nomeLoja, 'Hambúrguer Teste');
+    assert.equal(publico.corpo.configuracao.whatsapp, '(11) 98888-7777');
+    assert.deepEqual(publico.corpo.configuracao.areasEntrega, [
+      { bairro: 'Centro', taxa: 5 },
+      { bairro: 'Bairro Sul', taxa: 8.5 }
+    ]);
   });
 
   test('cria delivery com preços recalculados e acompanhamento protegido', async () => {
@@ -121,13 +342,34 @@ if (!executarIntegracao) {
         rua: 'Rua do Teste',
         numero: '10',
         bairro: 'Centro',
-        pagamento: 'Pix',
+        modalidade: 'delivery',
+        chaveIdempotencia: randomUUID(),
+        pagamento: 'Cartão na entrega',
         itens: [{ id: 1, quantidade: 1, adicionais: [{ id: 1 }] }]
       }
     });
     assert.equal(criado.status, 201);
-    assert.equal(criado.corpo.pedido.total, 47.8);
+    assert.equal(criado.corpo.pedido.taxaEntrega, 5);
+    assert.equal(criado.corpo.pedido.total, 44.9);
+    assert.equal(criado.corpo.pedido.pagamentoStatus, 'Pagamento na entrega');
     assert.ok(criado.corpo.pedido.tokenAcompanhamento);
+
+    const pixIndisponivel = await chamar('/api/pedidos', {
+      metodo: 'POST',
+      dados: {
+        nome: 'Cliente Pix',
+        telefone: '(11) 91111-1111',
+        email: 'cliente-pix@teste.local',
+        rua: 'Rua do Teste',
+        numero: '20',
+        bairro: 'Centro',
+        modalidade: 'delivery',
+        chaveIdempotencia: randomUUID(),
+        pagamento: 'Pix',
+        itens: [{ id: 1, quantidade: 1 }]
+      }
+    });
+    assert.equal(pixIndisponivel.status, 409);
 
     const negado = await chamar(`/api/pedidos/${encodeURIComponent(criado.corpo.pedido.id)}?token=invalido`);
     assert.equal(negado.status, 404);
@@ -135,6 +377,97 @@ if (!executarIntegracao) {
     const acompanhado = await chamar(`/api/pedidos/${encodeURIComponent(criado.corpo.pedido.id)}?token=${encodeURIComponent(criado.corpo.pedido.tokenAcompanhamento)}`);
     assert.equal(acompanhado.status, 200);
     assert.equal(acompanhado.corpo.pedido.status, 'Recebido');
+  });
+
+  test('bloqueia pedido com loja fechada e abaixo do mínimo', async () => {
+    const fechadaConfigurada = await salvarConfiguracaoTeste({ lojaAberta: false });
+    assert.equal(fechadaConfigurada.status, 200);
+    const fechada = await chamar('/api/pedidos', {
+      metodo: 'POST',
+      dados: dadosPedido()
+    });
+    assert.equal(fechada.status, 409);
+    assert.match(fechada.corpo.erro, /fechada/i);
+
+    const minimoConfigurado = await salvarConfiguracaoTeste({ pedidoMinimo: 100 });
+    assert.equal(minimoConfigurado.status, 200);
+    const minimo = await chamar('/api/pedidos', {
+      metodo: 'POST',
+      dados: dadosPedido()
+    });
+    assert.equal(minimo.status, 409);
+    assert.match(minimo.corpo.erro, /pedido mínimo/i);
+
+    assert.equal((await salvarConfiguracaoTeste()).status, 200);
+  });
+
+  test('valida telefone e área e aplica a taxa configurada por bairro', async () => {
+    const telefoneInvalido = await chamar('/api/pedidos', {
+      metodo: 'POST',
+      dados: dadosPedido({ telefone: '1234' })
+    });
+    assert.equal(telefoneInvalido.status, 400);
+    assert.match(telefoneInvalido.corpo.erro, /telefone válido/i);
+
+    const areaInvalida = await chamar('/api/pedidos', {
+      metodo: 'POST',
+      dados: dadosPedido({ bairro: 'Fora da cobertura' })
+    });
+    assert.equal(areaInvalida.status, 409);
+    assert.match(areaInvalida.corpo.erro, /fora da área/i);
+
+    const areaValida = await chamar('/api/pedidos', {
+      metodo: 'POST',
+      dados: dadosPedido({ bairro: 'bairro sul' })
+    });
+    assert.equal(areaValida.status, 201);
+    assert.equal(areaValida.corpo.pedido.taxaEntrega, 8.5);
+    assert.match(areaValida.corpo.pedido.endereco, /Bairro Sul/);
+  });
+
+  test('valida troco em dinheiro e persiste a opção escolhida', async () => {
+    const semTroco = await chamar('/api/pedidos', {
+      metodo: 'POST',
+      dados: dadosPedido({ pagamento: 'Dinheiro', semTroco: true })
+    });
+    assert.equal(semTroco.status, 201);
+    assert.equal(semTroco.corpo.pedido.semTroco, true);
+    assert.equal(semTroco.corpo.pedido.trocoPara, null);
+
+    const trocoValido = await chamar('/api/pedidos', {
+      metodo: 'POST',
+      dados: dadosPedido({ pagamento: 'Dinheiro', trocoPara: 50 })
+    });
+    assert.equal(trocoValido.status, 201);
+    assert.equal(trocoValido.corpo.pedido.semTroco, false);
+    assert.equal(trocoValido.corpo.pedido.trocoPara, 50);
+
+    const [[antesDoInvalido]] = await banco.execute('SELECT COUNT(*) AS total FROM pedidos');
+    const trocoInvalido = await chamar('/api/pedidos', {
+      metodo: 'POST',
+      dados: dadosPedido({ pagamento: 'Dinheiro', trocoPara: 30 })
+    });
+    assert.equal(trocoInvalido.status, 409);
+    assert.match(trocoInvalido.corpo.erro, /menor que o total/i);
+    const [[depoisDoInvalido]] = await banco.execute('SELECT COUNT(*) AS total FROM pedidos');
+    assert.equal(Number(depoisDoInvalido.total), Number(antesDoInvalido.total));
+  });
+
+  test('reenvio idempotente retorna o mesmo pedido sem duplicar registro', async () => {
+    const chaveIdempotencia = randomUUID();
+    const email = `duplicado-${randomUUID()}@teste.local`;
+    const dados = dadosPedido({ chaveIdempotencia, email });
+    const [primeiro, segundo] = await Promise.all([
+      chamar('/api/pedidos', { metodo: 'POST', dados }),
+      chamar('/api/pedidos', { metodo: 'POST', dados })
+    ]);
+    assert.equal(primeiro.status, 201);
+    assert.equal(segundo.status, 201);
+    assert.equal(segundo.corpo.pedido.id, primeiro.corpo.pedido.id);
+    assert.equal(segundo.corpo.pedido.tokenAcompanhamento, chaveIdempotencia);
+
+    const [[contagem]] = await banco.execute('SELECT COUNT(*) AS total FROM pedidos WHERE email = ?', [email]);
+    assert.equal(Number(contagem.total), 1);
   });
 
   test('persiste catálogo e imagem compartilhada', async () => {
@@ -156,6 +489,13 @@ if (!executarIntegracao) {
       Buffer.from([4, 0, 0, 0]),
       Buffer.from('WEBP')
     ]).toString('base64');
+    const configuracaoComLogo = await salvarConfiguracaoTeste({
+      logo: `data:image/webp;base64,${webpMinimo}`
+    });
+    assert.equal(configuracaoComLogo.status, 200);
+    assert.match(configuracaoComLogo.corpo.configuracao.logo, /^\/uploads\/logo-/);
+    assert.ok((await stat(join(pastaUploads, configuracaoComLogo.corpo.configuracao.logo.split('/').at(-1)))).size > 0);
+
     const produto = await chamar('/api/admin/produtos', {
       metodo: 'POST',
       token,
@@ -180,10 +520,16 @@ if (!executarIntegracao) {
   test('autentica garçom e abre comanda vinculada automaticamente', async () => {
     const login = await chamar('/api/garcom/login', {
       metodo: 'POST',
-      dados: { token: 'carlos-7f3a9d2c', pin: '1234' }
+      dados: { token: tokenGarcomDemonstracao, pin: '246810' }
     });
     assert.equal(login.status, 200);
     assert.equal(login.corpo.garcom.nome, 'Carlos Silva');
+    tokenSessaoGarcom = login.corpo.token;
+    idGarcomDemonstracao = login.corpo.garcom.id;
+
+    const sessao = await chamar('/api/garcom/sessao', { token: login.corpo.token });
+    assert.equal(sessao.status, 200);
+    assert.equal('acessoToken' in sessao.corpo.garcom, false);
 
     const aberta = await chamar('/api/garcom/comandas', {
       metodo: 'POST',
@@ -193,5 +539,94 @@ if (!executarIntegracao) {
     assert.equal(aberta.status, 201);
     assert.equal(aberta.corpo.comanda.mesaId, 1);
     assert.equal(aberta.corpo.comanda.funcionarioId, login.corpo.garcom.id);
+  });
+
+  test('isola comandas por garçom e exige a sequência operacional', async () => {
+    const dados = await chamar('/api/garcom/dados', { token: tokenSessaoGarcom });
+    assert.equal(dados.status, 200);
+    assert.ok(dados.corpo.comandas.length > 0);
+    assert.ok(dados.corpo.comandas.every((comanda) => comanda.funcionarioId === idGarcomDemonstracao));
+    assert.equal(dados.corpo.comandas.some((comanda) => comanda.garcom === 'Ana Souza'), false);
+
+    const comanda = dados.corpo.comandas.find((item) => item.mesaId === 1);
+    assert.ok(comanda);
+    const contaAntecipada = await chamar(`/api/garcom/comandas/${comanda.id}/conta`, {
+      metodo: 'POST',
+      token: tokenSessaoGarcom
+    });
+    assert.equal(contaAntecipada.status, 409);
+
+    const item = await chamar(`/api/garcom/comandas/${comanda.id}/itens`, {
+      metodo: 'POST',
+      token: tokenSessaoGarcom,
+      dados: { produtoId: 1, quantidade: 1, adicionais: [] }
+    });
+    assert.equal(item.status, 201);
+    const envio = await chamar(`/api/garcom/comandas/${comanda.id}/enviar`, {
+      metodo: 'POST',
+      token: tokenSessaoGarcom
+    });
+    assert.equal(envio.status, 200);
+
+    const atualizado = await chamar('/api/garcom/dados', { token: tokenSessaoGarcom });
+    const comandaAtualizada = atualizado.corpo.comandas.find((item) => item.id === comanda.id);
+    const ultimoItem = comandaAtualizada.itens.at(-1);
+    const remocaoFinal = await chamar(`/api/garcom/comandas/${comanda.id}/itens/${ultimoItem.linhaId}`, {
+      metodo: 'DELETE',
+      token: tokenSessaoGarcom
+    });
+    assert.equal(remocaoFinal.status, 409);
+    assert.match(remocaoFinal.corpo.erro, /último item/i);
+
+    const loginAna = await chamar('/api/garcom/login', {
+      metodo: 'POST',
+      dados: { token: tokenGarcomAna, pin: '246810' }
+    });
+    assert.equal(loginAna.status, 200);
+    const tentativaIdor = await chamar(`/api/garcom/comandas/${comanda.id}/itens`, {
+      metodo: 'POST',
+      token: loginAna.corpo.token,
+      dados: { produtoId: 1, quantidade: 1, adicionais: [] }
+    });
+    assert.equal(tentativaIdor.status, 403);
+  });
+
+  test('bloqueia novas tentativas após repetidos PINs inválidos', async () => {
+    for (let tentativa = 0; tentativa < 5; tentativa += 1) {
+      const resposta = await chamar('/api/garcom/login', {
+        metodo: 'POST',
+        dados: { token: 'acesso-invalido', pin: '0000' }
+      });
+      assert.equal(resposta.status, 401);
+    }
+    const bloqueado = await chamar('/api/garcom/login', {
+      metodo: 'POST',
+      dados: { token: 'acesso-invalido', pin: '0000' }
+    });
+    assert.equal(bloqueado.status, 429);
+  });
+
+  test('limita spam de criação de pedidos por endereço de origem', async () => {
+    const servidorLimitado = criarServidor({ banco, pastaUploads, limitePedidosPorMinuto: 2 });
+    await aguardarServidor(servidorLimitado, 0);
+    const baseLimitada = `http://127.0.0.1:${servidorLimitado.address().port}`;
+    try {
+      for (let tentativa = 0; tentativa < 2; tentativa += 1) {
+        const resposta = await fetch(`${baseLimitada}/api/pedidos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(dadosPedido({ telefone: 'invalido' }))
+        });
+        assert.equal(resposta.status, 400);
+      }
+      const bloqueada = await fetch(`${baseLimitada}/api/pedidos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dadosPedido())
+      });
+      assert.equal(bloqueada.status, 429);
+    } finally {
+      await fecharServidor(servidorLimitado);
+    }
   });
 }

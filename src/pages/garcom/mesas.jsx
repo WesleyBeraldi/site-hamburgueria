@@ -11,7 +11,7 @@ function MesasGarcom() {
 
   async function acessar(mesa) {
     const comanda = comandas.find((item) => item.mesaId === mesa.id && item.status !== 'Encerrada');
-    if (comanda && comanda.funcionarioId !== garcomSessao.id) return;
+    if (mesa.status === 'Ocupada' && !comanda) return;
     try {
       await abrirComanda(mesa.id);
       navigate(`/garcom/comanda/${mesa.id}`);
@@ -25,21 +25,23 @@ function MesasGarcom() {
       <section className={styles.gradeMesas}>
         {mesas.map((mesa) => {
           const comanda = comandas.find((item) => item.mesaId === mesa.id && item.status !== 'Encerrada');
-          const minha = !comanda || comanda.funcionarioId === garcomSessao.id;
-          const ocupada = Boolean(comanda);
+          const ocupada = mesa.status === 'Ocupada';
+          const minha = Boolean(comanda && comanda.funcionarioId === garcomSessao.id);
+          const disponivel = !ocupada || minha;
           return (
             <article className={styles.mesa} key={mesa.id}>
               <div className={styles.mesaTopo}><span className={styles.numeroMesa}>{mesa.numero}</span><span className={`${styles.status} ${ocupada ? styles.ocupada : styles.livre}`}>{ocupada ? 'Ocupada' : 'Livre'}</span></div>
               <h2>Mesa {mesa.numero}</h2>
               <p><Users size={13} /> {mesa.lugares} lugares</p>
               <div className={styles.mesaInfo}>
-                {comanda ? <><span>Garçom: {comanda.garcom}</span><span>{comanda.status}</span></> : <span>Pronta para receber clientes.</span>}
+                {minha ? <><span>Seu atendimento</span><span>{comanda.status}</span></> : ocupada ? <span>Em atendimento por outro funcionário.</span> : <span>Pronta para receber clientes.</span>}
               </div>
-              <button type="button" className={!ocupada ? styles.botaoPrincipal : styles.botaoSecundario} disabled={!minha} onClick={() => acessar(mesa)}>{!ocupada ? 'Abrir comanda' : minha ? 'Continuar atendimento' : 'Em atendimento'} {minha && <ArrowRight size={16} />}</button>
+              <button type="button" className={!ocupada ? styles.botaoPrincipal : styles.botaoSecundario} disabled={!disponivel} onClick={() => acessar(mesa)}>{!ocupada ? 'Abrir comanda' : minha ? 'Continuar atendimento' : 'Em atendimento'} {disponivel && <ArrowRight size={16} />}</button>
             </article>
           );
         })}
       </section>
+      {mesas.length === 0 && <div className={`${styles.painel} ${styles.vazio}`} role="status">Nenhuma mesa foi cadastrada para atendimento.</div>}
     </WaiterLayout>
   );
 }

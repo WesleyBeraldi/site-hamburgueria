@@ -80,6 +80,8 @@ CREATE TABLE IF NOT EXISTS promocoes (
   destaque VARCHAR(100),
   tipo VARCHAR(100),
   ativo TINYINT(1) NOT NULL DEFAULT 1,
+  inicio_em DATETIME,
+  fim_em DATETIME,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_promocoes_produto
@@ -165,6 +167,7 @@ CREATE TABLE IF NOT EXISTS comanda_item_adicionais (
 CREATE TABLE IF NOT EXISTS pedidos (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   token_acompanhamento_hash CHAR(64),
+  chave_idempotencia_hash CHAR(64),
   origem VARCHAR(20) NOT NULL,
   cliente VARCHAR(160) NOT NULL,
   telefone VARCHAR(40) NOT NULL,
@@ -176,7 +179,6 @@ CREATE TABLE IF NOT EXISTS pedidos (
   bairro VARCHAR(120),
   complemento VARCHAR(160),
   referencia VARCHAR(255),
-  observacao TEXT,
   taxa_entrega_centavos INT UNSIGNED NOT NULL DEFAULT 0,
   total_centavos INT UNSIGNED NOT NULL DEFAULT 0,
   comanda_id BIGINT UNSIGNED,
@@ -191,6 +193,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
   CONSTRAINT fk_pedidos_funcionario
     FOREIGN KEY (funcionario_id) REFERENCES funcionarios(id) ON DELETE SET NULL,
   UNIQUE KEY uk_pedidos_comanda (comanda_id),
+  UNIQUE KEY uk_pedidos_chave_idempotencia (chave_idempotencia_hash),
   INDEX idx_pedidos_criado_em (criado_em),
   INDEX idx_pedidos_status (status),
   INDEX idx_pedidos_token_acompanhamento (token_acompanhamento_hash)
@@ -200,6 +203,7 @@ CREATE TABLE IF NOT EXISTS pedido_itens (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   pedido_id BIGINT UNSIGNED NOT NULL,
   produto_id BIGINT UNSIGNED,
+  promocao_id BIGINT UNSIGNED,
   nome_produto VARCHAR(160) NOT NULL,
   descricao_produto TEXT,
   imagem_url VARCHAR(500),
@@ -210,6 +214,8 @@ CREATE TABLE IF NOT EXISTS pedido_itens (
     FOREIGN KEY (pedido_id) REFERENCES pedidos(id) ON DELETE CASCADE,
   CONSTRAINT fk_pedido_itens_produto
     FOREIGN KEY (produto_id) REFERENCES produtos(id) ON DELETE SET NULL,
+  CONSTRAINT fk_pedido_itens_promocao
+    FOREIGN KEY (promocao_id) REFERENCES promocoes(id) ON DELETE SET NULL,
   INDEX idx_pedido_itens_pedido (pedido_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -230,8 +236,12 @@ CREATE TABLE IF NOT EXISTS pagamentos (
   pedido_id BIGINT UNSIGNED,
   comanda_id BIGINT UNSIGNED,
   forma VARCHAR(40) NOT NULL,
-  status VARCHAR(30) NOT NULL DEFAULT 'Pendente',
+  status VARCHAR(30) NOT NULL DEFAULT 'Aguardando pagamento',
   valor_centavos INT UNSIGNED NOT NULL,
+  pix_chave VARCHAR(180),
+  pix_beneficiario VARCHAR(160),
+  sem_troco TINYINT(1),
+  troco_para_centavos INT UNSIGNED,
   pago_em DATETIME,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_pagamentos_pedido
@@ -252,5 +262,16 @@ CREATE TABLE IF NOT EXISTS configuracoes (
   tempo_entrega VARCHAR(60) NOT NULL,
   pedido_minimo_centavos INT UNSIGNED NOT NULL DEFAULT 0,
   loja_aberta TINYINT(1) NOT NULL DEFAULT 1,
+  pix_chave VARCHAR(180),
+  pix_beneficiario VARCHAR(160),
+  logo_url VARCHAR(500),
+  whatsapp VARCHAR(40),
+  horario_funcionamento TEXT,
+  instagram_url VARCHAR(500),
+  facebook_url VARCHAR(500),
+  entrega_ativa TINYINT(1) NOT NULL DEFAULT 1,
+  aceita_cartao TINYINT(1) NOT NULL DEFAULT 1,
+  aceita_dinheiro TINYINT(1) NOT NULL DEFAULT 1,
+  areas_entrega_json JSON,
   atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

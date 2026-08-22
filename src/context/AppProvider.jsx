@@ -1,9 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import {
-  configuracaoInicial,
-  produtosIniciais
-} from '../data/initialData';
+import { configuracaoInicial } from '../data/initialData';
 import {
   acompanharPedidoApi,
   adicionarItemComandaApi,
@@ -72,30 +69,36 @@ function lerSessaoComToken(chave) {
   return sessao?.token ? sessao : null;
 }
 
+function lerPedidoAtual() {
+  const pedido = lerSessao(CHAVES.pedidoAtual);
+  return pedido?.id && pedido?.tokenAcompanhamento ? pedido : null;
+}
+
 function numeroPreco(valor) {
   if (typeof valor === 'number') return valor;
   return Number(String(valor).replace(',', '.')) || 0;
 }
 
 function normalizarProdutos(lista) {
-  return (lista ?? []).map((produto) => {
-    const produtoInicial = produtosIniciais.find((item) => item.id === produto.id);
-    return {
-      ...produto,
-      imagem: produto.imagem || produtoInicial?.imagem || produtosIniciais[0].imagem,
-      adicionaisIds: produto.adicionaisIds ?? produtoInicial?.adicionaisIds ?? []
-    };
-  });
+  return (lista ?? []).map((produto) => ({
+    ...produto,
+    imagem: produto.imagem || '/favicon.svg',
+    adicionaisIds: produto.adicionaisIds ?? []
+  }));
 }
 
 function normalizarPromocoes(lista, produtos) {
-  return (lista ?? []).map((promocao) => ({
-    ...promocao,
-    imagem: promocao.imagem
-      || produtos.find((produto) => produto.id === promocao.produtoId)?.imagem
-      || produtos.find((produto) => produto.nome === promocao.nome)?.imagem
-      || produtosIniciais[0].imagem
-  }));
+  return (lista ?? []).map((promocao) => {
+    const produto = produtos.find((item) => item.id === promocao.produtoId);
+    return {
+      ...promocao,
+      adicionaisIds: produto?.adicionaisIds ?? [],
+      imagem: promocao.imagem
+        || produto?.imagem
+        || produtos.find((item) => item.nome === promocao.nome)?.imagem
+        || '/favicon.svg'
+    };
+  });
 }
 
 export function AppProvider({ children }) {
@@ -107,15 +110,34 @@ export function AppProvider({ children }) {
   const [pedidos, setPedidos] = useState([]);
   const [comandas, setComandas] = useState([]);
   const [configuracao, setConfiguracaoEstado] = useState(configuracaoInicial);
-  const [carrinho, setCarrinho] = useState(() => lerLocal(CHAVES.carrinho, []));
-  const [pedidoAtual, setPedidoAtual] = useState(() => lerSessao(CHAVES.pedidoAtual));
+  const [carrinho, setCarrinho] = useState(() => {
+    const salvo = lerLocal(CHAVES.carrinho, []);
+    return Array.isArray(salvo) ? salvo : [];
+  });
+  const [pedidoAtual, setPedidoAtual] = useState(lerPedidoAtual);
+  const [pedidoAtualCarregando, setPedidoAtualCarregando] = useState(
+    () => Boolean(lerPedidoAtual())
+  );
+  const pedidoAtualValidado = useRef(false);
   const [adminSessao, setAdminSessao] = useState(() => lerSessaoComToken(CHAVES.admin));
   const [garcomSessao, setGarcomSessao] = useState(() => lerSessaoComToken(CHAVES.garcom));
   const [catalogoCarregando, setCatalogoCarregando] = useState(true);
   const [sessaoAdminCarregando, setSessaoAdminCarregando] = useState(() => Boolean(lerSessaoComToken(CHAVES.admin)));
+  const [sessaoGarcomCarregando, setSessaoGarcomCarregando] = useState(() => Boolean(lerSessaoComToken(CHAVES.garcom)));
   const [erroApi, setErroApi] = useState('');
 
   useEffect(() => localStorage.setItem(CHAVES.carrinho, JSON.stringify(carrinho)), [carrinho]);
+  useEffect(() => {
+    const nome = configuracao.nomeLoja?.trim();
+    document.title = nome ? `${nome} | Cardápio e pedidos` : 'Cardápio e pedidos online';
+    const metaDescricao = document.querySelector('meta[name="description"]');
+    if (metaDescricao) {
+      metaDescricao.setAttribute(
+        'content',
+        nome ? `Consulte o cardápio e faça seu pedido online na ${nome}.` : 'Cardápio e pedidos online para entrega.'
+      );
+    }
+  }, [configuracao.nomeLoja]);
   useEffect(() => {
     if (pedidoAtual) sessionStorage.setItem(CHAVES.pedidoAtual, JSON.stringify(pedidoAtual));
     else sessionStorage.removeItem(CHAVES.pedidoAtual);
@@ -209,6 +231,9 @@ export function AppProvider({ children }) {
         if (!ativo) return;
         sessionStorage.removeItem(CHAVES.garcom);
         setGarcomSessao(null);
+      })
+      .finally(() => {
+        if (ativo) setSessaoGarcomCarregando(false);
       });
     return () => { ativo = false; };
   }, [garcomSessao?.token, aplicarDados]);
@@ -223,14 +248,37 @@ export function AppProvider({ children }) {
     return () => clearInterval(intervalo);
   }, [adminSessao?.token, garcomSessao?.token, recarregarAdmin, recarregarGarcom]);
 
+  const pedidoAtualId = pedidoAtual?.id;
+  const pedidoAtualToken = pedidoAtual?.tokenAcompanhamento;
+
   useEffect(() => {
-    if (!pedidoAtual?.id || !pedidoAtual?.tokenAcompanhamento) return undefined;
-    const atualizar = () => acompanharPedidoApi(pedidoAtual.id, pedidoAtual.tokenAcompanhamento)
-      .then(({ pedido }) => setPedidoAtual(pedido))
-      .catch(() => {});
+    if (!pedidoAtualId || !pedidoAtualToken) return undefined;
+    let ativo = true;
+    let validado = pedidoAtualValidado.current;
+    const atualizar = () => acompanharPedidoApi(pedidoAtualId, pedidoAtualToken)
+      .then(({ pedido }) => {
+        if (ativo) {
+          validado = true;
+          pedidoAtualValidado.current = true;
+          setPedidoAtual(pedido);
+        }
+      })
+      .catch((erro) => {
+        if (ativo && (!validado || (erro instanceof ErroApi && erro.status === 404))) {
+          pedidoAtualValidado.current = false;
+          setPedidoAtual(null);
+        }
+      })
+      .finally(() => {
+        if (ativo) setPedidoAtualCarregando(false);
+      });
+    atualizar();
     const intervalo = setInterval(atualizar, 10000);
-    return () => clearInterval(intervalo);
-  }, [pedidoAtual?.id, pedidoAtual?.tokenAcompanhamento]);
+    return () => {
+      ativo = false;
+      clearInterval(intervalo);
+    };
+  }, [pedidoAtualId, pedidoAtualToken]);
 
   async function recarregarCatalogo() {
     setCatalogoCarregando(true);
@@ -267,6 +315,7 @@ export function AppProvider({ children }) {
     setPedidos([]);
     setComandas([]);
     setMesas([]);
+    setFuncionarios([]);
     await recarregarPublico().catch(() => {});
   }
 
@@ -288,6 +337,7 @@ export function AppProvider({ children }) {
     await logoutGarcom().catch(() => {});
     sessionStorage.removeItem(CHAVES.garcom);
     setGarcomSessao(null);
+    setSessaoGarcomCarregando(false);
     setMesas([]);
     setComandas([]);
     await recarregarPublico().catch(() => {});
@@ -383,8 +433,17 @@ export function AppProvider({ children }) {
   }
 
   async function criarPedidoDelivery(dados) {
-    const { pedido } = await criarPedidoDeliveryApi(dados, carrinho);
+    const itens = carrinho.map((item) => ({
+      produtoId: item.produtoId ?? item.id,
+      promocaoId: item.promocaoId ?? null,
+      quantidade: item.quantidade,
+      adicionais: (item.adicionais ?? []).map((adicional) => adicional.id),
+      observacao: item.observacao || undefined
+    }));
+    const { pedido } = await criarPedidoDeliveryApi(dados, itens);
+    pedidoAtualValidado.current = true;
     setPedidoAtual(pedido);
+    setPedidoAtualCarregando(false);
     setCarrinho([]);
     return pedido;
   }
@@ -443,10 +502,12 @@ export function AppProvider({ children }) {
     configuracao,
     carrinho,
     pedidoAtual,
+    pedidoAtualCarregando,
     adminSessao,
     garcomSessao,
     catalogoCarregando,
     sessaoAdminCarregando,
+    sessaoGarcomCarregando,
     erroApi,
     setCarrinho,
     setConfiguracao,

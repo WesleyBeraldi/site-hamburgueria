@@ -65,7 +65,7 @@
 
 .metrica span { color: #969696; font-size: 13px; }
 .metrica strong { display: block; margin-top: 5px; color: white; font-size: 25px; }
-.metrica small { display: block; margin-top: 5px; color: #666; font-size: 11px; }
+.metrica small { display: block; margin-top: 5px; color: #929292; font-size: 12px; }
 
 .gradeDuasColunas {
   display: grid;
@@ -87,21 +87,24 @@
 
 .topoCard h2,
 .topoCard h3 { margin: 0; color: white; font-size: 18px; }
-.topoCard p { margin: 5px 0 0; color: #777; font-size: 12px; }
+.topoCard p { margin: 5px 0 0; color: #929292; font-size: 12px; }
 
 .tabelaContainer {
   overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid #292929;
   border-radius: 12px;
 }
 
 .tabela { width: 100%; min-width: 760px; margin: 0; border-collapse: collapse; }
-.tabela th { border: 0; background: #101010; padding: 13px 14px; color: #777; font-size: 11px; text-align: left; text-transform: uppercase; letter-spacing: 0.6px; }
+.tabela th { border: 0; background: #101010; padding: 13px 14px; color: #929292; font-size: 12px; text-align: left; text-transform: uppercase; letter-spacing: 0.6px; }
 .tabela td { border: 0; border-top: 1px solid #282828; padding: 14px; color: #cfcfcf; font-size: 13px; }
 .tabela tbody tr { transition: background 0.2s ease; }
 .tabela tbody tr:hover { background: rgba(255, 193, 7, 0.025); }
 .tabela strong { color: white; }
-.textoSecundario { display: block; margin-top: 4px; color: #6f6f6f; font-size: 11px; }
+.textoSecundario { display: block; margin-top: 4px; color: #8f8f8f; font-size: 12px; }
 
 .status {
   display: inline-flex;
@@ -183,7 +186,7 @@
 
 .acoes { display: flex; align-items: center; gap: 7px; }
 .acoesCabecalho { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
-.vazio { padding: 44px 20px; color: #777; text-align: center; }
+.vazio { padding: 44px 20px; color: #929292; text-align: center; }
 .vazio svg { margin-bottom: 12px; color: #5f4a06; }
 .vazio h3 { margin: 0 0 7px; color: #ddd; }
 .vazio p { margin: 0; font-size: 13px; }
@@ -206,7 +209,7 @@
 .produtoConteudo { padding: 17px; }
 .produtoConteudo h3 { margin: 0; color: white; font-size: 18px; }
 .produtoConteudo p { min-height: 38px; margin: 9px 0; color: #838383; font-size: 12px; line-height: 1.55; }
-.contagemAdicionais { display: block; color: #6f6f6f; font-size: 10px; }
+.contagemAdicionais { display: block; color: #8f8f8f; font-size: 12px; }
 .produtoRodape { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
 .preco { color: #ffc107; font-size: 19px; font-weight: 900; }
 .categoria { color: #8f8f8f; font-size: 11px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; }
@@ -215,14 +218,26 @@
 .gridFormulario { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .campo { display: grid; gap: 8px; }
 .campoCompleto { grid-column: 1 / -1; }
-.campo label { color: #d1d1d1; font-size: 12px; font-weight: 800; }
-.campo label span { color: #666; font-weight: 500; }
+.campo label { color: #d1d1d1; font-size: 13px; font-weight: 800; }
+.campo label span { color: #929292; font-weight: 500; }
 .campo input,
 .campo select { padding: 0 13px; }
 .campo textarea { min-height: 108px; resize: vertical; padding: 13px; }
 .rodapeFormulario { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; }
 .erro { border: 1px solid rgba(255, 91, 91, 0.3); border-radius: 9px; background: rgba(255, 91, 91, 0.06); padding: 11px 13px; color: #ff8e8e; font-size: 12px; }
 .sucesso { border: 1px solid rgba(38, 198, 108, 0.3); border-radius: 9px; background: rgba(38, 198, 108, 0.06); padding: 11px 13px; color: #55df8f; font-size: 12px; }
+
+.listaAreasEntrega { display: grid; gap: 10px; }
+.linhaAreaEntrega {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(120px, 1fr) 38px;
+  align-items: end;
+  gap: 10px;
+  border: 1px solid #2e2e2e;
+  border-radius: 11px;
+  background: #111;
+  padding: 12px;
+}
 
 .uploadImagem {
   display: grid;
@@ -248,14 +263,14 @@
 
 .previaImagem img { width: 100%; height: 100%; object-fit: cover; }
 .previaImagem > div { display: grid; max-width: 160px; place-items: center; gap: 9px; color: #66520d; text-align: center; }
-.previaImagem span { color: #777; font-size: 11px; line-height: 1.5; }
+.previaImagem span { color: #929292; font-size: 12px; line-height: 1.5; }
 .uploadConteudo h2 { margin: 0; color: white; font-size: 18px; }
-.uploadConteudo p { max-width: 620px; margin: 8px 0 16px; color: #777; font-size: 12px; line-height: 1.6; }
+.uploadConteudo p { max-width: 620px; margin: 8px 0 16px; color: #929292; font-size: 12px; line-height: 1.6; }
 .uploadConteudo .botaoSecundario { width: fit-content; }
 .arquivoInput { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 
 .tituloCampoComAcao { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
-.tituloCampoComAcao p { margin: 5px 0 0; color: #777; font-size: 11px; }
+.tituloCampoComAcao p { margin: 5px 0 0; color: #929292; font-size: 12px; }
 .gradeSelecaoAdicionais { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
 .opcaoAdicional {
   display: flex;
@@ -275,7 +290,7 @@
 .opcaoAdicional strong,
 .opcaoAdicional small { display: block; }
 .opcaoAdicional strong { overflow: hidden; color: #ddd; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.opcaoAdicional small { margin-top: 4px; color: #777; font-size: 10px; }
+.opcaoAdicional small { margin-top: 4px; color: #929292; font-size: 12px; }
 .opcaoAdicionalAtiva { border-color: #ffc107; background: rgba(255, 193, 7, 0.07); }
 .opcaoAdicionalAtiva > span { border-color: #ffc107; background: #ffc107; color: #111; }
 .opcaoAdicionalAtiva strong { color: #ffc107; }
@@ -286,26 +301,26 @@
 .adicionalLinha strong,
 .adicionalLinha span { display: block; }
 .adicionalLinha strong { color: #eee; font-size: 13px; }
-.adicionalLinha span { margin-top: 4px; color: #6f6f6f; font-size: 10px; }
+.adicionalLinha span { margin-top: 4px; color: #8f8f8f; font-size: 12px; }
 
 .detalheGrid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.75fr); gap: 18px; }
 .listaInfo { display: grid; gap: 0; }
 .linhaInfo { display: flex; justify-content: space-between; gap: 20px; border-bottom: 1px solid #292929; padding: 13px 0; }
 .linhaInfo:last-child { border-bottom: 0; }
-.linhaInfo span { color: #777; font-size: 12px; }
+.linhaInfo span { color: #929292; font-size: 12px; }
 .linhaInfo strong { color: #ddd; font-size: 13px; text-align: right; }
 .itemPedido { display: grid; grid-template-columns: 58px minmax(0, 1fr) auto; align-items: center; gap: 13px; border-bottom: 1px solid #292929; padding: 14px 0; }
 .itemPedido:last-child { border-bottom: 0; }
 .itemPedido img { width: 58px; height: 58px; border-radius: 9px; object-fit: cover; }
 .itemPedido h4 { margin: 0; color: white; }
-.itemPedido p { margin: 5px 0 0; color: #777; font-size: 11px; }
+.itemPedido p { margin: 5px 0 0; color: #929292; font-size: 12px; }
 .itemPedido > strong { color: #ffc107; }
 .totalGrande { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #3a310e; margin-top: 12px; padding-top: 18px; }
 .totalGrande span { color: #888; }
 .totalGrande strong { color: #ffc107; font-size: 25px; }
 
 .linhaStatus { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.etapa { position: relative; border-top: 3px solid #303030; padding-top: 12px; color: #666; font-size: 11px; font-weight: 700; }
+.etapa { position: relative; border-top: 3px solid #303030; padding-top: 12px; color: #929292; font-size: 12px; font-weight: 700; }
 .etapaAtiva { border-color: #ffc107; color: #ffc107; }
 
 .mesaCard { padding: 18px; transition: 0.2s ease; }
@@ -313,20 +328,20 @@
 .mesaTopo { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .mesaNumero { display: grid; width: 48px; height: 48px; place-items: center; border-radius: 12px; background: #222; color: #ffc107; font-size: 20px; font-weight: 900; }
 .mesaCard h3 { margin: 14px 0 5px; color: white; }
-.mesaCard p { margin: 0; color: #777; font-size: 12px; }
+.mesaCard p { margin: 0; color: #929292; font-size: 12px; }
 .mesaDetalhes { display: grid; gap: 8px; border-top: 1px solid #292929; margin-top: 15px; padding-top: 14px; color: #9a9a9a; font-size: 12px; }
 
 .grafico { display: flex; min-height: 240px; align-items: flex-end; gap: 12px; padding-top: 22px; }
 .barraGrupo { display: flex; flex: 1; height: 210px; flex-direction: column; justify-content: flex-end; text-align: center; }
 .barra { min-height: 10px; border-radius: 8px 8px 2px 2px; background: linear-gradient(180deg, #ffc107, #8e6a00); }
-.barraGrupo span { margin-top: 9px; color: #666; font-size: 10px; }
+.barraGrupo span { margin-top: 9px; color: #929292; font-size: 11px; }
 
 .ranking { display: grid; gap: 10px; }
 .rankingItem { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 10px; border-bottom: 1px solid #292929; padding: 11px 0; }
 .rankingItem:last-child { border-bottom: 0; }
 .rankingItem > span { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: rgba(255, 193, 7, 0.12); color: #ffc107; font-size: 11px; font-weight: 900; }
 .rankingItem strong { font-size: 13px; }
-.rankingItem small { display: block; margin-top: 3px; color: #6c6c6c; }
+.rankingItem small { display: block; margin-top: 3px; color: #8f8f8f; font-size: 12px; }
 .rankingItem > b { color: #ffc107; font-size: 13px; }
 
 .qrArea { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; align-items: center; }
@@ -352,6 +367,7 @@
   .uploadImagem { grid-template-columns: 1fr; }
   .previaImagem { max-width: 420px; }
   .tituloCampoComAcao { align-items: flex-start; flex-direction: column; }
+  .linhaAreaEntrega { grid-template-columns: minmax(0, 1fr) minmax(110px, 0.6fr) 44px; }
 }
 
 @media (max-width: 560px) {
@@ -370,4 +386,51 @@
   .gradeSelecaoAdicionais { grid-template-columns: 1fr; }
   .adicionalLinha { grid-template-columns: minmax(0, 1fr) auto; }
   .adicionalLinha .acoes { grid-column: 1 / -1; justify-content: flex-end; }
+  .linhaAreaEntrega { grid-template-columns: 1fr 44px; }
+  .linhaAreaEntrega .campo:nth-child(2) { grid-column: 1; }
+  .linhaAreaEntrega .botaoIcone { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+
+  .botaoPrimario,
+  .botaoSecundario,
+  .botaoPerigo,
+  .botaoIcone,
+  .aba,
+  .opcaoAdicional {
+    min-height: 44px;
+    font-size: 14px;
+  }
+
+  .botaoIcone { min-width: 44px; }
+
+  .busca input,
+  .campo input,
+  .campo select,
+  .campo textarea,
+  .seletor { font-size: 16px; }
+
+  .campo label,
+  .erro,
+  .sucesso,
+  .produtoConteudo p,
+  .contagemAdicionais,
+  .categoria,
+  .previaImagem span,
+  .uploadConteudo p,
+  .tituloCampoComAcao p,
+  .opcaoAdicional strong,
+  .opcaoAdicional small,
+  .adicionalLinha span,
+  .linhaInfo span,
+  .linhaInfo strong,
+  .itemPedido p,
+  .etapa,
+  .mesaCard p,
+  .mesaDetalhes,
+  .barraGrupo span,
+  .rankingItem small,
+  .codigo,
+  .aviso { font-size: 14px; }
+
+  .tabela th { font-size: 12px; }
+  .tabela td { font-size: 14px; }
 }

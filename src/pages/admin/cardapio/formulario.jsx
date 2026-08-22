@@ -109,7 +109,7 @@ function FormularioProduto() {
 
             <div className={`${styles.campo} ${styles.campoCompleto}`}>
               <div className={styles.tituloCampoComAcao}>
-                <div><label>Adicionais permitidos</label><p>Marque somente os extras que podem ser escolhidos neste produto.</p></div>
+                <div><strong>Adicionais permitidos</strong><p>Marque somente os extras que podem ser escolhidos neste produto.</p></div>
                 <button type="button" className={styles.botaoSecundario} onClick={() => navigate('/admin/adicionais')}><ListPlus size={16} /> Gerenciar adicionais</button>
               </div>
               <div className={styles.gradeSelecaoAdicionais}>
@@ -134,7 +134,7 @@ function FormularioProduto() {
               </div>
             </div>
           </div>
-          {erro && <div className={styles.erro}>{erro}</div>}
+          {erro && <div className={styles.erro} role="alert">{erro}</div>}
           <div className={styles.rodapeFormulario}>
             <button type="button" className={styles.botaoSecundario} onClick={() => navigate('/admin/cardapio')}>Cancelar</button>
             <button type="submit" className={styles.botaoPrimario} disabled={salvando || processandoImagem}><Save size={17} /> {salvando ? 'Salvando...' : 'Salvar produto'}</button>

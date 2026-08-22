@@ -45,11 +45,12 @@ function MesasAdmin() {
           );
         })}
       </section>
+      {mesas.length === 0 && <section className={styles.card}><div className={styles.vazio}><Store size={34} /><h3>Nenhuma mesa cadastrada</h3><p>Cadastre as mesas da operação antes de iniciar o atendimento.</p></div></section>}
 
       {selecionada && comandaSelecionada && (
         <section className={styles.card}>
           <div className={styles.topoCard}><div><h2>Comanda da mesa {selecionada.numero}</h2><p>Atendida por {comandaSelecionada.garcom}</p></div><button type="button" className={styles.botaoSecundario} onClick={() => setSelecionada(null)}>Fechar detalhes</button></div>
-          {comandaSelecionada.itens.map((item, indice) => <div className={styles.itemPedido} key={`${item.id}-${indice}`}><img src={item.imagem} alt="" /><div><h4>{item.quantidade}x {item.nome}</h4><p>{item.observacao || 'Sem observações'}</p></div><strong>{moeda(Number(item.preco) * item.quantidade)}</strong></div>)}
+          {comandaSelecionada.itens.map((item, indice) => <div className={styles.itemPedido} key={`${item.id}-${indice}`}><img src={item.imagem} alt={item.nome} loading="lazy" decoding="async" /><div><h4>{item.quantidade}x {item.nome}</h4><p>{item.observacao || 'Sem observações'}</p></div><strong>{moeda(Number(item.preco) * item.quantidade)}</strong></div>)}
         </section>
       )}
     </AdminLayout>
