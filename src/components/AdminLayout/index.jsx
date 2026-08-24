@@ -2,13 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import {
   BadgePercent,
   BarChart3,
+  BellRing,
   ClipboardList,
   LayoutDashboard,
+  Layers3,
   LogOut,
   ListPlus,
   Menu,
   Package,
   Settings,
+  ShieldCheck,
   Users,
   UtensilsCrossed,
   X
@@ -22,10 +25,12 @@ const itensMenu = [
   { nome: 'Dashboard', rota: '/admin/dashboard', icone: LayoutDashboard },
   { nome: 'Pedidos', rota: '/admin/pedidos', icone: ClipboardList },
   { nome: 'Cardápio', rota: '/admin/cardapio', icone: Package },
+  { nome: 'Categorias', rota: '/admin/categorias', icone: Layers3 },
   { nome: 'Adicionais', rota: '/admin/adicionais', icone: ListPlus },
   { nome: 'Promoções', rota: '/admin/promocoes', icone: BadgePercent },
   { nome: 'Mesas / Comandas', rota: '/admin/mesas', icone: UtensilsCrossed },
   { nome: 'Funcionários', rota: '/admin/funcionarios', icone: Users },
+  { nome: 'Acessos', rota: '/admin/acessos', icone: ShieldCheck },
   { nome: 'Relatórios', rota: '/admin/relatorios', icone: BarChart3 },
   { nome: 'Configurações', rota: '/admin/configuracoes', icone: Settings }
 ];
@@ -35,7 +40,7 @@ function AdminLayout({ titulo, subtitulo, acao, children }) {
   const [layoutCompacto, setLayoutCompacto] = useState(() => window.matchMedia('(max-width: 900px)').matches);
   const botaoMenuRef = useRef(null);
   const fecharMenuRef = useRef(null);
-  const { adminSessao, sairAdmin, configuracao } = useApp();
+  const { adminSessao, sairAdmin, configuracao, alertaNovoPedido, dispensarAlertaNovoPedido } = useApp();
   const navigate = useNavigate();
 
   async function sair() {
@@ -136,6 +141,13 @@ function AdminLayout({ titulo, subtitulo, acao, children }) {
       </aside>
 
       <main id="conteudo-principal" className={styles.principal}>
+        {alertaNovoPedido && (
+          <div className={styles.alertaPedido} role="status" aria-live="assertive">
+            <BellRing size={21} />
+            <div><strong>{alertaNovoPedido.quantidade === 1 ? 'Novo pedido recebido' : `${alertaNovoPedido.quantidade} novos pedidos`}</strong><span>{alertaNovoPedido.pedido.id} • {alertaNovoPedido.pedido.origem} • {alertaNovoPedido.pedido.cliente}</span></div>
+            <button type="button" aria-label="Dispensar alerta" onClick={dispensarAlertaNovoPedido}><X size={17} /></button>
+          </div>
+        )}
         <header className={styles.cabecalho}>
           <div>
             <h1>{titulo}</h1>

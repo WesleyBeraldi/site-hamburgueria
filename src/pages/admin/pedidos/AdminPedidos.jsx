@@ -6,7 +6,7 @@ import AdminLayout from '../../../components/AdminLayout';
 import { useApp } from '../../../context/appContext';
 import styles from '../shared.module.css';
 
-const filtrosStatus = ['Todos', 'Recebido', 'Em preparo', 'Pronto', 'Saiu para entrega', 'Entregue', 'Cancelado'];
+const filtrosStatus = ['Todos', 'Recebido', 'Em preparo', 'Pronto', 'Saiu para entrega', 'Entregue', 'Retirado', 'Cancelado'];
 
 function moeda(valor) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
@@ -16,13 +16,13 @@ function classeStatus(status) {
   if (status === 'Recebido') return styles.statusRecebido;
   if (['Em preparo', 'Pronto'].includes(status)) return styles.statusPreparo;
   if (status === 'Saiu para entrega') return styles.statusEntrega;
-  if (['Entregue', 'Entregue na mesa'].includes(status)) return styles.statusConcluido;
+  if (['Entregue', 'Entregue na mesa', 'Retirado'].includes(status)) return styles.statusConcluido;
   if (status === 'Cancelado') return styles.statusCancelado;
   return '';
 }
 
 function AdminPedidos() {
-  const { pedidos } = useApp();
+  const { pedidos, pedidosNovos } = useApp();
   const navigate = useNavigate();
   const [busca, setBusca] = useState('');
   const [origem, setOrigem] = useState('Todos');
@@ -36,6 +36,7 @@ function AdminPedidos() {
       .includes(termo);
     const correspondeOrigem = origem === 'Todos'
       || (origem === 'Delivery' && pedido.origem === 'Delivery')
+      || (origem === 'Retirada' && pedido.origem === 'Retirada no balcão')
       || (origem === 'Salão' && pedido.origem.startsWith('Mesa'));
     const correspondeStatus = status === 'Todos'
       || pedido.status === status
@@ -63,7 +64,7 @@ function AdminPedidos() {
             <input aria-label="Buscar pedidos" value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar pedido, cliente ou item..." />
           </label>
           <div className={styles.abas}>
-            {['Todos', 'Delivery', 'Salão'].map((item) => (
+            {['Todos', 'Delivery', 'Retirada', 'Salão'].map((item) => (
               <button type="button" key={item} aria-pressed={origem === item} className={`${styles.aba} ${origem === item ? styles.abaAtiva : ''}`} onClick={() => setOrigem(item)}>{item}</button>
             ))}
           </div>
@@ -81,7 +82,7 @@ function AdminPedidos() {
             <thead><tr><th>Pedido</th><th>Cliente</th><th>Origem</th><th>Itens</th><th>Pagamento</th><th>Status</th><th>Horário</th><th>Total</th><th>Ações</th></tr></thead>
             <tbody>
               {filtrados.map((pedido) => (
-                <tr key={pedido.id}>
+                <tr key={pedido.id} className={pedidosNovos.includes(pedido.id) ? styles.pedidoNovo : ''}>
                   <td><strong>{pedido.id}</strong></td>
                   <td><strong>{pedido.cliente}</strong><span className={styles.textoSecundario}>{pedido.telefone}</span></td>
                   <td>{pedido.origem}</td>

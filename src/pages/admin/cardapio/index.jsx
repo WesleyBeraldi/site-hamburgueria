@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 
 import AdminLayout from '../../../components/AdminLayout';
 import { useApp } from '../../../context/appContext';
+import { usarPlaceholderProduto } from '../../../utils/productImage';
 import styles from '../shared.module.css';
 
 function CardapioAdmin() {
@@ -64,11 +65,11 @@ function CardapioAdmin() {
         </div>
       </section>
 
-      <section className={styles.gradeProdutos}>
+      <section className={`${styles.gradeProdutos} ${styles.secaoSeparada}`}>
         {filtrados.map((produto) => (
           <article className={styles.produtoCard} key={produto.id}>
             <div className={styles.produtoImagem}>
-              <img src={produto.imagem} alt={produto.nome} loading="lazy" decoding="async" />
+              <img src={produto.imagem} alt={produto.nome} loading="lazy" decoding="async" onError={usarPlaceholderProduto} />
               <button type="button" disabled={processandoId === produto.id} className={`${styles.status} ${produto.ativo ? styles.statusAtivo : styles.statusInativo}`} onClick={() => mudarStatus(produto)}>{processandoId === produto.id ? 'Salvando...' : produto.ativo ? 'Ativo' : 'Inativo'}</button>
             </div>
             <div className={styles.produtoConteudo}>

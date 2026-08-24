@@ -1,9 +1,14 @@
 import { Link, Navigate } from 'react-router-dom';
+import { useState } from 'react';
 
 import { useApp } from '../../../context/appContext';
+import { usarPlaceholderProduto } from '../../../utils/productImage';
+import { QRCodeSVG } from '../../../vendor/qrcode';
 import styles from './index.module.css';
 
 function PedidoFinalizado() {
+
+  const [pixCopiado, setPixCopiado] = useState(false);
 
   const { pedidoAtual, pedidoAtualCarregando, configuracao } = useApp();
 
@@ -21,7 +26,10 @@ function PedidoFinalizado() {
   const dataPedido = pedido.criadoEm
     ? new Intl.DateTimeFormat('pt-BR').format(new Date(pedido.criadoEm))
     : '';
-  const fluxo = ['Recebido', 'Em preparo', 'Saiu para entrega', 'Entregue'];
+  const retirada = pedido.origem === 'Retirada no balcão' || pedido.modalidade === 'retirada';
+  const fluxo = retirada
+    ? ['Recebido', 'Em preparo', 'Pronto', 'Retirado']
+    : ['Recebido', 'Em preparo', 'Saiu para entrega', 'Entregue'];
   const statusNormalizado = pedido.status === 'Pedido recebido'
     ? 'Recebido'
     : pedido.status ?? 'Recebido';
@@ -48,6 +56,17 @@ function PedidoFinalizado() {
 
   const total = Number(pedido.total);
   const pagamentoConfirmado = pedido.pagamentoStatus === 'Pago';
+
+  async function copiarPix() {
+    const conteudo = pedido.pixCopiaCola || pedido.pixChave;
+    try {
+      await navigator.clipboard.writeText(conteudo);
+      setPixCopiado(true);
+      window.setTimeout(() => setPixCopiado(false), 2500);
+    } catch {
+      setPixCopiado(false);
+    }
+  }
 
 
   return (
@@ -235,7 +254,7 @@ function PedidoFinalizado() {
 
             <div>
               <span>
-                Previsão de entrega
+                {retirada ? 'Previsão de retirada' : 'Previsão de entrega'}
               </span>
 
               <strong>
@@ -336,15 +355,15 @@ function PedidoFinalizado() {
 
             <div>
               <span>
-                Endereço de entrega
+                {retirada ? 'Local de retirada' : 'Endereço de entrega'}
               </span>
 
               <strong className={styles.endereco}>
-                {pedido.endereco}
+                {retirada ? (configuracao.endereco || 'Confirme o endereço com a loja') : pedido.endereco}
               </strong>
 
               <p>
-                Entrega no endereço informado
+                {retirada ? 'Retire diretamente no balcão' : 'Entrega no endereço informado'}
               </p>
             </div>
 
@@ -354,10 +373,8 @@ function PedidoFinalizado() {
 
         {pedido.pagamento === 'Pix' && pedido.pixChave && (
           <section className={styles.dadosPix}>
-            <strong>Dados do Pix</strong>
-            <span>Beneficiário: {pedido.pixBeneficiario}</span>
-            <code>{pedido.pixChave}</code>
-            <p>O pagamento ainda precisa ser confirmado pela hamburgueria.</p>
+            {pedido.pixCopiaCola && <div className={styles.qrPix}><QRCodeSVG value={pedido.pixCopiaCola} size={176} level="M" includeMargin aria-label="QR Code Pix do pedido" /></div>}
+            <div><strong>Dados do Pix</strong><span>Beneficiário: {pedido.pixBeneficiario}</span><code>{pedido.pixCopiaCola || pedido.pixChave}</code><button type="button" onClick={copiarPix}>{pixCopiado ? 'Pix copiado!' : pedido.pixCopiaCola ? 'Copiar Pix copia e cola' : 'Copiar chave Pix'}</button><p>{pagamentoConfirmado ? 'Pagamento confirmado pela hamburgueria.' : 'O pagamento ainda precisa ser confirmado pela hamburgueria.'}</p></div>
           </section>
         )}
 
@@ -460,7 +477,7 @@ function PedidoFinalizado() {
             </div>
 
             <strong>
-              Saiu para entrega
+              {retirada ? 'Pronto para retirada' : 'Saiu para entrega'}
             </strong>
 
             <span>
@@ -491,7 +508,7 @@ function PedidoFinalizado() {
             </div>
 
             <strong>
-              Entregue
+              {retirada ? 'Retirado' : 'Entregue'}
             </strong>
 
             <span>
@@ -531,6 +548,7 @@ function PedidoFinalizado() {
                   <img
                     src={item.imagem}
                     alt={item.nome}
+                    onError={usarPlaceholderProduto}
                     loading="lazy"
                     decoding="async"
                   />
@@ -597,7 +615,7 @@ function PedidoFinalizado() {
             <div className={styles.linhaResumo}>
 
               <span>
-                Taxa de entrega
+                {retirada ? 'Taxa de retirada' : 'Taxa de entrega'}
               </span>
 
               <strong>

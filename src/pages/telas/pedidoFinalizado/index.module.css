@@ -300,6 +300,8 @@
 .dadosPix {
   width: 100%;
   display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
   gap: 0.7rem;
   margin: -0.7rem 0 2rem;
   padding: 1.4rem 1.6rem;
@@ -307,6 +309,30 @@
   background: rgba(255, 193, 7, 0.08);
   border: 1px solid rgba(255, 193, 7, 0.35);
   border-radius: 1rem;
+}
+
+.dadosPix > div:last-child {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.qrPix {
+  padding: 0.65rem;
+  line-height: 0;
+  background: #ffffff;
+  border-radius: 0.8rem;
+}
+
+.dadosPix button {
+  width: fit-content;
+  padding: 0.8rem 1rem;
+  color: #111111;
+  font: inherit;
+  font-weight: 800;
+  background: #ffc107;
+  border: 0;
+  border-radius: 0.7rem;
+  cursor: pointer;
 }
 
 .dadosPix strong,
@@ -770,6 +796,14 @@
 
 
 @media (max-width: 700px) {
+
+  .dadosPix {
+    grid-template-columns: 1fr;
+  }
+
+  .qrPix {
+    width: fit-content;
+  }
 
   .conteudoHeader {
     padding: 0 1.5rem;

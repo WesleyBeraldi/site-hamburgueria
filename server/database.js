@@ -86,15 +86,22 @@ async function aplicarMigracoes(banco) {
   await garantirColuna(banco, 'pedidos', 'chave_idempotencia_hash', 'CHAR(64) NULL AFTER token_acompanhamento_hash');
   await garantirColuna(banco, 'pagamentos', 'sem_troco', 'TINYINT(1) NULL AFTER pix_beneficiario');
   await garantirColuna(banco, 'pagamentos', 'troco_para_centavos', 'INT UNSIGNED NULL AFTER sem_troco');
+  await garantirColuna(banco, 'pagamentos', 'pix_copia_cola', 'TEXT NULL AFTER troco_para_centavos');
+  await garantirColuna(banco, 'pagamentos', 'confirmado_por', 'BIGINT UNSIGNED NULL AFTER pago_em');
+  await garantirColuna(banco, 'pagamentos', 'confirmado_em', 'DATETIME NULL AFTER confirmado_por');
+  await garantirColuna(banco, 'pagamentos', 'estornado_por', 'BIGINT UNSIGNED NULL AFTER confirmado_em');
+  await garantirColuna(banco, 'pagamentos', 'estornado_em', 'DATETIME NULL AFTER estornado_por');
   await garantirColuna(banco, 'configuracoes', 'logo_url', 'VARCHAR(500) NULL');
   await garantirColuna(banco, 'configuracoes', 'whatsapp', 'VARCHAR(40) NULL');
   await garantirColuna(banco, 'configuracoes', 'horario_funcionamento', 'TEXT NULL');
   await garantirColuna(banco, 'configuracoes', 'instagram_url', 'VARCHAR(500) NULL');
   await garantirColuna(banco, 'configuracoes', 'facebook_url', 'VARCHAR(500) NULL');
   await garantirColuna(banco, 'configuracoes', 'entrega_ativa', 'TINYINT(1) NOT NULL DEFAULT 1');
+  await garantirColuna(banco, 'configuracoes', 'retirada_ativa', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER entrega_ativa');
   await garantirColuna(banco, 'configuracoes', 'aceita_cartao', 'TINYINT(1) NOT NULL DEFAULT 1');
   await garantirColuna(banco, 'configuracoes', 'aceita_dinheiro', 'TINYINT(1) NOT NULL DEFAULT 1');
   await garantirColuna(banco, 'configuracoes', 'areas_entrega_json', 'JSON NULL');
+  await garantirColuna(banco, 'configuracoes', 'pix_cidade', 'VARCHAR(60) NULL AFTER pix_beneficiario');
   await garantirIndice(
     banco,
     'pedidos',
@@ -107,6 +114,19 @@ async function aplicarMigracoes(banco) {
     'fk_pedido_itens_promocao',
     'FOREIGN KEY (promocao_id) REFERENCES promocoes(id) ON DELETE SET NULL'
   );
+  await garantirChaveEstrangeira(
+    banco,
+    'pagamentos',
+    'fk_pagamentos_confirmado_por',
+    'FOREIGN KEY (confirmado_por) REFERENCES administradores(id) ON DELETE SET NULL'
+  );
+  await garantirChaveEstrangeira(
+    banco,
+    'pagamentos',
+    'fk_pagamentos_estornado_por',
+    'FOREIGN KEY (estornado_por) REFERENCES administradores(id) ON DELETE SET NULL'
+  );
+  await garantirIndice(banco, 'pagamentos', 'idx_pagamentos_status', 'INDEX idx_pagamentos_status (status)');
   await banco.execute(`
     UPDATE pagamentos
     SET status = CASE WHEN forma = 'Pix' THEN 'Aguardando pagamento' ELSE 'Pagamento na entrega' END

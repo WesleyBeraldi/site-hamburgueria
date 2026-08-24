@@ -9,7 +9,14 @@ const banco = await abrirBanco({
   incluirDadosDemonstracao: config.incluirDadosDemonstracao,
   pinFuncionarioDemonstracao: config.pinFuncionarioDemonstracao
 });
-const servidor = criarServidor({ banco, pastaUploads: config.pastaUploads, pastaDist: config.pastaDist });
+const servidor = criarServidor({
+  banco,
+  pastaUploads: config.pastaUploads,
+  pastaDist: config.pastaDist,
+  producao: config.producao,
+  corsOrigins: config.corsOrigins,
+  publicSiteUrl: config.publicSiteUrl
+});
 
 await aguardarServidor(servidor, config.porta);
 console.log(`Backend da hamburgueria disponível em http://localhost:${config.porta}`);

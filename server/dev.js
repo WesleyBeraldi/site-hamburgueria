@@ -11,7 +11,13 @@ const banco = await abrirBanco({
   incluirDadosDemonstracao: config.incluirDadosDemonstracao,
   pinFuncionarioDemonstracao: config.pinFuncionarioDemonstracao
 });
-const api = criarServidor({ banco, pastaUploads: config.pastaUploads });
+const api = criarServidor({
+  banco,
+  pastaUploads: config.pastaUploads,
+  producao: config.producao,
+  corsOrigins: config.corsOrigins,
+  publicSiteUrl: config.publicSiteUrl
+});
 const vite = await criarServidorVite();
 
 await aguardarServidor(api, config.porta);

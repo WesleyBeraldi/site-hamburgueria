@@ -5,9 +5,17 @@ const pastaProjeto = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const producao = process.env.NODE_ENV === 'production';
 const senhaAdmin = process.env.ADMIN_PASSWORD || '';
 
+function listaAmbiente(valor) {
+  return String(valor ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+}
+
 function caminhoConfigurado(valor, padrao) {
   const caminho = valor || padrao;
   return isAbsolute(caminho) ? caminho : resolve(pastaProjeto, caminho);
+}
+
+if (!senhaAdmin) {
+  throw new Error('Defina ADMIN_PASSWORD no ambiente antes de iniciar o servidor.');
 }
 
 if (producao && senhaAdmin.length < 12) {
@@ -23,6 +31,8 @@ export const config = {
   producao,
   incluirDadosDemonstracao: !producao || process.env.SEED_DEMO_DATA === '1',
   pinFuncionarioDemonstracao: process.env.DEMO_WAITER_PIN || null,
+  publicSiteUrl: process.env.PUBLIC_SITE_URL || '',
+  corsOrigins: listaAmbiente(process.env.CORS_ORIGINS),
   mysql: {
     host: process.env.DB_HOST || '127.0.0.1',
     port: Number(process.env.DB_PORT) || 3306,
@@ -38,7 +48,7 @@ export const config = {
     usuario: process.env.ADMIN_USER || 'admin',
     email: process.env.ADMIN_EMAIL || 'admin@hamburgueria.com',
     nome: process.env.ADMIN_NAME || 'Administrador',
-    senha: senhaAdmin || 'admin123',
-    sincronizarCredenciais: Boolean(process.env.ADMIN_PASSWORD)
+    senha: senhaAdmin,
+    sincronizarCredenciais: process.env.SYNC_ADMIN_CREDENTIALS === '1'
   }
 };

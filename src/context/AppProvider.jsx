@@ -4,11 +4,16 @@ import { configuracaoInicial } from '../data/initialData';
 import {
   acompanharPedidoApi,
   adicionarItemComandaApi,
+  adicionarItemComandaAdminApi,
   alterarStatusAdicionalApi,
+  alterarStatusAdministradorApi,
+  alterarStatusCategoriaApi,
   alterarStatusFuncionarioApi,
   alterarStatusProdutoApi,
   atualizarAdicionalApi,
+  atualizarCategoriaApi,
   atualizarFuncionarioApi,
+  atualizarItemComandaAdminApi,
   atualizarProdutoApi,
   atualizarPromocaoApi,
   atualizarStatusPedidoApi,
@@ -16,26 +21,35 @@ import {
   buscarDadosAdmin,
   buscarDadosGarcom,
   buscarDadosPublicos,
+  confirmarPagamentoPedidoApi,
   criarAdicionalApi,
+  criarAdministradorApi,
+  criarCategoriaApi,
   criarFuncionarioApi,
+  criarMesaAdminApi,
   criarPedidoDeliveryApi,
   criarProdutoApi,
   criarPromocaoApi,
   ErroApi,
   enviarComandaApi,
+  estornarPagamentoPedidoApi,
   excluirAdicionalApi,
   excluirProdutoApi,
   excluirPromocaoApi,
   fecharComandaApi,
+  finalizarComandaAdminApi,
   loginAdmin,
   loginGarcom,
   logoutAdmin,
   logoutGarcom,
   removerItemComandaApi,
+  removerItemComandaAdminApi,
   salvarConfiguracaoApi,
   solicitarContaApi,
   validarSessaoAdmin,
-  validarSessaoGarcom
+  validarCarrinhoApi,
+  validarSessaoGarcom,
+  alterarSenhaAdministradorApi
 } from '../services/api';
 import { AppContext } from './appContext';
 
@@ -82,7 +96,7 @@ function numeroPreco(valor) {
 function normalizarProdutos(lista) {
   return (lista ?? []).map((produto) => ({
     ...produto,
-    imagem: produto.imagem || '/favicon.svg',
+    imagem: produto.imagem || '/produto-placeholder.svg',
     adicionaisIds: produto.adicionaisIds ?? []
   }));
 }
@@ -96,12 +110,13 @@ function normalizarPromocoes(lista, produtos) {
       imagem: promocao.imagem
         || produto?.imagem
         || produtos.find((item) => item.nome === promocao.nome)?.imagem
-        || '/favicon.svg'
+        || '/produto-placeholder.svg'
     };
   });
 }
 
 export function AppProvider({ children }) {
+  const [categorias, setCategorias] = useState([]);
   const [produtos, setProdutos] = useState([]);
   const [adicionais, setAdicionais] = useState([]);
   const [promocoes, setPromocoes] = useState([]);
@@ -109,6 +124,8 @@ export function AppProvider({ children }) {
   const [mesas, setMesas] = useState([]);
   const [pedidos, setPedidos] = useState([]);
   const [comandas, setComandas] = useState([]);
+  const [administradores, setAdministradores] = useState([]);
+  const [auditoria, setAuditoria] = useState([]);
   const [configuracao, setConfiguracaoEstado] = useState(configuracaoInicial);
   const [carrinho, setCarrinho] = useState(() => {
     const salvo = lerLocal(CHAVES.carrinho, []);
@@ -125,26 +142,77 @@ export function AppProvider({ children }) {
   const [sessaoAdminCarregando, setSessaoAdminCarregando] = useState(() => Boolean(lerSessaoComToken(CHAVES.admin)));
   const [sessaoGarcomCarregando, setSessaoGarcomCarregando] = useState(() => Boolean(lerSessaoComToken(CHAVES.garcom)));
   const [erroApi, setErroApi] = useState('');
+  const [avisosCarrinho, setAvisosCarrinho] = useState([]);
+  const [alertaNovoPedido, setAlertaNovoPedido] = useState(null);
+  const [pedidosNovos, setPedidosNovos] = useState([]);
+  const pedidosConhecidosRef = useRef(new Set());
+  const pedidosInicializadosRef = useRef(false);
+  const audioLiberadoRef = useRef(false);
 
   useEffect(() => localStorage.setItem(CHAVES.carrinho, JSON.stringify(carrinho)), [carrinho]);
   useEffect(() => {
     const nome = configuracao.nomeLoja?.trim();
-    document.title = nome ? `${nome} | Cardápio e pedidos` : 'Cardápio e pedidos online';
+    const titulo = nome ? `${nome} | Cardápio e pedidos` : 'Cardápio e pedidos online';
+    const descricao = nome
+      ? `Consulte o cardápio e faça seu pedido online na ${nome}.`
+      : 'Cardápio e pedidos online para entrega ou retirada.';
+    document.title = titulo;
     const metaDescricao = document.querySelector('meta[name="description"]');
-    if (metaDescricao) {
-      metaDescricao.setAttribute(
-        'content',
-        nome ? `Consulte o cardápio e faça seu pedido online na ${nome}.` : 'Cardápio e pedidos online para entrega.'
-      );
-    }
-  }, [configuracao.nomeLoja]);
+    if (metaDescricao) metaDescricao.setAttribute('content', descricao);
+    const metas = {
+      'meta[property="og:title"]': titulo,
+      'meta[property="og:description"]': descricao,
+      'meta[name="twitter:title"]': titulo,
+      'meta[name="twitter:description"]': descricao
+    };
+    Object.entries(metas).forEach(([seletor, conteudo]) => document.querySelector(seletor)?.setAttribute('content', conteudo));
+    const imagemSocial = document.querySelector('meta[property="og:image"]');
+    if (imagemSocial) imagemSocial.setAttribute('content', configuracao.logo ? new URL(configuracao.logo, window.location.origin).href : '');
+    const urlSocial = document.querySelector('meta[property="og:url"]');
+    if (urlSocial) urlSocial.setAttribute('content', import.meta.env.VITE_PUBLIC_URL || '');
+  }, [configuracao.logo, configuracao.nomeLoja]);
+
+  useEffect(() => {
+    const liberarAudio = () => { audioLiberadoRef.current = true; };
+    window.addEventListener('pointerdown', liberarAudio, { once: true });
+    window.addEventListener('keydown', liberarAudio, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', liberarAudio);
+      window.removeEventListener('keydown', liberarAudio);
+    };
+  }, []);
   useEffect(() => {
     if (pedidoAtual) sessionStorage.setItem(CHAVES.pedidoAtual, JSON.stringify(pedidoAtual));
     else sessionStorage.removeItem(CHAVES.pedidoAtual);
   }, [pedidoAtual]);
 
+  const tocarSomNovoPedido = useCallback(() => {
+    if (!audioLiberadoRef.current) return;
+    try {
+      const AudioContexto = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContexto) return;
+      const contexto = new AudioContexto();
+      const oscilador = contexto.createOscillator();
+      const ganho = contexto.createGain();
+      oscilador.type = 'sine';
+      oscilador.frequency.setValueAtTime(880, contexto.currentTime);
+      oscilador.frequency.setValueAtTime(1046, contexto.currentTime + 0.12);
+      ganho.gain.setValueAtTime(0.0001, contexto.currentTime);
+      ganho.gain.exponentialRampToValueAtTime(0.16, contexto.currentTime + 0.02);
+      ganho.gain.exponentialRampToValueAtTime(0.0001, contexto.currentTime + 0.32);
+      oscilador.connect(ganho);
+      ganho.connect(contexto.destination);
+      oscilador.start();
+      oscilador.stop(contexto.currentTime + 0.34);
+      oscilador.addEventListener('ended', () => contexto.close().catch(() => {}));
+    } catch {
+      // O alerta visual permanece disponível quando o navegador bloquear áudio.
+    }
+  }, []);
+
   const aplicarDados = useCallback((dados) => {
     const produtosNormalizados = dados.produtos ? normalizarProdutos(dados.produtos) : null;
+    if (dados.categorias) setCategorias(dados.categorias);
     if (produtosNormalizados) setProdutos(produtosNormalizados);
     if (dados.adicionais) setAdicionais(dados.adicionais);
     if (dados.promocoes) {
@@ -152,10 +220,27 @@ export function AppProvider({ children }) {
     }
     if (dados.funcionarios) setFuncionarios(dados.funcionarios);
     if (dados.mesas) setMesas(dados.mesas);
-    if (dados.pedidos) setPedidos(dados.pedidos);
+    if (dados.pedidos) {
+      const idsRecebidos = new Set(dados.pedidos.map((pedido) => pedido.id));
+      if (pedidosInicializadosRef.current) {
+        const novos = dados.pedidos.filter((pedido) => !pedidosConhecidosRef.current.has(pedido.id));
+        if (novos.length > 0) {
+          setPedidosNovos(novos.map((pedido) => pedido.id));
+          setAlertaNovoPedido({ quantidade: novos.length, pedido: novos[0] });
+          tocarSomNovoPedido();
+          window.setTimeout(() => setPedidosNovos([]), 12000);
+        }
+      } else {
+        pedidosInicializadosRef.current = true;
+      }
+      pedidosConhecidosRef.current = idsRecebidos;
+      setPedidos(dados.pedidos);
+    }
     if (dados.comandas) setComandas(dados.comandas);
+    if (dados.administradores) setAdministradores(dados.administradores);
+    if (dados.auditoria) setAuditoria(dados.auditoria);
     if (dados.configuracao) setConfiguracaoEstado(dados.configuracao);
-  }, []);
+  }, [tocarSomNovoPedido]);
 
   const recarregarPublico = useCallback(async () => {
     const dados = await buscarDadosPublicos();
@@ -316,6 +401,12 @@ export function AppProvider({ children }) {
     setComandas([]);
     setMesas([]);
     setFuncionarios([]);
+    setAdministradores([]);
+    setAuditoria([]);
+    setAlertaNovoPedido(null);
+    setPedidosNovos([]);
+    pedidosConhecidosRef.current = new Set();
+    pedidosInicializadosRef.current = false;
     await recarregarPublico().catch(() => {});
   }
 
@@ -352,6 +443,43 @@ export function AppProvider({ children }) {
       ? atuais.map((item) => item.id === normalizado.id ? normalizado : item)
       : [...atuais, normalizado]);
     return normalizado.id;
+  }
+
+  async function salvarCategoria(dados) {
+    const resposta = dados.id
+      ? await atualizarCategoriaApi(dados.id, dados)
+      : await criarCategoriaApi(dados);
+    setCategorias((atuais) => dados.id
+      ? atuais.map((item) => item.id === resposta.categoria.id ? resposta.categoria : item)
+      : [...atuais, resposta.categoria].sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome)));
+    return resposta.categoria.id;
+  }
+
+  async function alternarCategoria(id) {
+    const atual = categorias.find((categoria) => categoria.id === id);
+    if (!atual) return;
+    const { categoria } = await alterarStatusCategoriaApi(id, !atual.ativo);
+    setCategorias((atuais) => atuais.map((item) => item.id === id ? categoria : item));
+  }
+
+  async function criarAdministrador(dados) {
+    const { administrador } = await criarAdministradorApi(dados);
+    setAdministradores((atuais) => [...atuais, administrador].sort((a, b) => a.nome.localeCompare(b.nome)));
+    await recarregarAdmin();
+    return administrador.id;
+  }
+
+  async function alternarAdministrador(id) {
+    const atual = administradores.find((administrador) => administrador.id === id);
+    if (!atual) return;
+    const { administrador } = await alterarStatusAdministradorApi(id, !atual.ativo);
+    setAdministradores((atuais) => atuais.map((item) => item.id === id ? administrador : item));
+    await recarregarAdmin();
+  }
+
+  async function alterarSenhaAdministrador(dados) {
+    await alterarSenhaAdministradorApi(dados);
+    await recarregarAdmin();
   }
 
   async function removerProduto(id) {
@@ -432,8 +560,54 @@ export function AppProvider({ children }) {
     setPedidoAtual((atual) => atual?.id === id ? { ...pedido, tokenAcompanhamento: atual.tokenAcompanhamento } : atual);
   }
 
+  async function confirmarPagamentoPedido(id) {
+    const { pedido } = await confirmarPagamentoPedidoApi(id);
+    setPedidos((atuais) => atuais.map((item) => item.id === id ? pedido : item));
+    await recarregarAdmin();
+    return pedido;
+  }
+
+  async function estornarPagamentoPedido(id) {
+    const { pedido } = await estornarPagamentoPedidoApi(id);
+    setPedidos((atuais) => atuais.map((item) => item.id === id ? pedido : item));
+    await recarregarAdmin();
+    return pedido;
+  }
+
+  function itensCarrinhoParaApi(lista) {
+    return lista.map((item) => ({
+      carrinhoId: item.carrinhoId,
+      produtoId: item.produtoId ?? item.id,
+      promocaoId: item.promocaoId ?? null,
+      quantidade: item.quantidade,
+      adicionais: (item.adicionais ?? []).map((adicional) => adicional.id),
+      observacao: item.observacao || undefined,
+      precoFinal: item.precoFinal ?? numeroPreco(item.preco),
+      nome: item.nome
+    }));
+  }
+
+  async function revalidarCarrinho() {
+    if (carrinho.length === 0) {
+      setAvisosCarrinho([]);
+      return { itens: [], alteracoes: [] };
+    }
+    const resultado = await validarCarrinhoApi(itensCarrinhoParaApi(carrinho));
+    const normalizados = normalizarProdutos(resultado.itens);
+    setCarrinho(normalizados);
+    setAvisosCarrinho(resultado.alteracoes ?? []);
+    return { ...resultado, itens: normalizados };
+  }
+
   async function criarPedidoDelivery(dados) {
-    const itens = carrinho.map((item) => ({
+    const validacao = await validarCarrinhoApi(itensCarrinhoParaApi(carrinho));
+    const itensAtuais = normalizarProdutos(validacao.itens);
+    setCarrinho(itensAtuais);
+    setAvisosCarrinho(validacao.alteracoes ?? []);
+    if (validacao.alteracoes?.length) {
+      throw new ErroApi('Seu carrinho foi atualizado. Revise as alterações antes de finalizar o pedido.', 409);
+    }
+    const itens = itensAtuais.map((item) => ({
       produtoId: item.produtoId ?? item.id,
       promocaoId: item.promocaoId ?? null,
       quantidade: item.quantidade,
@@ -445,6 +619,7 @@ export function AppProvider({ children }) {
     setPedidoAtual(pedido);
     setPedidoAtualCarregando(false);
     setCarrinho([]);
+    setAvisosCarrinho([]);
     return pedido;
   }
 
@@ -452,6 +627,35 @@ export function AppProvider({ children }) {
     const { comanda } = await abrirComandaApi(mesaId);
     await recarregarGarcom();
     return comanda;
+  }
+
+  async function criarMesaAdmin(numero) {
+    await criarMesaAdminApi(numero);
+    await recarregarAdmin();
+  }
+
+  async function adicionarItemComandaAdmin(comandaId, produtoId) {
+    await adicionarItemComandaAdminApi(comandaId, {
+      produtoId,
+      quantidade: 1,
+      adicionais: []
+    });
+    await recarregarAdmin();
+  }
+
+  async function atualizarItemComandaAdmin(comandaId, itemId, quantidade) {
+    await atualizarItemComandaAdminApi(comandaId, itemId, quantidade);
+    await recarregarAdmin();
+  }
+
+  async function removerItemComandaAdmin(comandaId, itemId) {
+    await removerItemComandaAdminApi(comandaId, itemId);
+    await recarregarAdmin();
+  }
+
+  async function finalizarComandaAdmin(comandaId, pagamento) {
+    await finalizarComandaAdminApi(comandaId, pagamento);
+    await recarregarAdmin();
   }
 
   async function adicionarItemComanda(comandaId, produto, quantidade, extras, observacao) {
@@ -492,6 +696,7 @@ export function AppProvider({ children }) {
   }
 
   const valor = {
+    categorias,
     produtos,
     adicionais,
     promocoes,
@@ -499,6 +704,8 @@ export function AppProvider({ children }) {
     mesas,
     pedidos,
     comandas,
+    administradores,
+    auditoria,
     configuracao,
     carrinho,
     pedidoAtual,
@@ -509,6 +716,9 @@ export function AppProvider({ children }) {
     sessaoAdminCarregando,
     sessaoGarcomCarregando,
     erroApi,
+    avisosCarrinho,
+    alertaNovoPedido,
+    pedidosNovos,
     setCarrinho,
     setConfiguracao,
     entrarAdmin,
@@ -516,6 +726,8 @@ export function AppProvider({ children }) {
     entrarGarcom,
     sairGarcom,
     salvarProduto,
+    salvarCategoria,
+    alternarCategoria,
     removerProduto,
     alternarProduto,
     salvarAdicional,
@@ -526,13 +738,25 @@ export function AppProvider({ children }) {
     salvarFuncionario,
     alternarFuncionario,
     atualizarStatusPedido,
+    confirmarPagamentoPedido,
+    estornarPagamentoPedido,
     criarPedidoDelivery,
+    revalidarCarrinho,
+    criarAdministrador,
+    alternarAdministrador,
+    alterarSenhaAdministrador,
+    dispensarAlertaNovoPedido: () => setAlertaNovoPedido(null),
+    criarMesaAdmin,
     abrirComanda,
     adicionarItemComanda,
     removerItemComanda,
     enviarComanda,
     solicitarConta,
     fecharComanda,
+    adicionarItemComandaAdmin,
+    atualizarItemComandaAdmin,
+    removerItemComandaAdmin,
+    finalizarComandaAdmin,
     recarregarCatalogo,
     numeroPreco
   };

@@ -5,16 +5,18 @@ Aplicação responsiva com três áreas integradas: cliente, administrador e gar
 ## Recursos conectados ao MySQL
 
 - login e sessões do administrador;
-- categorias, produtos, fotos, adicionais e vínculos por produto;
+- múltiplos administradores, troca segura de senha e auditoria das ações críticas;
+- categorias administráveis, produtos, fotos, adicionais e vínculos por produto;
 - promoções exibidas no site;
-- pedidos de delivery, itens, adicionais, pagamentos e acompanhamento;
+- pedidos de delivery e retirada, itens, adicionais, pagamentos e acompanhamento;
+- confirmação manual e idempotente de pagamentos, cancelamento e estorno com autor e horário;
 - funcionários com PIN protegido por `scrypt` e token individual para QR Code;
 - sessões do garçom, mesas, comandas e itens da comanda;
 - vínculo automático entre garçom, mesa, comanda e pedido do salão;
 - identidade e operação da lanchonete: nome, logo, contatos, horário, redes sociais, status, delivery, áreas, taxas, mínimo e pagamentos;
 - dados de dashboard e relatórios calculados a partir dos registros compartilhados.
 
-O carrinho permanece no navegador somente até o cliente finalizar a compra. Depois disso, o servidor recalcula preços, taxa por bairro e pedido mínimo usando o banco, valida a operação e grava pedido, itens e pagamento na mesma transação. Cada tentativa leva uma chave idempotente para que reenvios não criem pedidos duplicados.
+O carrinho permanece no navegador somente até o cliente finalizar a compra. Ao abrir o carrinho e antes do checkout, a API remove itens indisponíveis e atualiza preço, promoção e adicionais. Na criação do pedido, o servidor recalcula tudo novamente, inclusive taxa por bairro e pedido mínimo, e grava pedido, itens e pagamento na mesma transação. Cada tentativa leva uma chave idempotente para que reenvios não criem pedidos duplicados.
 
 ## Requisitos
 
@@ -66,6 +68,9 @@ ADMIN_PASSWORD=uma-senha-administrativa-segura
 
 O `.env` é ignorado pelo Git. Nunca envie senhas ao repositório.
 
+`ADMIN_PASSWORD` é obrigatório também em desenvolvimento; o projeto não contém senha administrativa padrão no código.
+Ele cria a primeira conta quando o banco ainda não possui administradores. Para forçar uma redefinição controlada da conta inicial, use temporariamente `SYNC_ADMIN_CREDENTIALS=1` em uma única inicialização e volte a `0`; assim, alterações de senha feitas no painel não são sobrescritas a cada reinício.
+
 Em desenvolvimento, a API pode criar o banco ausente. Em produção, o banco deve ser provisionado antes da primeira inicialização; a aplicação cria ou atualiza as tabelas dentro dele, mas não solicita privilégio global de `CREATE DATABASE`. O arquivo [`server/schema.mysql.sql`](server/schema.mysql.sql) também pode ser aberto no Workbench para consultar o esquema completo. O backend não precisa armazenar a senha do usuário `root`.
 
 ## Executar localmente
@@ -93,6 +98,8 @@ Em desenvolvimento, o banco pode receber dados demonstrativos. Em produção ele
 npm run dev       # frontend e backend
 npm run dev:web   # somente frontend
 npm run dev:api   # somente backend
+npm run db:backup # backup consistente com mysqldump
+npm run db:restore -- caminho/backup.sql # restauração com confirmação explícita
 npm run lint      # análise estática
 npm test          # testes puros e integração MySQL quando DB_PASSWORD estiver definido
 npm run build     # frontend de produção
@@ -109,6 +116,7 @@ Os testes de integração usam e removem o banco isolado `hamburgueria_testes`. 
 - `GET /api/catalogo`
 - `GET /api/publico/inicial`
 - `POST /api/pedidos`
+- `POST /api/carrinho/validar`
 - `GET /api/pedidos/:codigo?token=...`
 
 ### Administrador
@@ -117,7 +125,11 @@ Os testes de integração usam e removem o banco isolado `hamburgueria_testes`. 
 - `GET|DELETE /api/admin/sessao`
 - `GET /api/admin/dados`
 - CRUD de `/api/admin/produtos`, `/api/admin/adicionais`, `/api/admin/promocoes` e `/api/admin/funcionarios`
+- criação/edição/status de `/api/admin/categorias`
+- criação/status de `/api/admin/administradores` e `PUT /api/admin/senha`
 - `PATCH /api/admin/pedidos/:codigo/status`
+- `POST /api/admin/pedidos/:codigo/pagamento/confirmar`
+- `POST /api/admin/pedidos/:codigo/pagamento/estornar`
 - `PUT /api/admin/configuracao`
 
 ### Garçom
@@ -129,8 +141,12 @@ Os testes de integração usam e removem o banco isolado `hamburgueria_testes`. 
 
 ## Produção
 
-Defina `NODE_ENV=production`, `ADMIN_PASSWORD` com pelo menos 12 caracteres e todas as variáveis `DB_HOST`, `DB_USER`, `DB_PASSWORD` e `DB_NAME`. Use uma conta MySQL com acesso somente ao banco já provisionado da aplicação. Antes de abrir pedidos, cadastre o cardápio e preencha **Configurações** com identidade, contatos, horário, áreas atendidas, taxas, mínimo e pagamentos reais. O Pix só aparece com chave e beneficiário; cartão e dinheiro podem ser desligados separadamente. Fotos e logo enviadas ficam em `server/uploads/`; em hospedagem, use volume persistente para essa pasta e para o MySQL.
+Defina `NODE_ENV=production`, `ADMIN_PASSWORD` com pelo menos 12 caracteres e todas as variáveis `DB_HOST`, `DB_USER`, `DB_PASSWORD` e `DB_NAME`. Use uma conta MySQL com acesso somente ao banco já provisionado da aplicação. Antes de abrir pedidos, cadastre o cardápio e preencha **Configurações** com identidade, contatos, horário, áreas atendidas, taxas, mínimo e pagamentos reais. O Pix só aparece com chave, beneficiário e cidade; o QR Code BR Code é montado a partir desses dados, do total recalculado e do identificador real do pedido. Não há confirmação bancária automática: um administrador autenticado precisa confirmar o recebimento. Cartão e dinheiro também entram na receita somente após confirmação.
 
-O sistema atual registra pedidos de **delivery** no site público e comandas do salão no acesso do garçom. Não há checkout de retirada. Pagamentos de delivery ficam como “Aguardando pagamento” ou “Pagamento na entrega”; antes da operação comercial, o cliente precisa definir o processo externo de conciliação/baixa, pois esta versão não integra gateway nem oferece confirmação manual de pagamento do delivery.
+Fotos e logo ficam no caminho configurado em `UPLOADS_PATH` (padrão local `server/uploads`). Em hospedagem, esse caminho precisa ser um volume persistente e deve ter backup próprio. O sitemap usa `PUBLIC_SITE_URL`/`VITE_PUBLIC_URL`; nenhum domínio é inventado quando elas não estão definidas. Consulte [implantação](docs/DEPLOY.md) e [backup/restauração](docs/BACKUP.md).
+
+Alterações compatíveis são aplicadas na inicialização. Para operação controlada pelo MySQL Workbench, o script não destrutivo [20260824_operacao_comercial.sql](server/migrations/20260824_operacao_comercial.sql) documenta as novas colunas, chaves e a tabela de auditoria; aplique-o uma única vez em bancos gerenciados manualmente e mantenha um backup antes de migrations.
+
+O sistema não possui gateway bancário nem serviço SMTP. A conciliação é manual e auditada; recuperação de senha por e-mail depende da infraestrutura descrita em [implantação](docs/DEPLOY.md). Logs HTTP 5xx são emitidos em JSON com campos sensíveis redigidos e devem ser coletados/rotacionados pela infraestrutura.
 
 Os textos de privacidade e termos são modelos operacionais. O proprietário precisa revisá-los com orientação jurídica, definir retenção de dados, fornecedores, políticas de cancelamento e regras locais antes da venda ou publicação comercial.

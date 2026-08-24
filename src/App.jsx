@@ -9,6 +9,7 @@ import AdminDashboard from './pages/admin/dashboard/AdminDashboard';
 import AdminPedidos from './pages/admin/pedidos/AdminPedidos';
 import DetalhesPedido from './pages/admin/pedidos/detalhes';
 import CardapioAdmin from './pages/admin/cardapio';
+import CategoriasAdmin from './pages/admin/categorias';
 import FormularioProduto from './pages/admin/cardapio/formulario';
 import AdicionaisAdmin from './pages/admin/adicionais';
 import PromocoesAdmin from './pages/admin/promocoes';
@@ -17,6 +18,7 @@ import QrCodeFuncionario from './pages/admin/funcionarios/qrCode';
 import MesasAdmin from './pages/admin/mesas';
 import RelatoriosAdmin from './pages/admin/relatorios';
 import ConfiguracoesAdmin from './pages/admin/configuracoes';
+import AcessosAdmin from './pages/admin/acessos';
 import AcessoGarcom from './pages/garcom/acesso';
 import MesasGarcom from './pages/garcom/mesas';
 import ComandaGarcom from './pages/garcom/comanda';
@@ -39,6 +41,7 @@ function App() {
         <Route path="/admin/pedidos" element={<AdminPedidos />} />
         <Route path="/admin/pedidos/:id" element={<DetalhesPedido />} />
         <Route path="/admin/cardapio" element={<CardapioAdmin />} />
+        <Route path="/admin/categorias" element={<CategoriasAdmin />} />
         <Route path="/admin/cardapio/novo" element={<FormularioProduto />} />
         <Route path="/admin/cardapio/:id/editar" element={<FormularioProduto />} />
         <Route path="/admin/adicionais" element={<AdicionaisAdmin />} />
@@ -48,6 +51,7 @@ function App() {
         <Route path="/admin/mesas" element={<MesasAdmin />} />
         <Route path="/admin/relatorios" element={<RelatoriosAdmin />} />
         <Route path="/admin/configuracoes" element={<ConfiguracoesAdmin />} />
+        <Route path="/admin/acessos" element={<AcessosAdmin />} />
       </Route>
 
       <Route path="/garcom/acesso" element={<AcessoGarcom />} />

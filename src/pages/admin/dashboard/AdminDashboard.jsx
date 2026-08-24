@@ -20,13 +20,13 @@ function classeStatus(status) {
   if (status === 'Recebido') return styles.statusRecebido;
   if (['Em preparo', 'Pronto'].includes(status)) return styles.statusPreparo;
   if (status === 'Saiu para entrega') return styles.statusEntrega;
-  if (['Entregue', 'Entregue na mesa'].includes(status)) return styles.statusConcluido;
+  if (['Entregue', 'Entregue na mesa', 'Retirado'].includes(status)) return styles.statusConcluido;
   if (status === 'Cancelado') return styles.statusCancelado;
   return '';
 }
 
 function AdminDashboard() {
-  const { pedidos, produtos } = useApp();
+  const { pedidos, produtos, pedidosNovos } = useApp();
   const navigate = useNavigate();
 
   const pedidosValidos = pedidos.filter((pedido) => pedido.status !== 'Cancelado');
@@ -69,7 +69,7 @@ function AdminDashboard() {
         </div>
       </section>
 
-      <div className={styles.gradeDuasColunas}>
+      <div className={`${styles.gradeDuasColunas} ${styles.secaoSeparada}`}>
         <section className={styles.card}>
           <div className={styles.topoCard}>
             <div><h2>Pedidos recentes</h2><p>Últimas entradas no sistema</p></div>
@@ -80,7 +80,7 @@ function AdminDashboard() {
               <thead><tr><th>Pedido</th><th>Origem</th><th>Status</th><th>Total</th><th>Ação</th></tr></thead>
               <tbody>
                 {pedidos.slice(0, 5).map((pedido) => (
-                  <tr key={pedido.id}>
+                  <tr key={pedido.id} className={pedidosNovos.includes(pedido.id) ? styles.pedidoNovo : ''}>
                     <td><strong>{pedido.id}</strong><span className={styles.textoSecundario}>{pedido.cliente}</span></td>
                     <td>{pedido.origem}</td>
                     <td><span className={`${styles.status} ${classeStatus(pedido.status)}`}>{pedido.status}</span></td>

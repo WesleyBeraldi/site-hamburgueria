@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import WaiterLayout from '../../components/WaiterLayout';
 import { useApp } from '../../context/appContext';
+import { usarPlaceholderProduto } from '../../utils/productImage';
 import styles from './garcom.module.css';
 
 function moeda(valor) {
@@ -177,7 +178,7 @@ function ComandaGarcom() {
         <section className={styles.painel}>
           <div className={styles.topoPainel}><div><h2>Cardápio</h2><p>Adicione itens e observações à mesma comanda.</p></div><button type="button" className={styles.botaoSecundario} onClick={() => navigate('/garcom/mesas')}><ArrowLeft size={16} /> Mesas</button></div>
           <div className={styles.categorias}>{categorias.map((item) => <button type="button" key={item} aria-pressed={categoria === item} className={`${styles.categoria} ${categoria === item ? styles.categoriaAtiva : ''}`} onClick={() => setCategoria(item)}>{item}</button>)}</div>
-          <div className={styles.gradeProdutos}>{filtrados.map((produto) => <article className={styles.produto} key={produto.id}><img src={produto.imagem} alt={produto.nome} loading="lazy" decoding="async" /><div><h3>{produto.nome}</h3><p>{produto.descricao}</p><div className={styles.produtoRodape}><strong>R$ {produto.preco}</strong><button disabled={Boolean(processando)} type="button" aria-label={`Adicionar ${produto.nome}`} onClick={() => abrirProduto(produto)}><Plus size={16} /></button></div></div></article>)}</div>
+          <div className={styles.gradeProdutos}>{filtrados.map((produto) => <article className={styles.produto} key={produto.id}><img src={produto.imagem} alt={produto.nome} loading="lazy" decoding="async" onError={usarPlaceholderProduto} /><div><h3>{produto.nome}</h3><p>{produto.descricao}</p><div className={styles.produtoRodape}><strong>R$ {produto.preco}</strong><button disabled={Boolean(processando)} type="button" aria-label={`Adicionar ${produto.nome}`} onClick={() => abrirProduto(produto)}><Plus size={16} /></button></div></div></article>)}</div>
           {filtrados.length === 0 && <div className={styles.vazio} role="status">Nenhum produto disponível nesta categoria.</div>}
         </section>
 

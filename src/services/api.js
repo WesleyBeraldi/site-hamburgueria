@@ -60,6 +60,10 @@ export function criarPedidoDeliveryApi(dados, itens) {
   return requisicao('/api/pedidos', { metodo: 'POST', dados: { ...dados, itens } });
 }
 
+export function validarCarrinhoApi(itens) {
+  return requisicao('/api/carrinho/validar', { metodo: 'POST', dados: { itens } });
+}
+
 export function acompanharPedidoApi(codigo, token) {
   return requisicao(`/api/pedidos/${encodeURIComponent(codigo)}?token=${encodeURIComponent(token)}`);
 }
@@ -78,6 +82,58 @@ export function logoutAdmin() {
 
 export function buscarDadosAdmin() {
   return requisicao('/api/admin/dados', { autenticacao: 'admin' });
+}
+
+export function criarCategoriaApi(dados) {
+  return requisicao('/api/admin/categorias', { metodo: 'POST', dados, autenticacao: 'admin' });
+}
+
+export function atualizarCategoriaApi(id, dados) {
+  return requisicao(`/api/admin/categorias/${id}`, { metodo: 'PUT', dados, autenticacao: 'admin' });
+}
+
+export function alterarStatusCategoriaApi(id, ativo) {
+  return requisicao(`/api/admin/categorias/${id}/status`, { metodo: 'PATCH', dados: { ativo }, autenticacao: 'admin' });
+}
+
+export function criarAdministradorApi(dados) {
+  return requisicao('/api/admin/administradores', { metodo: 'POST', dados, autenticacao: 'admin' });
+}
+
+export function alterarStatusAdministradorApi(id, ativo) {
+  return requisicao(`/api/admin/administradores/${id}/status`, { metodo: 'PATCH', dados: { ativo }, autenticacao: 'admin' });
+}
+
+export function alterarSenhaAdministradorApi(dados) {
+  return requisicao('/api/admin/senha', { metodo: 'PUT', dados, autenticacao: 'admin' });
+}
+
+export function criarMesaAdminApi(numero) {
+  return requisicao('/api/admin/mesas', { metodo: 'POST', dados: { numero }, autenticacao: 'admin' });
+}
+
+export function adicionarItemComandaAdminApi(comandaId, dados) {
+  return requisicao(`/api/admin/comandas/${comandaId}/itens`, { metodo: 'POST', dados, autenticacao: 'admin' });
+}
+
+export function atualizarItemComandaAdminApi(comandaId, itemId, quantidade) {
+  return requisicao(`/api/admin/comandas/${comandaId}/itens/${itemId}`, {
+    metodo: 'PATCH',
+    dados: { quantidade },
+    autenticacao: 'admin'
+  });
+}
+
+export function removerItemComandaAdminApi(comandaId, itemId) {
+  return requisicao(`/api/admin/comandas/${comandaId}/itens/${itemId}`, { metodo: 'DELETE', autenticacao: 'admin' });
+}
+
+export function finalizarComandaAdminApi(comandaId, pagamento) {
+  return requisicao(`/api/admin/comandas/${comandaId}/finalizar`, {
+    metodo: 'POST',
+    dados: { pagamento },
+    autenticacao: 'admin'
+  });
 }
 
 export function criarProdutoApi(dados) {
@@ -140,6 +196,20 @@ export function atualizarStatusPedidoApi(id, status) {
   return requisicao(`/api/admin/pedidos/${encodeURIComponent(id)}/status`, {
     metodo: 'PATCH',
     dados: { status },
+    autenticacao: 'admin'
+  });
+}
+
+export function confirmarPagamentoPedidoApi(id) {
+  return requisicao(`/api/admin/pedidos/${encodeURIComponent(id)}/pagamento/confirmar`, {
+    metodo: 'POST',
+    autenticacao: 'admin'
+  });
+}
+
+export function estornarPagamentoPedidoApi(id) {
+  return requisicao(`/api/admin/pedidos/${encodeURIComponent(id)}/pagamento/estornar`, {
+    metodo: 'POST',
     autenticacao: 'admin'
   });
 }

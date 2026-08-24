@@ -299,7 +299,7 @@
   border: 1px solid;
   border-radius: 999px;
   padding: 0.7rem 1.1rem;
-  font-size: 1.05rem;
+  font-size: 1.4rem;
 }
 
 .statusLoja strong { font-weight: 900; }
@@ -464,7 +464,7 @@
 
 .carrosselPromocoes {
   width: 100%;
-
+  padding-top: 0.6rem;
   overflow: hidden;
 }
 
@@ -2265,6 +2265,33 @@
   font-weight: 800;
 }
 
+.observacaoCarrinho {
+  margin: 0.7rem 0 0;
+  color: #d8d8d8;
+  font-size: 1.1rem;
+  font-weight: 500;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.avisosCarrinho {
+  grid-column: 1 / -1;
+  border: 1px solid rgba(255, 193, 7, 0.45);
+  border-radius: 10px;
+  background: rgba(255, 193, 7, 0.08);
+  margin-bottom: 10px;
+  padding: 12px;
+  color: #ddd;
+}
+
+.avisosCarrinho strong { display: block; margin-bottom: 5px; color: #ffc107; font-size: 13px; }
+.avisosCarrinho p { margin: 3px 0; font-size: 12px; line-height: 1.45; }
+
+.observacaoCarrinho strong {
+  color: #ffc107;
+  font-weight: 800;
+}
+
 .totalCarrinho span {
   color: #bbbbbb;
   font-size: 1.3rem;
@@ -3029,6 +3056,11 @@
 }
 
 @media (max-width: 1100px) {
+  .cardapio {
+    padding-right: clamp(2rem, 6vw, 6rem);
+    padding-left: clamp(2rem, 6vw, 6rem);
+  }
+
   .listaProdutos {
     grid-template-columns: 1fr;
   }
@@ -3175,6 +3207,12 @@
   }
 }
 
+@media (max-width: 900px) {
+  .listaPromocoes {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 480px) {
   .erroCatalogo {
     top: 6.2rem;
@@ -3232,6 +3270,10 @@
   }
 
   .descricaoItemCarrinho {
+    font-size: 1.2rem;
+  }
+
+  .observacaoCarrinho {
     font-size: 1.2rem;
   }
 

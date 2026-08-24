@@ -3,11 +3,11 @@ import { useState } from 'react';
 
 import AdminLayout from '../../../components/AdminLayout';
 import { useApp } from '../../../context/appContext';
+import { usarPlaceholderProduto } from '../../../utils/productImage';
 import styles from '../shared.module.css';
 
 const vazio = {
   nome: '',
-  categoria: 'Combos',
   descricao: '',
   precoAntigo: '',
   preco: '',
@@ -80,7 +80,6 @@ function PromocoesAdmin() {
               <div className={styles.campo}><label htmlFor="precoAntigo">Preço anterior</label><input id="precoAntigo" value={formulario.precoAntigo} onChange={(event) => alterar('precoAntigo', event.target.value)} placeholder="49,90" /></div>
               <div className={styles.campo}><label htmlFor="precoNovo">Preço promocional</label><input id="precoNovo" value={formulario.preco} onChange={(event) => alterar('preco', event.target.value)} placeholder="42,40" /></div>
               <div className={styles.campo}><label htmlFor="destaquePromocao">Destaque</label><input id="destaquePromocao" value={formulario.destaque} onChange={(event) => alterar('destaque', event.target.value)} placeholder="15% OFF" /></div>
-              <div className={styles.campo}><label htmlFor="categoriaPromocao">Categoria</label><select id="categoriaPromocao" value={formulario.categoria} onChange={(event) => alterar('categoria', event.target.value)}><option>Combos</option><option>Hambúrgueres</option><option>Porções</option><option>Bebidas</option></select></div>
               <div className={styles.campo}><label htmlFor="inicioPromocao">Início <span>(opcional)</span></label><input id="inicioPromocao" type="datetime-local" value={formulario.inicioEm ?? ''} onChange={(event) => alterar('inicioEm', event.target.value)} /></div>
               <div className={styles.campo}><label htmlFor="fimPromocao">Fim <span>(opcional)</span></label><input id="fimPromocao" type="datetime-local" value={formulario.fimEm ?? ''} onChange={(event) => alterar('fimEm', event.target.value)} /></div>
             </div>
@@ -94,7 +93,7 @@ function PromocoesAdmin() {
         {promocoes.map((promocao) => (
           <article className={styles.promocaoCard} key={promocao.id}>
             <div className={styles.produtoImagem}>
-              <img src={promocao.imagem} alt={promocao.nome} loading="lazy" decoding="async" />
+              <img src={promocao.imagem} alt={promocao.nome} loading="lazy" decoding="async" onError={usarPlaceholderProduto} />
               <span className={`${styles.status} ${promocao.disponivel ? styles.statusAtivo : styles.statusInativo}`}>{promocao.disponivel ? promocao.destaque : promocao.ativo ? 'Fora do período' : 'Inativa'}</span>
             </div>
             <div className={styles.produtoConteudo}>

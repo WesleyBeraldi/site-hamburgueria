@@ -1,4 +1,4 @@
-import { ArrowRight, Users } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import WaiterLayout from '../../components/WaiterLayout';
@@ -32,11 +32,10 @@ function MesasGarcom() {
             <article className={styles.mesa} key={mesa.id}>
               <div className={styles.mesaTopo}><span className={styles.numeroMesa}>{mesa.numero}</span><span className={`${styles.status} ${ocupada ? styles.ocupada : styles.livre}`}>{ocupada ? 'Ocupada' : 'Livre'}</span></div>
               <h2>Mesa {mesa.numero}</h2>
-              <p><Users size={13} /> {mesa.lugares} lugares</p>
               <div className={styles.mesaInfo}>
-                {minha ? <><span>Seu atendimento</span><span>{comanda.status}</span></> : ocupada ? <span>Em atendimento por outro funcionário.</span> : <span>Pronta para receber clientes.</span>}
+                {minha ? <><span>Seu atendimento</span><span>{comanda.status}</span></> : ocupada ? <span>Comanda aberta por outro funcionário.</span> : <span>Pronta para receber clientes.</span>}
               </div>
-              <button type="button" className={!ocupada ? styles.botaoPrincipal : styles.botaoSecundario} disabled={!disponivel} onClick={() => acessar(mesa)}>{!ocupada ? 'Abrir comanda' : minha ? 'Continuar atendimento' : 'Em atendimento'} {disponivel && <ArrowRight size={16} />}</button>
+              <button type="button" className={!ocupada ? styles.botaoPrincipal : styles.botaoSecundario} disabled={!disponivel} onClick={() => acessar(mesa)}>{!ocupada ? 'Abrir comanda' : 'Continuar atendimento'} {disponivel && <ArrowRight size={16} />}</button>
             </article>
           );
         })}

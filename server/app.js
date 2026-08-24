@@ -4,33 +4,48 @@ import { basename, extname, isAbsolute, relative, resolve } from 'node:path';
 
 import {
   alternarStatusAdicional,
+  alternarStatusCategoria,
   alternarStatusProduto,
   atualizarAdicional,
+  atualizarCategoria,
   atualizarProduto,
   buscarProduto,
   criarAdicional,
+  criarCategoria,
   criarProduto,
   excluirAdicional,
   excluirProduto,
   listarCatalogo
 } from './catalog.js';
 import { removerImagemLocal, salvarImagemDataUrl } from './imageStore.js';
+import { registrarErro } from './logger.js';
 import {
   acompanharPedido,
   adicionarItemComanda,
+  adicionarItemComandaAdmin,
   abrirComanda,
   alternarStatusFuncionario,
+  alternarStatusAdministrador,
+  alterarSenhaAdministrador,
+  atualizarQuantidadeItemComandaAdmin,
   atualizarStatusPedido,
   buscarConfiguracao,
   buscarFuncionarioPorToken,
+  confirmarPagamento,
+  criarAdministrador,
+  criarMesa,
   criarPedidoDelivery,
   enviarComanda,
+  estornarPagamento,
   excluirPromocao,
   fecharComanda,
+  finalizarComandaAdmin,
   listarDadosAdmin,
   listarDadosGarcom,
   listarDadosPublicos,
+  revalidarCarrinho,
   removerItemComanda,
+  removerItemComandaAdmin,
   salvarConfiguracao,
   salvarFuncionario,
   salvarPromocao,
@@ -93,9 +108,31 @@ function validarLimiteLogin(limitador, chaves) {
 }
 
 function cabecalhosSeguranca(resposta) {
+  const producao = Boolean(resposta.configuracaoSeguranca?.producao);
   resposta.setHeader('X-Content-Type-Options', 'nosniff');
   resposta.setHeader('X-Frame-Options', 'DENY');
   resposta.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  resposta.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  resposta.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  resposta.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  if (producao) {
+    resposta.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    resposta.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; base-uri 'self'; connect-src 'self'; font-src 'self' data:; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; upgrade-insecure-requests"
+    );
+  }
+}
+
+function aplicarCors(requisicao, resposta, origensPermitidas) {
+  const origem = requisicao.headers.origin;
+  if (!origem) return true;
+  if (!origensPermitidas.includes(origem)) return false;
+  resposta.setHeader('Access-Control-Allow-Origin', origem);
+  resposta.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  resposta.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  resposta.setHeader('Vary', 'Origin');
+  return true;
 }
 
 function responderJson(resposta, status, dados) {
@@ -236,6 +273,12 @@ async function rotaPublica({ banco, requisicao, resposta, caminho, url, limitado
     return true;
   }
 
+  if (requisicao.method === 'POST' && caminho === '/api/carrinho/validar') {
+    const dados = await lerJson(requisicao);
+    responderJson(resposta, 200, await revalidarCarrinho(banco, dados.itens));
+    return true;
+  }
+
   const acompanhamento = caminho.match(/^\/api\/pedidos\/([^/]+)$/);
   if (requisicao.method === 'GET' && acompanhamento) {
     const pedido = await acompanharPedido(banco, acompanhamento[1], url.searchParams.get('token'));
@@ -292,10 +335,106 @@ async function rotaAdmin({ banco, pastaUploads, requisicao, resposta, caminho, l
   }
 
   if (!caminho.startsWith('/api/admin/')) return false;
-  await obterAdministrador(banco, requisicao);
+  const administradorAutenticado = await obterAdministrador(banco, requisicao);
 
   if (requisicao.method === 'GET' && caminho === '/api/admin/dados') {
     responderJson(resposta, 200, await listarDadosAdmin(banco));
+    return true;
+  }
+
+  if (requisicao.method === 'POST' && caminho === '/api/admin/categorias') {
+    try {
+      responderJson(resposta, 201, { categoria: await criarCategoria(banco, await lerJson(requisicao)) });
+    } catch (erro) {
+      tratarErroDados(erro);
+    }
+    return true;
+  }
+  const categoriaStatus = caminho.match(/^\/api\/admin\/categorias\/(\d+)\/status$/);
+  if (requisicao.method === 'PATCH' && categoriaStatus) {
+    const dados = await lerJson(requisicao);
+    const categoria = await alternarStatusCategoria(banco, Number(categoriaStatus[1]), Boolean(dados.ativo));
+    if (!categoria) throw new ErroHttp(404, 'Categoria não encontrada.');
+    responderJson(resposta, 200, { categoria });
+    return true;
+  }
+  const categoriaId = caminho.match(/^\/api\/admin\/categorias\/(\d+)$/);
+  if (requisicao.method === 'PUT' && categoriaId) {
+    try {
+      const categoria = await atualizarCategoria(banco, Number(categoriaId[1]), await lerJson(requisicao));
+      if (!categoria) throw new ErroHttp(404, 'Categoria não encontrada.');
+      responderJson(resposta, 200, { categoria });
+    } catch (erro) {
+      tratarErroDados(erro);
+    }
+    return true;
+  }
+
+  if (requisicao.method === 'POST' && caminho === '/api/admin/administradores') {
+    try {
+      const dados = await lerJson(requisicao);
+      responderJson(resposta, 201, { administrador: await criarAdministrador(banco, dados, administradorAutenticado.id) });
+    } catch (erro) {
+      tratarErroDados(erro);
+    }
+    return true;
+  }
+  const administradorStatus = caminho.match(/^\/api\/admin\/administradores\/(\d+)\/status$/);
+  if (requisicao.method === 'PATCH' && administradorStatus) {
+    const dados = await lerJson(requisicao);
+    const administrador = await alternarStatusAdministrador(
+      banco,
+      administradorStatus[1],
+      Boolean(dados.ativo),
+      administradorAutenticado.id
+    );
+    if (!administrador) throw new ErroHttp(404, 'Administrador não encontrado.');
+    responderJson(resposta, 200, { administrador });
+    return true;
+  }
+  if (requisicao.method === 'PUT' && caminho === '/api/admin/senha') {
+    await alterarSenhaAdministrador(
+      banco,
+      administradorAutenticado.id,
+      await lerJson(requisicao),
+      tokenBearer(requisicao)
+    );
+    responderJson(resposta, 200, { sucesso: true });
+    return true;
+  }
+
+  if (requisicao.method === 'POST' && caminho === '/api/admin/mesas') {
+    try {
+      responderJson(resposta, 201, { mesa: await criarMesa(banco, await lerJson(requisicao)) });
+    } catch (erro) {
+      tratarErroDados(erro);
+    }
+    return true;
+  }
+
+  const itemComandaAdmin = caminho.match(/^\/api\/admin\/comandas\/(\d+)\/itens\/(\d+)$/);
+  if (requisicao.method === 'PATCH' && itemComandaAdmin) {
+    const dados = await lerJson(requisicao);
+    await atualizarQuantidadeItemComandaAdmin(banco, itemComandaAdmin[1], itemComandaAdmin[2], dados.quantidade);
+    responderJson(resposta, 200, { sucesso: true });
+    return true;
+  }
+  if (requisicao.method === 'DELETE' && itemComandaAdmin) {
+    await removerItemComandaAdmin(banco, itemComandaAdmin[1], itemComandaAdmin[2]);
+    responderJson(resposta, 200, { sucesso: true });
+    return true;
+  }
+  const itensComandaAdmin = caminho.match(/^\/api\/admin\/comandas\/(\d+)\/itens$/);
+  if (requisicao.method === 'POST' && itensComandaAdmin) {
+    await adicionarItemComandaAdmin(banco, itensComandaAdmin[1], await lerJson(requisicao));
+    responderJson(resposta, 201, { sucesso: true });
+    return true;
+  }
+  const finalizarComanda = caminho.match(/^\/api\/admin\/comandas\/(\d+)\/finalizar$/);
+  if (requisicao.method === 'POST' && finalizarComanda) {
+    const dados = await lerJson(requisicao);
+    await finalizarComandaAdmin(banco, finalizarComanda[1], String(dados.pagamento ?? ''), administradorAutenticado.id);
+    responderJson(resposta, 200, { sucesso: true });
     return true;
   }
 
@@ -428,7 +567,22 @@ async function rotaAdmin({ banco, pastaUploads, requisicao, resposta, caminho, l
   const pedidoStatus = caminho.match(/^\/api\/admin\/pedidos\/([^/]+)\/status$/);
   if (requisicao.method === 'PATCH' && pedidoStatus) {
     const dados = await lerJson(requisicao);
-    const pedido = await atualizarStatusPedido(banco, pedidoStatus[1], dados.status);
+    const pedido = await atualizarStatusPedido(banco, pedidoStatus[1], dados.status, administradorAutenticado.id);
+    if (!pedido) throw new ErroHttp(404, 'Pedido não encontrado.');
+    responderJson(resposta, 200, { pedido });
+    return true;
+  }
+
+  const confirmarPagamentoPedido = caminho.match(/^\/api\/admin\/pedidos\/([^/]+)\/pagamento\/confirmar$/);
+  if (requisicao.method === 'POST' && confirmarPagamentoPedido) {
+    const pedido = await confirmarPagamento(banco, confirmarPagamentoPedido[1], administradorAutenticado.id);
+    if (!pedido) throw new ErroHttp(404, 'Pedido não encontrado.');
+    responderJson(resposta, 200, { pedido });
+    return true;
+  }
+  const estornarPagamentoPedido = caminho.match(/^\/api\/admin\/pedidos\/([^/]+)\/pagamento\/estornar$/);
+  if (requisicao.method === 'POST' && estornarPagamentoPedido) {
+    const pedido = await estornarPagamento(banco, estornarPagamentoPedido[1], administradorAutenticado.id);
     if (!pedido) throw new ErroHttp(404, 'Pedido não encontrado.');
     responderJson(resposta, 200, { pedido });
     return true;
@@ -588,7 +742,56 @@ async function enviarArquivo(resposta, caminhoArquivo, cacheControl) {
   }
 }
 
-async function servirFrontend({ requisicao, resposta, caminho, pastaUploads, pastaDist }) {
+function escaparHtml(valor) {
+  return String(valor ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+export function personalizarIndexHtml(modelo, configuracao, publicSiteUrl = '') {
+  const nome = configuracao.nomeLoja?.trim();
+  const titulo = nome ? `${nome} | Cardápio e pedidos` : 'Cardápio e pedidos online';
+  const descricao = nome
+    ? `Consulte o cardápio e faça seu pedido online na ${nome}.`
+    : 'Cardápio e pedidos online para entrega ou retirada.';
+  const origem = String(publicSiteUrl ?? '').replace(/\/$/, '');
+  const imagem = origem && configuracao.logo?.startsWith('/') ? `${origem}${configuracao.logo}` : '';
+  return modelo
+    .replace(/<title>.*?<\/title>/, `<title>${escaparHtml(titulo)}</title>`)
+    .replace(/(<meta name="description" content=")[^"]*(" \/>)/, `$1${escaparHtml(descricao)}$2`)
+    .replace(/(<meta property="og:title" content=")[^"]*(" \/>)/, `$1${escaparHtml(titulo)}$2`)
+    .replace(/(<meta property="og:description" content=")[^"]*(" \/>)/, `$1${escaparHtml(descricao)}$2`)
+    .replace(/(<meta property="og:url" content=")[^"]*(" \/>)/, `$1${escaparHtml(origem)}$2`)
+    .replace(/(<meta property="og:image" content=")[^"]*(" \/>)/, `$1${escaparHtml(imagem)}$2`)
+    .replace(/(<meta name="twitter:title" content=")[^"]*(" \/>)/, `$1${escaparHtml(titulo)}$2`)
+    .replace(/(<meta name="twitter:description" content=")[^"]*(" \/>)/, `$1${escaparHtml(descricao)}$2`);
+}
+
+async function enviarIndexDinamico(resposta, caminhoArquivo, banco, publicSiteUrl) {
+  try {
+    const [modelo, configuracao] = await Promise.all([
+      readFile(caminhoArquivo, 'utf8'),
+      buscarConfiguracao(banco)
+    ]);
+    const conteudo = personalizarIndexHtml(modelo, configuracao, publicSiteUrl);
+    const corpo = Buffer.from(conteudo);
+    cabecalhosSeguranca(resposta);
+    resposta.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Length': corpo.length,
+      'Cache-Control': 'no-cache'
+    });
+    resposta.end(corpo);
+    return true;
+  } catch (erro) {
+    if (erro.code === 'ENOENT') return false;
+    throw erro;
+  }
+}
+
+async function servirFrontend({ requisicao, resposta, caminho, pastaUploads, pastaDist, banco, publicSiteUrl }) {
   if (!['GET', 'HEAD'].includes(requisicao.method)) return false;
   if (caminho.startsWith('/uploads/')) {
     const nomeArquivo = basename(caminho);
@@ -600,16 +803,35 @@ async function servirFrontend({ requisicao, resposta, caminho, pastaUploads, pas
   const arquivo = resolve(pastaDist, caminhoRelativo);
   const relativoAoDist = relative(resolve(pastaDist), arquivo);
   const estaDentroDoDist = relativoAoDist && !relativoAoDist.startsWith('..') && !isAbsolute(relativoAoDist);
+  if (estaDentroDoDist && caminhoRelativo === 'index.html') {
+    return enviarIndexDinamico(resposta, arquivo, banco, publicSiteUrl);
+  }
   if (estaDentroDoDist && await enviarArquivo(resposta, arquivo, 'public, max-age=3600')) return true;
-  return enviarArquivo(resposta, resolve(pastaDist, 'index.html'), 'no-cache');
+  return enviarIndexDinamico(resposta, resolve(pastaDist, 'index.html'), banco, publicSiteUrl);
 }
 
-export function criarServidor({ banco, pastaUploads, pastaDist = null, limitePedidosPorMinuto = 30 }) {
+export function criarServidor({
+  banco,
+  pastaUploads,
+  pastaDist = null,
+  limitePedidosPorMinuto = 30,
+  producao = false,
+  corsOrigins = [],
+  publicSiteUrl = ''
+}) {
   const limitadorAdmin = criarLimitadorTentativas({ limite: 10 });
   const limitadorGarcom = criarLimitadorTentativas({ limite: 5 });
   const limitadorPedidos = criarLimitadorTentativas({ limite: limitePedidosPorMinuto, janelaMs: 60 * 1000 });
+  const origensPermitidas = [...new Set([
+    ...corsOrigins,
+    ...(!producao ? ['http://localhost:5173', 'http://127.0.0.1:5173'] : [])
+  ])];
   return createServer(async (requisicao, resposta) => {
     try {
+      resposta.configuracaoSeguranca = { producao };
+      if (!aplicarCors(requisicao, resposta, origensPermitidas)) {
+        throw new ErroHttp(403, 'Origem não autorizada.');
+      }
       const url = new URL(requisicao.url, 'http://localhost');
       let caminho;
       try {
@@ -632,13 +854,17 @@ export function criarServidor({ banco, pastaUploads, pastaDist = null, limitePed
         if (!atendida) responderJson(resposta, 404, { erro: 'Rota da API não encontrada.' });
         return;
       }
-      if (await servirFrontend({ requisicao, resposta, caminho, pastaUploads, pastaDist })) return;
+      if (await servirFrontend({ requisicao, resposta, caminho, pastaUploads, pastaDist, banco, publicSiteUrl })) return;
       responderJson(resposta, 404, { erro: 'Página não encontrada.' });
     } catch (erro) {
       const erroDuplicado = erro.code === 'ER_DUP_ENTRY';
       const erroRelacionamento = ['ER_ROW_IS_REFERENCED_2', 'ER_NO_REFERENCED_ROW_2'].includes(erro.code);
       const status = Number(erro.status) || (erroDuplicado || erroRelacionamento ? 409 : 500);
-      if (status >= 500) console.error(erro);
+      if (status >= 500) registrarErro(erro, {
+        metodo: requisicao.method,
+        caminho: requisicao.url?.split('?')[0],
+        status
+      });
       const mensagem = erroDuplicado
         ? 'Já existe um cadastro com esses dados.'
         : erroRelacionamento

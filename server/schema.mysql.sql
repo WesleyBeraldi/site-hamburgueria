@@ -24,6 +24,20 @@ CREATE TABLE IF NOT EXISTS sessoes_admin (
   INDEX idx_sessoes_admin_expiracao (expira_em)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS auditoria_admin (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  administrador_id BIGINT UNSIGNED,
+  acao VARCHAR(80) NOT NULL,
+  entidade VARCHAR(60) NOT NULL,
+  entidade_id VARCHAR(80),
+  detalhes_json JSON,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_auditoria_admin_administrador
+    FOREIGN KEY (administrador_id) REFERENCES administradores(id) ON DELETE SET NULL,
+  INDEX idx_auditoria_admin_criado_em (criado_em),
+  INDEX idx_auditoria_admin_entidade (entidade, entidade_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS categorias (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   nome VARCHAR(100) NOT NULL UNIQUE,
@@ -242,14 +256,24 @@ CREATE TABLE IF NOT EXISTS pagamentos (
   pix_beneficiario VARCHAR(160),
   sem_troco TINYINT(1),
   troco_para_centavos INT UNSIGNED,
+  pix_copia_cola TEXT,
   pago_em DATETIME,
+  confirmado_por BIGINT UNSIGNED,
+  confirmado_em DATETIME,
+  estornado_por BIGINT UNSIGNED,
+  estornado_em DATETIME,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_pagamentos_pedido
     FOREIGN KEY (pedido_id) REFERENCES pedidos(id) ON DELETE CASCADE,
   CONSTRAINT fk_pagamentos_comanda
     FOREIGN KEY (comanda_id) REFERENCES comandas(id) ON DELETE SET NULL,
+  CONSTRAINT fk_pagamentos_confirmado_por
+    FOREIGN KEY (confirmado_por) REFERENCES administradores(id) ON DELETE SET NULL,
+  CONSTRAINT fk_pagamentos_estornado_por
+    FOREIGN KEY (estornado_por) REFERENCES administradores(id) ON DELETE SET NULL,
   INDEX idx_pagamentos_pedido (pedido_id),
-  INDEX idx_pagamentos_comanda (comanda_id)
+  INDEX idx_pagamentos_comanda (comanda_id),
+  INDEX idx_pagamentos_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS configuracoes (
@@ -264,12 +288,14 @@ CREATE TABLE IF NOT EXISTS configuracoes (
   loja_aberta TINYINT(1) NOT NULL DEFAULT 1,
   pix_chave VARCHAR(180),
   pix_beneficiario VARCHAR(160),
+  pix_cidade VARCHAR(60),
   logo_url VARCHAR(500),
   whatsapp VARCHAR(40),
   horario_funcionamento TEXT,
   instagram_url VARCHAR(500),
   facebook_url VARCHAR(500),
   entrega_ativa TINYINT(1) NOT NULL DEFAULT 1,
+  retirada_ativa TINYINT(1) NOT NULL DEFAULT 1,
   aceita_cartao TINYINT(1) NOT NULL DEFAULT 1,
   aceita_dinheiro TINYINT(1) NOT NULL DEFAULT 1,
   areas_entrega_json JSON,

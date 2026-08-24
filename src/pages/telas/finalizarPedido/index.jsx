@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { useApp } from '../../../context/appContext';
+import { usarPlaceholderProduto } from '../../../utils/productImage';
 import styles from './index.module.css';
 
 function criarChavePedido() {
@@ -15,9 +16,13 @@ function FinalizarPedidos() {
 
   const [rolouPagina, setRolouPagina] = useState(false);
   const [formaPagamento, setFormaPagamento] = useState('cartao');
+  const [modalidade, setModalidade] = useState('delivery');
   const [trocoOpcao, setTrocoOpcao] = useState('sem');
   const [trocoPara, setTrocoPara] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [pixCopiado, setPixCopiado] = useState(false);
+  const erroRef = useRef(null);
+  const validacaoInicialRef = useRef(false);
   const chaveTentativa = useRef(null);
   if (chaveTentativa.current == null) chaveTentativa.current = criarChavePedido();
   const [dadosCliente, setDadosCliente] = useState({
@@ -36,7 +41,9 @@ function FinalizarPedidos() {
     setCarrinho: setItens,
     criarPedidoDelivery,
     configuracao,
-    numeroPreco
+    numeroPreco,
+    revalidarCarrinho,
+    avisosCarrinho
   } = useApp();
 
   function chaveItem(item) {
@@ -87,19 +94,22 @@ function FinalizarPedidos() {
     0
   );
 
+  const retirada = modalidade === 'retirada' || (!configuracao.entregaAtiva && configuracao.retiradaAtiva);
+  const modalidadeEfetiva = retirada ? 'retirada' : 'delivery';
   const areasEntrega = configuracao.areasEntrega ?? [];
   const areaSelecionada = areasEntrega.find((area) => area.bairro === dadosCliente.bairro);
-  const taxaDefinida = areasEntrega.length === 0 || Boolean(areaSelecionada);
-  const taxaEntrega = areasEntrega.length > 0
+  const taxaDefinida = retirada || areasEntrega.length === 0 || Boolean(areaSelecionada);
+  const taxaEntrega = retirada ? 0 : areasEntrega.length > 0
     ? Number(areaSelecionada?.taxa ?? 0)
     : Number(configuracao.taxaEntrega);
 
   const total = subtotal + taxaEntrega;
   const pedidoMinimo = Number(configuracao.pedidoMinimo);
-  const minimoAtingido = subtotal >= pedidoMinimo;
-  const lojaDisponivel = Boolean(configuracao.lojaAberta && configuracao.entregaAtiva);
+  const minimoAtingido = retirada || subtotal >= pedidoMinimo;
+  const lojaDisponivel = Boolean(configuracao.lojaAberta && (retirada ? configuracao.retiradaAtiva : configuracao.entregaAtiva));
+  const pixDisponivel = Boolean(configuracao.pixChave && configuracao.pixBeneficiario && configuracao.pixCidade);
   const formasDisponiveis = [
-    configuracao.pixChave ? 'pix' : null,
+    pixDisponivel ? 'pix' : null,
     configuracao.aceitaCartao ? 'cartao' : null,
     configuracao.aceitaDinheiro ? 'dinheiro' : null
   ].filter(Boolean);
@@ -119,15 +129,24 @@ function FinalizarPedidos() {
     return `(${digitos.slice(0, 2)}) ${digitos.slice(2, 7)}-${digitos.slice(7)}`;
   }
 
-  async function finalizarPedido() {
+  async function copiarChavePix() {
+    try {
+      await navigator.clipboard.writeText(configuracao.pixChave);
+      setPixCopiado(true);
+      window.setTimeout(() => setPixCopiado(false), 2500);
+    } catch {
+      setErro('Não foi possível copiar automaticamente. Selecione a chave Pix e copie manualmente.');
+    }
+  }
+
+  async function finalizarPedido(evento) {
+    evento?.preventDefault();
     if (enviando) return;
     const obrigatorios = [
       dadosCliente.nome,
       dadosCliente.telefone,
       dadosCliente.email,
-      dadosCliente.rua,
-      dadosCliente.numero,
-      dadosCliente.bairro
+      ...(!retirada ? [dadosCliente.rua, dadosCliente.numero, dadosCliente.bairro] : [])
     ];
 
     if (itens.length === 0) {
@@ -136,7 +155,9 @@ function FinalizarPedidos() {
     }
 
     if (!lojaDisponivel) {
-      setErro(configuracao.lojaAberta ? 'A entrega está indisponível no momento.' : 'A loja está fechada no momento.');
+      setErro(configuracao.lojaAberta
+        ? retirada ? 'A retirada no balcão está indisponível no momento.' : 'A entrega está indisponível no momento.'
+        : 'A loja está fechada no momento.');
       return;
     }
 
@@ -146,7 +167,7 @@ function FinalizarPedidos() {
     }
 
     if (obrigatorios.some((campo) => !campo.trim())) {
-      setErro('Preencha os dados do cliente e o endereço de entrega.');
+      setErro(retirada ? 'Preencha os dados essenciais do cliente.' : 'Preencha os dados do cliente e o endereço de entrega.');
       return;
     }
 
@@ -167,7 +188,7 @@ function FinalizarPedidos() {
 
     const nomesPagamento = {
       pix: 'Pix',
-      cartao: 'Cartão na entrega',
+      cartao: retirada ? 'Cartão na retirada' : 'Cartão na entrega',
       dinheiro: 'Dinheiro'
     };
 
@@ -176,7 +197,7 @@ function FinalizarPedidos() {
     try {
       await criarPedidoDelivery({
         ...dadosCliente,
-        modalidade: 'delivery',
+        modalidade: modalidadeEfetiva,
         chaveIdempotencia: chaveTentativa.current,
         pagamento: nomesPagamento[pagamentoSelecionado],
         ...(pagamentoSelecionado === 'dinheiro'
@@ -192,6 +213,17 @@ function FinalizarPedidos() {
       setEnviando(false);
     }
   }
+
+  useEffect(() => {
+    if (validacaoInicialRef.current) return;
+    validacaoInicialRef.current = true;
+    revalidarCarrinho().catch((falha) => setErro(falha.message));
+  }, [revalidarCarrinho]);
+
+  useEffect(() => {
+    if (!erro) return;
+    erroRef.current?.focus();
+  }, [erro]);
 
   useEffect(() => {
     function verificarScroll() {
@@ -289,19 +321,27 @@ function FinalizarPedidos() {
 
         {!lojaDisponivel && (
           <div className={styles.avisoOperacao} role="status">
-            <strong>{configuracao.lojaAberta ? 'Entrega indisponível' : 'Loja fechada'}</strong>
+            <strong>{configuracao.lojaAberta ? (retirada ? 'Retirada indisponível' : 'Entrega indisponível') : 'Loja fechada'}</strong>
             <span>Você pode revisar o cardápio, mas não é possível concluir um pedido agora.</span>
           </div>
         )}
 
 
-        <div className={styles.layoutPagamento}>
+        <form className={styles.layoutPagamento} onSubmit={finalizarPedido}>
 
           {/* =========================
               LADO ESQUERDO
           ========================= */}
 
           <div className={styles.colunaFormulario}>
+
+            <section className={styles.cardFormulario}>
+              <div className={styles.tituloCard}><div className={styles.iconeCard}>⌂</div><h2>Tipo do pedido</h2></div>
+              <div className={styles.formasPagamento} role="radiogroup" aria-label="Tipo do pedido">
+                {configuracao.entregaAtiva && <button type="button" role="radio" aria-checked={!retirada} className={`${styles.opcaoPagamento} ${!retirada ? styles.pagamentoAtivo : ''}`} onClick={() => setModalidade('delivery')}><div className={styles.radioPagamento} /><div><strong>Delivery</strong><span>Receba no endereço informado</span></div></button>}
+                {configuracao.retiradaAtiva && <button type="button" role="radio" aria-checked={retirada} className={`${styles.opcaoPagamento} ${retirada ? styles.pagamentoAtivo : ''}`} onClick={() => setModalidade('retirada')}><div className={styles.radioPagamento} /><div><strong>Retirada no balcão</strong><span>Sem endereço e sem taxa de entrega</span></div></button>}
+              </div>
+            </section>
 
             {/* INFORMAÇÕES CLIENTE */}
 
@@ -340,6 +380,7 @@ function FinalizarPedidos() {
                   <input
                     id="nomeCliente"
                     type="text"
+                    required
                     autoComplete="name"
                     placeholder="Digite seu nome"
                     value={dadosCliente.nome}
@@ -353,6 +394,7 @@ function FinalizarPedidos() {
                   <input
                     id="telefoneCliente"
                     type="tel"
+                    required
                     autoComplete="tel"
                     placeholder="(11) 99999-9999"
                     inputMode="tel"
@@ -367,6 +409,7 @@ function FinalizarPedidos() {
                   <input
                     id="emailCliente"
                     type="email"
+                    required
                     autoComplete="email"
                     placeholder="seuemail@exemplo.com"
                     value={dadosCliente.email}
@@ -381,7 +424,7 @@ function FinalizarPedidos() {
 
             {/* ENDEREÇO */}
 
-            <section className={styles.cardFormulario}>
+            {!retirada && <section className={styles.cardFormulario}>
 
               <div className={styles.tituloCard}>
                 <div className={styles.iconeCard}>
@@ -418,6 +461,7 @@ function FinalizarPedidos() {
                   <input
                     id="ruaCliente"
                     type="text"
+                    required
                     autoComplete="address-line1"
                     placeholder="Digite o nome da rua"
                     value={dadosCliente.rua}
@@ -431,6 +475,7 @@ function FinalizarPedidos() {
                   <input
                     id="numeroCliente"
                     type="text"
+                    required
                     autoComplete="address-line2"
                     placeholder="123"
                     value={dadosCliente.numero}
@@ -443,7 +488,7 @@ function FinalizarPedidos() {
                   <label htmlFor="bairroCliente">Bairro</label>
 
                   {areasEntrega.length > 0 ? (
-                    <select id="bairroCliente" autoComplete="address-level3" value={dadosCliente.bairro} onChange={(event) => alterarCampo('bairro', event.target.value)}>
+                    <select id="bairroCliente" required autoComplete="address-level3" value={dadosCliente.bairro} onChange={(event) => alterarCampo('bairro', event.target.value)}>
                       <option value="">Selecione o bairro</option>
                       {areasEntrega.map((area) => <option value={area.bairro} key={area.bairro}>{area.bairro} — R$ {Number(area.taxa).toFixed(2).replace('.', ',')}</option>)}
                     </select>
@@ -451,6 +496,7 @@ function FinalizarPedidos() {
                     <input
                       id="bairroCliente"
                       type="text"
+                      required
                       autoComplete="address-level3"
                       placeholder="Digite seu bairro"
                       value={dadosCliente.bairro}
@@ -496,7 +542,7 @@ function FinalizarPedidos() {
 
               </div>
 
-            </section>
+            </section>}
 
 
             {/* FORMA DE PAGAMENTO */}
@@ -534,7 +580,7 @@ function FinalizarPedidos() {
 
                 {/* PIX */}
 
-                {configuracao.pixChave && <button
+                {pixDisponivel && <button
                   type="button"
                   onClick={() => setFormaPagamento('pix')}
                   aria-pressed={pagamentoSelecionado === 'pix'}
@@ -582,11 +628,11 @@ function FinalizarPedidos() {
 
                   <div>
                     <strong>
-                      Cartão na entrega
+                      {retirada ? 'Cartão na retirada' : 'Cartão na entrega'}
                     </strong>
 
                     <span>
-                      Pague com cartão na entrega
+                      {retirada ? 'Pague com cartão ao retirar' : 'Pague com cartão na entrega'}
                     </span>
                   </div>
 
@@ -620,7 +666,7 @@ function FinalizarPedidos() {
                     </strong>
 
                     <span>
-                      Pague em dinheiro na entrega
+                      {retirada ? 'Pague em dinheiro ao retirar' : 'Pague em dinheiro na entrega'}
                     </span>
                   </div>
 
@@ -628,11 +674,12 @@ function FinalizarPedidos() {
 
               </div>
 
-              {pagamentoSelecionado === 'pix' && configuracao.pixChave && (
+              {pagamentoSelecionado === 'pix' && pixDisponivel && (
                 <div className={styles.dadosPix}>
                   <strong>Dados para pagamento por Pix</strong>
                   <span>Beneficiário: {configuracao.pixBeneficiario}</span>
                   <code>{configuracao.pixChave}</code>
+                  <button type="button" className={styles.botaoCopiarPix} onClick={copiarChavePix}>{pixCopiado ? 'Chave Pix copiada!' : 'Copiar chave Pix'}</button>
                   <small>O pedido ficará aguardando pagamento até a confirmação.</small>
                 </div>
               )}
@@ -642,7 +689,7 @@ function FinalizarPedidos() {
                   <strong>Você precisa de troco?</strong>
                   <label><input type="radio" name="troco" checked={trocoOpcao === 'sem'} onChange={() => setTrocoOpcao('sem')} /> Não preciso de troco</label>
                   <label><input type="radio" name="troco" checked={trocoOpcao === 'valor'} onChange={() => setTrocoOpcao('valor')} /> Troco para</label>
-                  {trocoOpcao === 'valor' && <input type="number" min={total} step="0.01" value={trocoPara} onChange={(event) => setTrocoPara(event.target.value)} placeholder={`Mínimo R$ ${total.toFixed(2).replace('.', ',')}`} />}
+                  {trocoOpcao === 'valor' && <input required type="number" min={total} step="0.01" value={trocoPara} onChange={(event) => setTrocoPara(event.target.value)} placeholder={`Mínimo R$ ${total.toFixed(2).replace('.', ',')}`} />}
                 </div>
               )}
 
@@ -701,6 +748,7 @@ function FinalizarPedidos() {
                   <img
                     src={item.imagem}
                     alt={item.nome}
+                    onError={usarPlaceholderProduto}
                     loading="lazy"
                     decoding="async"
                   />
@@ -800,7 +848,7 @@ function FinalizarPedidos() {
               </div>
 
               <div>
-                <span>Taxa de entrega</span>
+                <span>{retirada ? 'Taxa de retirada' : 'Taxa de entrega'}</span>
 
                 <strong>
                   {taxaDefinida
@@ -810,9 +858,9 @@ function FinalizarPedidos() {
               </div>
 
               <div>
-                <span>Pedido mínimo</span>
+                <span>{retirada ? 'Retirada' : 'Pedido mínimo'}</span>
                 <strong className={minimoAtingido ? styles.valorValido : styles.valorPendente}>
-                  {minimoAtingido ? 'Atingido' : `Faltam R$ ${(pedidoMinimo - subtotal).toFixed(2).replace('.', ',')}`}
+                  {retirada ? 'Sem taxa de entrega' : minimoAtingido ? 'Atingido' : `Faltam R$ ${(pedidoMinimo - subtotal).toFixed(2).replace('.', ',')}`}
                 </strong>
               </div>
 
@@ -841,7 +889,7 @@ function FinalizarPedidos() {
               </div>
 
               <div>
-                <span>Entrega estimada</span>
+                <span>{retirada ? 'Retirada estimada' : 'Entrega estimada'}</span>
 
                 <strong>
                   {configuracao.tempoEntrega}
@@ -859,15 +907,15 @@ function FinalizarPedidos() {
             {/* FINALIZAR */}
 
             <button
-              type="button"
+              type="submit"
               className={styles.botaoFinalizar}
-              onClick={finalizarPedido}
               disabled={enviando || itens.length === 0 || !lojaDisponivel || !minimoAtingido || formasDisponiveis.length === 0}
             >
               {enviando ? 'Enviando pedido…' : 'Finalizar pedido'}
             </button>
 
-            {erro && <div className={styles.mensagemErro}>{erro}</div>}
+            {avisosCarrinho.length > 0 && <div className={styles.mensagemAviso} role="status"><strong>Seu carrinho foi atualizado:</strong>{avisosCarrinho.map((aviso, indice) => <span key={`${aviso.carrinhoId ?? 'aviso'}-${indice}`}>{aviso.mensagem}</span>)}</div>}
+            {erro && <div ref={erroRef} tabIndex={-1} role="alert" className={styles.mensagemErro}>{erro}</div>}
 
 
             <div className={styles.seguranca}>
@@ -878,7 +926,7 @@ function FinalizarPedidos() {
 
           </aside>
 
-        </div>
+        </form>
 
 
         {/* =========================

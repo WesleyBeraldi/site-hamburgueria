@@ -2,21 +2,24 @@ import { randomUUID } from 'node:crypto';
 
 import { formatarPreco, listarCatalogo, precoParaCentavos } from './catalog.js';
 import { executarTransacao } from './database.js';
-import { criarHashSenha, criarHashToken } from './security.js';
+import { criarHashSenha, criarHashToken, verificarSenha } from './security.js';
 
-const PAGAMENTOS = new Set(['Pix', 'Cartão na entrega', 'Cartão', 'Dinheiro', 'A definir']);
+const PAGAMENTOS = new Set(['Pix', 'Cartão na entrega', 'Cartão na retirada', 'Cartão', 'Dinheiro', 'A definir']);
 const PAGAMENTOS_DELIVERY = new Set(['Pix', 'Cartão na entrega', 'Dinheiro']);
+const PAGAMENTOS_RETIRADA = new Set(['Pix', 'Cartão na retirada', 'Dinheiro']);
 const STATUS_DELIVERY = new Set(['Recebido', 'Em preparo', 'Saiu para entrega', 'Entregue', 'Cancelado']);
+const STATUS_RETIRADA = new Set(['Recebido', 'Em preparo', 'Pronto', 'Retirado', 'Cancelado']);
 const STATUS_MESA = new Set(['Recebido', 'Em preparo', 'Pronto', 'Entregue na mesa', 'Cancelado']);
 const PAGAMENTO_AGUARDANDO = 'Aguardando pagamento';
 const PAGAMENTO_ENTREGA = 'Pagamento na entrega';
 const PAGAMENTO_PAGO = 'Pago';
 const PAGAMENTO_CANCELADO = 'Cancelado';
+const PAGAMENTO_ESTORNADO = 'Estornado';
 const MAX_LINHAS_PEDIDO = 100;
 const MAX_UNIDADES_PEDIDO = 500;
 const MAX_ADICIONAIS_POR_ITEM = 50;
 const MAX_TOTAL_CENTAVOS = 4_294_967_295;
-const STATUS_TERMINAIS = new Set(['Entregue', 'Entregue na mesa', 'Cancelado']);
+const STATUS_TERMINAIS = new Set(['Entregue', 'Entregue na mesa', 'Retirado', 'Cancelado']);
 
 function erroDominio(mensagem, status = 400) {
   const erro = new Error(mensagem);
@@ -108,6 +111,60 @@ function validarUrlOpcional(valor, campo) {
   return url;
 }
 
+function campoPix(id, valor) {
+  const conteudo = String(valor ?? '');
+  return `${id}${String(conteudo.length).padStart(2, '0')}${conteudo}`;
+}
+
+function textoPix(valor, limite) {
+  return texto(valor, limite)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9 $%*+\-./:]/g, '')
+    .toUpperCase()
+    .slice(0, limite);
+}
+
+function crc16Pix(valor) {
+  let crc = 0xffff;
+  for (const caractere of Buffer.from(valor, 'utf8')) {
+    crc ^= caractere << 8;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) : (crc << 1);
+      crc &= 0xffff;
+    }
+  }
+  return crc.toString(16).toUpperCase().padStart(4, '0');
+}
+
+function gerarPixCopiaCola({ chave, beneficiario, cidade, valorCentavos, txid }) {
+  if (!chave || !beneficiario || !cidade) return null;
+  const conta = campoPix('00', 'BR.GOV.BCB.PIX') + campoPix('01', chave);
+  const valor = (Number(valorCentavos) / 100).toFixed(2);
+  const dadosAdicionais = campoPix('05', textoPix(txid, 25) || '***');
+  const semCrc = [
+    campoPix('00', '01'),
+    campoPix('01', '11'),
+    campoPix('26', conta),
+    campoPix('52', '0000'),
+    campoPix('53', '986'),
+    campoPix('54', valor),
+    campoPix('58', 'BR'),
+    campoPix('59', textoPix(beneficiario, 25)),
+    campoPix('60', textoPix(cidade, 15)),
+    campoPix('62', dadosAdicionais),
+    '6304'
+  ].join('');
+  return `${semCrc}${crc16Pix(semCrc)}`;
+}
+
+async function registrarAuditoria(conexao, administradorId, acao, entidade, entidadeId, detalhes = null) {
+  await conexao.execute(`
+    INSERT INTO auditoria_admin (administrador_id, acao, entidade, entidade_id, detalhes_json)
+    VALUES (?, ?, ?, ?, ?)
+  `, [administradorId ?? null, acao, entidade, entidadeId == null ? null : String(entidadeId), detalhes ? JSON.stringify(detalhes) : null]);
+}
+
 function mapearConfiguracao(linha) {
   return {
     nomeLoja: linha.nome_loja,
@@ -120,12 +177,14 @@ function mapearConfiguracao(linha) {
     lojaAberta: Boolean(linha.loja_aberta),
     pixChave: linha.pix_chave ?? '',
     pixBeneficiario: linha.pix_beneficiario ?? '',
+    pixCidade: linha.pix_cidade ?? '',
     logo: linha.logo_url ?? '',
     whatsapp: linha.whatsapp ?? '',
     horarioFuncionamento: linha.horario_funcionamento ?? '',
     instagramUrl: linha.instagram_url ?? '',
     facebookUrl: linha.facebook_url ?? '',
     entregaAtiva: Boolean(linha.entrega_ativa),
+    retiradaAtiva: Boolean(linha.retirada_ativa),
     aceitaCartao: Boolean(linha.aceita_cartao),
     aceitaDinheiro: Boolean(linha.aceita_dinheiro),
     areasEntrega: lerAreasEntrega(linha.areas_entrega_json).map((area) => ({
@@ -149,6 +208,7 @@ export async function salvarConfiguracao(banco, dados) {
   const tempoEntrega = texto(dados.tempoEntrega, 60);
   const pixChave = texto(dados.pixChave, 180);
   const pixBeneficiario = texto(dados.pixBeneficiario, 160);
+  const pixCidade = texto(dados.pixCidade, 60);
   const logo = texto(dados.logo, 500);
   const whatsapp = texto(dados.whatsapp, 40);
   const horarioFuncionamento = texto(dados.horarioFuncionamento, 2000);
@@ -176,8 +236,11 @@ export async function salvarConfiguracao(banco, dados) {
     throw erroDominio('Preencha todos os dados da lanchonete.');
   }
   if (!/^\S+@\S+\.\S+$/.test(email)) throw erroDominio('Informe um e-mail válido para a loja.');
-  if (pixChave && !pixBeneficiario) {
-    throw erroDominio('Informe o beneficiário da chave Pix ou deixe a configuração Pix vazia.');
+  if (pixChave && (!pixBeneficiario || !pixCidade)) {
+    throw erroDominio('Informe o beneficiário e a cidade da chave Pix ou deixe a configuração Pix vazia.');
+  }
+  if (pixCidade && !pixChave) {
+    throw erroDominio('Cadastre a chave Pix antes de informar a cidade do recebedor.');
   }
   if (!Number.isInteger(taxaEntregaCentavos) || taxaEntregaCentavos < 0
       || !Number.isInteger(pedidoMinimoCentavos) || pedidoMinimoCentavos < 0) {
@@ -190,19 +253,19 @@ export async function salvarConfiguracao(banco, dados) {
   await banco.execute(`
     INSERT INTO configuracoes
       (id, nome_loja, telefone, email, endereco, taxa_entrega_centavos,
-       tempo_entrega, pedido_minimo_centavos, loja_aberta, pix_chave, pix_beneficiario,
+       tempo_entrega, pedido_minimo_centavos, loja_aberta, pix_chave, pix_beneficiario, pix_cidade,
        logo_url, whatsapp, horario_funcionamento, instagram_url, facebook_url,
-       entrega_ativa, aceita_cartao, aceita_dinheiro, areas_entrega_json)
-    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       entrega_ativa, retirada_ativa, aceita_cartao, aceita_dinheiro, areas_entrega_json)
+    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       nome_loja = VALUES(nome_loja), telefone = VALUES(telefone), email = VALUES(email),
       endereco = VALUES(endereco), taxa_entrega_centavos = VALUES(taxa_entrega_centavos),
       tempo_entrega = VALUES(tempo_entrega), pedido_minimo_centavos = VALUES(pedido_minimo_centavos),
       loja_aberta = VALUES(loja_aberta), pix_chave = VALUES(pix_chave),
-      pix_beneficiario = VALUES(pix_beneficiario), logo_url = VALUES(logo_url),
+      pix_beneficiario = VALUES(pix_beneficiario), pix_cidade = VALUES(pix_cidade), logo_url = VALUES(logo_url),
       whatsapp = VALUES(whatsapp), horario_funcionamento = VALUES(horario_funcionamento),
       instagram_url = VALUES(instagram_url), facebook_url = VALUES(facebook_url),
-      entrega_ativa = VALUES(entrega_ativa), aceita_cartao = VALUES(aceita_cartao),
+      entrega_ativa = VALUES(entrega_ativa), retirada_ativa = VALUES(retirada_ativa), aceita_cartao = VALUES(aceita_cartao),
       aceita_dinheiro = VALUES(aceita_dinheiro), areas_entrega_json = VALUES(areas_entrega_json)
   `, [
     nomeLoja,
@@ -215,12 +278,14 @@ export async function salvarConfiguracao(banco, dados) {
     dados.lojaAberta === false ? 0 : 1,
     pixChave || null,
     pixChave ? pixBeneficiario : null,
+    pixChave ? (pixCidade || null) : null,
     logo || null,
     whatsapp || null,
     horarioFuncionamento,
     instagramUrl || null,
     facebookUrl || null,
     dados.entregaAtiva === false ? 0 : 1,
+    dados.retiradaAtiva === false ? 0 : 1,
     aceitaCartao ? 1 : 0,
     aceitaDinheiro ? 1 : 0,
     areasEntrega.length ? JSON.stringify(areasEntrega) : null
@@ -262,13 +327,12 @@ export async function listarPromocoes(banco, { somenteAtivas = false } = {}) {
 
 async function validarPromocao(banco, dados) {
   const nome = texto(dados.nome, 160);
-  const categoria = texto(dados.categoria, 100);
   const descricao = texto(dados.descricao, 2000);
   const precoAnteriorCentavos = precoParaCentavos(dados.precoAntigo || 0);
   const precoCentavos = precoParaCentavos(dados.preco);
   const inicioEm = dataOpcional(dados.inicioEm, 'o início da promoção');
   const fimEm = dataOpcional(dados.fimEm, 'o fim da promoção');
-  if (!nome || !categoria || !descricao) throw erroDominio('Preencha nome, categoria e descrição da promoção.');
+  if (!nome || !descricao) throw erroDominio('Preencha nome e descrição da promoção.');
   if (!Number.isInteger(precoAnteriorCentavos) || precoAnteriorCentavos < 0
       || !Number.isInteger(precoCentavos) || precoCentavos <= 0) {
     throw erroDominio('Informe preços válidos para a promoção.');
@@ -279,13 +343,18 @@ async function validarPromocao(banco, dados) {
 
   const produtoId = Number(dados.produtoId) || null;
   if (!produtoId) throw erroDominio('Vincule a promoção a um produto do cardápio.');
-  const [produtos] = await banco.execute('SELECT id FROM produtos WHERE id = ? AND ativo = 1', [produtoId]);
+  const [produtos] = await banco.execute(`
+    SELECT p.id, c.nome AS categoria
+    FROM produtos p
+    INNER JOIN categorias c ON c.id = p.categoria_id
+    WHERE p.id = ? AND p.ativo = 1 AND c.ativo = 1
+  `, [produtoId]);
   if (!produtos[0]) throw erroDominio('O produto vinculado à promoção não está disponível.', 409);
 
   return {
     produtoId,
     nome,
-    categoria,
+    categoria: produtos[0].categoria,
     descricao,
     precoAnteriorCentavos,
     precoCentavos,
@@ -418,6 +487,19 @@ export async function listarMesas(banco) {
   }));
 }
 
+export async function criarMesa(banco, dados) {
+  const numeroInformado = texto(dados?.numero, 10);
+  if (!/^\d{1,3}$/.test(numeroInformado) || Number(numeroInformado) < 1) {
+    throw erroDominio('Informe um número de mesa entre 1 e 999.');
+  }
+  const numero = String(Number(numeroInformado)).padStart(2, '0');
+  const [resultado] = await banco.execute(`
+    INSERT INTO mesas (numero, lugares, ativo) VALUES (?, 4, 1)
+  `, [numero]);
+  const mesas = await listarMesas(banco);
+  return mesas.find((mesa) => mesa.id === Number(resultado.insertId));
+}
+
 async function listarAdicionaisDeItens(banco, tabela, campo, itensIds) {
   const mapa = new Map();
   if (itensIds.length === 0) return mapa;
@@ -501,14 +583,20 @@ export async function listarPedidos(banco, { id = null } = {}) {
   }
   const [pedidos] = await banco.execute(`
     SELECT p.*, m.numero AS mesa_numero, f.nome AS garcom,
-      (SELECT pg.status FROM pagamentos pg WHERE pg.pedido_id = p.id ORDER BY pg.id DESC LIMIT 1) AS pagamento_status,
-      (SELECT pg.pix_chave FROM pagamentos pg WHERE pg.pedido_id = p.id ORDER BY pg.id DESC LIMIT 1) AS pix_chave,
-      (SELECT pg.pix_beneficiario FROM pagamentos pg WHERE pg.pedido_id = p.id ORDER BY pg.id DESC LIMIT 1) AS pix_beneficiario,
-      (SELECT pg.sem_troco FROM pagamentos pg WHERE pg.pedido_id = p.id ORDER BY pg.id DESC LIMIT 1) AS sem_troco,
-      (SELECT pg.troco_para_centavos FROM pagamentos pg WHERE pg.pedido_id = p.id ORDER BY pg.id DESC LIMIT 1) AS troco_para_centavos
+      pg.id AS pagamento_id, pg.status AS pagamento_status,
+      pg.pix_chave, pg.pix_beneficiario, pg.pix_copia_cola,
+      pg.sem_troco, pg.troco_para_centavos, pg.pago_em,
+      pg.confirmado_em, pg.estornado_em,
+      confirmador.nome AS pagamento_confirmado_por,
+      estornador.nome AS pagamento_estornado_por
     FROM pedidos p
     LEFT JOIN mesas m ON m.id = p.mesa_id
     LEFT JOIN funcionarios f ON f.id = p.funcionario_id
+    LEFT JOIN pagamentos pg ON pg.id = (
+      SELECT pg2.id FROM pagamentos pg2 WHERE pg2.pedido_id = p.id ORDER BY pg2.id DESC LIMIT 1
+    )
+    LEFT JOIN administradores confirmador ON confirmador.id = pg.confirmado_por
+    LEFT JOIN administradores estornador ON estornador.id = pg.estornado_por
     ${filtro}
     ORDER BY p.criado_em DESC
     LIMIT 500
@@ -540,19 +628,30 @@ export async function listarPedidos(banco, { id = null } = {}) {
     const endereco = pedido.origem === 'delivery'
       ? `${pedido.rua}, ${pedido.numero} - ${pedido.bairro}${pedido.complemento ? `, ${pedido.complemento}` : ''}`
       : null;
+    const origem = pedido.origem === 'delivery'
+      ? 'Delivery'
+      : pedido.origem === 'retirada'
+        ? 'Retirada no balcão'
+        : `Mesa ${pedido.mesa_numero}`;
     return {
       id: codigoPedido(pedido.id),
       cliente: pedido.cliente,
       telefone: pedido.telefone,
       email: pedido.email ?? '',
-      origem: pedido.origem === 'delivery' ? 'Delivery' : `Mesa ${pedido.mesa_numero}`,
+      origem,
+      modalidade: pedido.origem,
       status: pedido.status,
       pagamento: pedido.pagamento,
       pagamentoStatus: normalizarStatusPagamento(pedido.pagamento_status, pedido.pagamento),
       pixChave: pedido.pix_chave ?? '',
       pixBeneficiario: pedido.pix_beneficiario ?? '',
+      pixCopiaCola: pedido.pix_copia_cola ?? '',
       semTroco: pedido.sem_troco === null ? null : Boolean(pedido.sem_troco),
       trocoPara: pedido.troco_para_centavos === null ? null : Number(pedido.troco_para_centavos) / 100,
+      pagamentoConfirmadoEm: dataIso(pedido.confirmado_em ?? pedido.pago_em),
+      pagamentoConfirmadoPor: pedido.pagamento_confirmado_por ?? '',
+      pagamentoEstornadoEm: dataIso(pedido.estornado_em),
+      pagamentoEstornadoPor: pedido.pagamento_estornado_por ?? '',
       horario: horaPtBr(pedido.criado_em),
       criadoEm: dataIso(pedido.criado_em),
       endereco,
@@ -597,7 +696,9 @@ export async function buscarItensValidados(conexao, itensRecebidos) {
       throw erroDominio(`O pedido pode ter no máximo ${MAX_UNIDADES_PEDIDO} unidades.`);
     }
     const [produtos] = await conexao.execute(`
-      SELECT * FROM produtos WHERE id = ? AND ativo = 1 FOR UPDATE
+      SELECT p.* FROM produtos p
+      INNER JOIN categorias c ON c.id = p.categoria_id
+      WHERE p.id = ? AND p.ativo = 1 AND c.ativo = 1 FOR UPDATE
     `, [produtoId]);
     const produto = produtos[0];
     if (!produto) throw erroDominio('Um produto do pedido não está mais disponível.', 409);
@@ -655,6 +756,99 @@ export async function buscarItensValidados(conexao, itensRecebidos) {
   return itens;
 }
 
+export async function revalidarCarrinho(banco, itensRecebidos) {
+  if (!Array.isArray(itensRecebidos)) throw erroDominio('O carrinho informado é inválido.');
+  if (itensRecebidos.length > MAX_LINHAS_PEDIDO) {
+    throw erroDominio(`O carrinho pode ter no máximo ${MAX_LINHAS_PEDIDO} itens diferentes.`);
+  }
+
+  const itens = [];
+  const alteracoes = [];
+  for (const [indice, recebido] of itensRecebidos.entries()) {
+    if (!recebido || typeof recebido !== 'object' || Array.isArray(recebido)) {
+      alteracoes.push({ tipo: 'removido', mensagem: `O item ${indice + 1} tinha formato inválido e foi removido.` });
+      continue;
+    }
+    const produtoId = Number(recebido.produtoId ?? recebido.id);
+    const quantidade = Number(recebido.quantidade);
+    const carrinhoId = texto(recebido.carrinhoId, 160) || `produto-${produtoId}-${indice}`;
+    if (!Number.isInteger(produtoId) || !Number.isInteger(quantidade) || quantidade < 1 || quantidade > 50) {
+      alteracoes.push({ carrinhoId, tipo: 'removido', mensagem: 'Um item inválido foi removido do carrinho.' });
+      continue;
+    }
+
+    const [produtos] = await banco.execute(`
+      SELECT p.*, c.nome AS categoria
+      FROM produtos p
+      INNER JOIN categorias c ON c.id = p.categoria_id
+      WHERE p.id = ? AND p.ativo = 1 AND c.ativo = 1
+    `, [produtoId]);
+    const produto = produtos[0];
+    if (!produto) {
+      alteracoes.push({ carrinhoId, tipo: 'removido', mensagem: `${texto(recebido.nome, 160) || 'Um produto'} não está mais disponível e foi removido.` });
+      continue;
+    }
+
+    let promocao = null;
+    const promocaoIdRecebida = Number(recebido.promocaoId) || null;
+    if (promocaoIdRecebida) {
+      const [promocoes] = await banco.execute('SELECT * FROM promocoes WHERE id = ? AND produto_id = ?', [promocaoIdRecebida, produtoId]);
+      promocao = promocoes[0];
+      if (!promocaoDisponivel(promocao)) {
+        promocao = null;
+        alteracoes.push({ carrinhoId, tipo: 'atualizado', mensagem: `A promoção de ${produto.nome} terminou; o preço normal foi aplicado.` });
+      }
+    }
+
+    const idsRecebidos = [...new Set((Array.isArray(recebido.adicionais) ? recebido.adicionais : [])
+      .map((adicional) => Number(adicional?.id ?? adicional))
+      .filter((id) => Number.isInteger(id) && id > 0))];
+    let adicionais = [];
+    if (idsRecebidos.length > 0) {
+      const marcadores = idsRecebidos.map(() => '?').join(', ');
+      const [linhas] = await banco.execute(`
+        SELECT a.id, a.nome, a.preco_centavos
+        FROM adicionais a
+        INNER JOIN produto_adicionais pa ON pa.adicional_id = a.id AND pa.produto_id = ?
+        WHERE a.id IN (${marcadores}) AND a.ativo = 1
+        ORDER BY a.nome
+      `, [produtoId, ...idsRecebidos]);
+      adicionais = linhas.map((linha) => ({
+        id: Number(linha.id),
+        nome: linha.nome,
+        preco: Number(linha.preco_centavos) / 100
+      }));
+      if (adicionais.length !== idsRecebidos.length) {
+        alteracoes.push({ carrinhoId, tipo: 'atualizado', mensagem: `Adicionais indisponíveis de ${produto.nome} foram removidos.` });
+      }
+    }
+
+    const precoBaseCentavos = Number(promocao?.preco_centavos ?? produto.preco_centavos);
+    const precoFinal = (precoBaseCentavos + adicionais.reduce((total, adicional) => total + Math.round(adicional.preco * 100), 0)) / 100;
+    const precoAnterior = Number(recebido.precoFinal ?? String(recebido.preco ?? '').replace(',', '.'));
+    if (Number.isFinite(precoAnterior) && Math.abs(precoAnterior - precoFinal) >= 0.005) {
+      alteracoes.push({ carrinhoId, tipo: 'atualizado', mensagem: `O preço de ${produto.nome} foi atualizado para R$ ${precoFinal.toFixed(2).replace('.', ',')}.` });
+    }
+
+    itens.push({
+      id: produtoId,
+      produtoId,
+      promocaoId: promocao ? Number(promocao.id) : null,
+      carrinhoId,
+      nome: promocao?.nome ?? produto.nome,
+      categoria: produto.categoria,
+      descricao: promocao?.descricao ?? produto.descricao,
+      imagem: promocao?.imagem_url || produto.imagem_url || null,
+      preco: formatarPreco(precoBaseCentavos),
+      precoFinal,
+      quantidade,
+      observacao: texto(recebido.observacao, 1000),
+      adicionais
+    });
+  }
+  return { itens, alteracoes };
+}
+
 async function inserirItensPedido(conexao, pedidoId, itens) {
   for (const item of itens) {
     const [resultado] = await conexao.execute(`
@@ -702,16 +896,20 @@ export async function criarPedidoDelivery(banco, dados) {
   const pagamento = texto(dados.pagamento, 40);
   const modalidade = texto(dados.modalidade, 20);
   const chaveIdempotencia = texto(dados.chaveIdempotencia, 100);
-  if (!nome || !telefone || !email || !rua || !numero || !bairro) {
-    throw erroDominio('Preencha os dados do cliente e o endereço de entrega.');
+  const retirada = modalidade === 'retirada';
+  if (!nome || !telefone || !email || (!retirada && (!rua || !numero || !bairro))) {
+    throw erroDominio(retirada
+      ? 'Preencha os dados essenciais do cliente.'
+      : 'Preencha os dados do cliente e o endereço de entrega.');
   }
   if (!/^\S+@\S+\.\S+$/.test(email)) throw erroDominio('Informe um e-mail válido.');
   if (!/^\d{10,11}$/.test(telefone.replace(/\D/g, ''))) throw erroDominio('Informe um telefone válido com DDD.');
-  if (modalidade !== 'delivery') throw erroDominio('A modalidade de atendimento informada não está disponível.');
+  if (!['delivery', 'retirada'].includes(modalidade)) throw erroDominio('A modalidade de atendimento informada não está disponível.');
   if (!/^[a-zA-Z0-9_-]{16,100}$/.test(chaveIdempotencia)) {
     throw erroDominio('Não foi possível identificar esta tentativa de pedido. Atualize a página e tente novamente.');
   }
-  if (!PAGAMENTOS_DELIVERY.has(pagamento)) throw erroDominio('Selecione uma forma de pagamento válida.');
+  const pagamentosPermitidos = retirada ? PAGAMENTOS_RETIRADA : PAGAMENTOS_DELIVERY;
+  if (!pagamentosPermitidos.has(pagamento)) throw erroDominio('Selecione uma forma de pagamento válida.');
 
   const informouSemTroco = dados.semTroco !== undefined && dados.semTroco !== null;
   const informouTrocoPara = dados.trocoPara !== undefined && dados.trocoPara !== null && dados.trocoPara !== '';
@@ -748,52 +946,70 @@ export async function criarPedidoDelivery(banco, dados) {
       const [configuracoes] = await conexao.execute('SELECT * FROM configuracoes WHERE id = 1 FOR UPDATE');
       const configuracao = configuracoes[0];
       if (!configuracao?.loja_aberta) throw erroDominio('A loja está fechada no momento.', 409);
-      if (!configuracao.entrega_ativa) throw erroDominio('A entrega está indisponível no momento.', 409);
-      if (pagamento === 'Pix' && !texto(configuracao.pix_chave, 180)) {
+      if (!retirada && !configuracao.entrega_ativa) throw erroDominio('A entrega está indisponível no momento.', 409);
+      if (retirada && !configuracao.retirada_ativa) throw erroDominio('A retirada no balcão está indisponível no momento.', 409);
+      if (pagamento === 'Pix' && (!texto(configuracao.pix_chave, 180)
+          || !texto(configuracao.pix_beneficiario, 160) || !texto(configuracao.pix_cidade, 60))) {
         throw erroDominio('O pagamento por Pix não está disponível no momento.', 409);
       }
-      if (pagamento === 'Cartão na entrega' && !configuracao.aceita_cartao) {
-        throw erroDominio('O pagamento com cartão na entrega está indisponível.', 409);
+      if (['Cartão na entrega', 'Cartão na retirada'].includes(pagamento) && !configuracao.aceita_cartao) {
+        throw erroDominio('O pagamento com cartão está indisponível.', 409);
       }
       if (pagamento === 'Dinheiro' && !configuracao.aceita_dinheiro) {
         throw erroDominio('O pagamento em dinheiro está indisponível.', 409);
       }
 
       const itens = await buscarItensValidados(conexao, dados.itens);
-      const areasEntrega = lerAreasEntrega(configuracao.areas_entrega_json);
-      const areaEntrega = areasEntrega.find((area) => normalizarBairro(area.bairro) === normalizarBairro(bairro));
-      if (areasEntrega.length > 0 && !areaEntrega) {
+      const areasEntrega = retirada ? [] : lerAreasEntrega(configuracao.areas_entrega_json);
+      const areaEntrega = retirada
+        ? null
+        : areasEntrega.find((area) => normalizarBairro(area.bairro) === normalizarBairro(bairro));
+      if (!retirada && areasEntrega.length > 0 && !areaEntrega) {
         throw erroDominio('O bairro informado está fora da área de entrega.', 409);
       }
-      const taxaEntrega = areaEntrega
+      const taxaEntrega = retirada
+        ? 0
+        : areaEntrega
         ? Number(areaEntrega.taxaCentavos)
         : Number(configuracao.taxa_entrega_centavos);
       const { subtotalCentavos, totalCentavos } = calcularTotaisPedido(itens, taxaEntrega);
-      if (subtotalCentavos < Number(configuracao.pedido_minimo_centavos)) {
+      if (!retirada && subtotalCentavos < Number(configuracao.pedido_minimo_centavos)) {
         throw erroDominio(`O pedido mínimo é R$ ${formatarPreco(configuracao.pedido_minimo_centavos)}.`, 409);
       }
       if (trocoParaCentavos !== null && trocoParaCentavos < totalCentavos) {
         throw erroDominio('O valor entregue em dinheiro não pode ser menor que o total do pedido.', 409);
       }
 
-      const statusPagamento = pagamento === 'Pix' ? PAGAMENTO_AGUARDANDO : PAGAMENTO_ENTREGA;
+      const statusPagamento = pagamento === 'Pix'
+        ? PAGAMENTO_AGUARDANDO
+        : retirada ? 'Pagamento na retirada' : PAGAMENTO_ENTREGA;
       const [resultado] = await conexao.execute(`
         INSERT INTO pedidos
           (token_acompanhamento_hash, chave_idempotencia_hash, origem, cliente, telefone, email, status, pagamento,
            rua, numero, bairro, complemento, referencia,
            taxa_entrega_centavos, total_centavos)
-        VALUES (?, ?, 'delivery', ?, ?, ?, 'Recebido', ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, 'Recebido', ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
-        hashIdempotencia, hashIdempotencia, nome, telefone, email, pagamento,
-        rua, numero, areaEntrega?.bairro ?? bairro, texto(dados.complemento, 160) || null,
+        hashIdempotencia, hashIdempotencia, modalidade, nome, telefone, email, pagamento,
+        retirada ? null : rua, retirada ? null : numero, retirada ? null : (areaEntrega?.bairro ?? bairro),
+        retirada ? null : (texto(dados.complemento, 160) || null),
         texto(dados.referencia, 255) || null, taxaEntrega, totalCentavos
       ]);
       await inserirItensPedido(conexao, resultado.insertId, itens);
+      const pixCopiaCola = pagamento === 'Pix'
+        ? gerarPixCopiaCola({
+            chave: configuracao.pix_chave,
+            beneficiario: configuracao.pix_beneficiario,
+            cidade: configuracao.pix_cidade,
+            valorCentavos: totalCentavos,
+            txid: `PED${resultado.insertId}`
+          })
+        : null;
       await conexao.execute(`
         INSERT INTO pagamentos
           (pedido_id, forma, status, valor_centavos, pix_chave, pix_beneficiario,
-           sem_troco, troco_para_centavos)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           sem_troco, troco_para_centavos, pix_copia_cola)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         resultado.insertId,
         pagamento,
@@ -802,7 +1018,8 @@ export async function criarPedidoDelivery(banco, dados) {
         pagamento === 'Pix' ? configuracao.pix_chave : null,
         pagamento === 'Pix' ? configuracao.pix_beneficiario : null,
         pagamento === 'Dinheiro' ? (semTroco ? 1 : 0) : null,
-        pagamento === 'Dinheiro' ? trocoParaCentavos : null
+        pagamento === 'Dinheiro' ? trocoParaCentavos : null,
+        pixCopiaCola
       ]);
       return Number(resultado.insertId);
     });
@@ -825,35 +1042,192 @@ export async function acompanharPedido(banco, codigo, token) {
   if (!id || !token) return null;
   const [linhas] = await banco.execute(`
     SELECT id FROM pedidos
-    WHERE id = ? AND origem = 'delivery' AND token_acompanhamento_hash = ?
+    WHERE id = ? AND origem IN ('delivery', 'retirada') AND token_acompanhamento_hash = ?
   `, [id, criarHashToken(token)]);
   if (!linhas[0]) return null;
   const [pedido] = await listarPedidos(banco, { id });
   return { ...pedido, tokenAcompanhamento: token };
 }
 
-export async function atualizarStatusPedido(banco, codigo, status) {
+export async function atualizarStatusPedido(banco, codigo, status, administradorId = null) {
   const id = idPedidoPeloCodigo(codigo);
   if (!id) return null;
   const atualizado = await executarTransacao(banco, async (conexao) => {
     const [linhas] = await conexao.execute('SELECT origem, status FROM pedidos WHERE id = ? FOR UPDATE', [id]);
     if (!linhas[0]) return false;
-    const permitidos = linhas[0].origem === 'delivery' ? STATUS_DELIVERY : STATUS_MESA;
+    const permitidos = linhas[0].origem === 'delivery'
+      ? STATUS_DELIVERY
+      : linhas[0].origem === 'retirada' ? STATUS_RETIRADA : STATUS_MESA;
     if (!permitidos.has(status)) throw erroDominio('Status inválido para a origem deste pedido.');
     if (STATUS_TERMINAIS.has(linhas[0].status) && status !== linhas[0].status) {
       throw erroDominio('Um pedido concluído ou cancelado não pode voltar para outra etapa.', 409);
     }
+    if (status === linhas[0].status) return true;
     await conexao.execute('UPDATE pedidos SET status = ? WHERE id = ?', [status, id]);
     if (status === 'Cancelado') {
-      await conexao.execute(`
-        UPDATE pagamentos SET status = ? WHERE pedido_id = ? AND status <> ?
-      `, [PAGAMENTO_CANCELADO, id, PAGAMENTO_PAGO]);
+      const [pagamentos] = await conexao.execute('SELECT * FROM pagamentos WHERE pedido_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE', [id]);
+      const pagamento = pagamentos[0];
+      if (pagamento?.status === PAGAMENTO_PAGO) {
+        await conexao.execute(`
+          UPDATE pagamentos
+          SET status = ?, estornado_por = ?, estornado_em = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `, [PAGAMENTO_ESTORNADO, administradorId, pagamento.id]);
+      } else if (pagamento && ![PAGAMENTO_CANCELADO, PAGAMENTO_ESTORNADO].includes(pagamento.status)) {
+        await conexao.execute('UPDATE pagamentos SET status = ? WHERE id = ?', [PAGAMENTO_CANCELADO, pagamento.id]);
+      }
     }
+    await registrarAuditoria(conexao, administradorId, status === 'Cancelado' ? 'pedido.cancelado' : 'pedido.status_alterado', 'pedido', id, {
+      statusAnterior: linhas[0].status,
+      statusNovo: status
+    });
     return true;
   });
   if (!atualizado) return null;
   const [pedido] = await listarPedidos(banco, { id });
   return pedido;
+}
+
+export async function confirmarPagamento(banco, codigo, administradorId) {
+  const id = idPedidoPeloCodigo(codigo);
+  if (!id) return null;
+  await executarTransacao(banco, async (conexao) => {
+    const [pedidos] = await conexao.execute('SELECT id, status FROM pedidos WHERE id = ? FOR UPDATE', [id]);
+    if (!pedidos[0]) throw erroDominio('Pedido não encontrado.', 404);
+    if (pedidos[0].status === 'Cancelado') throw erroDominio('Não é possível confirmar o pagamento de um pedido cancelado.', 409);
+    const [pagamentos] = await conexao.execute('SELECT * FROM pagamentos WHERE pedido_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE', [id]);
+    const pagamento = pagamentos[0];
+    if (!pagamento) throw erroDominio('O pagamento deste pedido não foi encontrado.', 404);
+    if (pagamento.status === PAGAMENTO_PAGO) return;
+    if ([PAGAMENTO_CANCELADO, PAGAMENTO_ESTORNADO].includes(pagamento.status)) {
+      throw erroDominio('Este pagamento não pode mais ser confirmado.', 409);
+    }
+    await conexao.execute(`
+      UPDATE pagamentos
+      SET status = ?, pago_em = CURRENT_TIMESTAMP, confirmado_por = ?, confirmado_em = CURRENT_TIMESTAMP,
+          estornado_por = NULL, estornado_em = NULL
+      WHERE id = ?
+    `, [PAGAMENTO_PAGO, administradorId, pagamento.id]);
+    await registrarAuditoria(conexao, administradorId, 'pagamento.confirmado', 'pedido', id, {
+      forma: pagamento.forma,
+      valorCentavos: Number(pagamento.valor_centavos)
+    });
+  });
+  const [pedido] = await listarPedidos(banco, { id });
+  return pedido;
+}
+
+export async function estornarPagamento(banco, codigo, administradorId) {
+  const id = idPedidoPeloCodigo(codigo);
+  if (!id) return null;
+  await executarTransacao(banco, async (conexao) => {
+    const [pedidos] = await conexao.execute('SELECT id FROM pedidos WHERE id = ? FOR UPDATE', [id]);
+    if (!pedidos[0]) throw erroDominio('Pedido não encontrado.', 404);
+    const [pagamentos] = await conexao.execute('SELECT * FROM pagamentos WHERE pedido_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE', [id]);
+    const pagamento = pagamentos[0];
+    if (!pagamento) throw erroDominio('O pagamento deste pedido não foi encontrado.', 404);
+    if (pagamento.status === PAGAMENTO_ESTORNADO) return;
+    if (pagamento.status !== PAGAMENTO_PAGO) throw erroDominio('Somente pagamentos pagos podem ser estornados.', 409);
+    await conexao.execute(`
+      UPDATE pagamentos SET status = ?, estornado_por = ?, estornado_em = CURRENT_TIMESTAMP WHERE id = ?
+    `, [PAGAMENTO_ESTORNADO, administradorId, pagamento.id]);
+    await registrarAuditoria(conexao, administradorId, 'pagamento.estornado', 'pedido', id, {
+      forma: pagamento.forma,
+      valorCentavos: Number(pagamento.valor_centavos)
+    });
+  });
+  const [pedido] = await listarPedidos(banco, { id });
+  return pedido;
+}
+
+function mapearAdministrador(linha) {
+  return {
+    id: Number(linha.id),
+    usuario: linha.usuario,
+    email: linha.email,
+    nome: linha.nome,
+    ativo: Boolean(linha.ativo),
+    criadoEm: dataIso(linha.criado_em)
+  };
+}
+
+export async function listarAdministradores(banco) {
+  const [linhas] = await banco.query('SELECT id, usuario, email, nome, ativo, criado_em FROM administradores ORDER BY nome');
+  return linhas.map(mapearAdministrador);
+}
+
+export async function criarAdministrador(banco, dados, administradorId) {
+  const usuario = texto(dados.usuario, 80);
+  const email = texto(dados.email, 160).toLowerCase();
+  const nome = texto(dados.nome, 160);
+  const senha = String(dados.senha ?? '');
+  const confirmacao = String(dados.confirmacaoSenha ?? '');
+  if (!usuario || !nome || !/^\S+@\S+\.\S+$/.test(email)) throw erroDominio('Informe nome, usuário e e-mail válidos.');
+  if (senha.length < 10) throw erroDominio('A senha deve ter pelo menos 10 caracteres.');
+  if (senha !== confirmacao) throw erroDominio('A confirmação da senha não confere.');
+  const id = await executarTransacao(banco, async (conexao) => {
+    const [resultado] = await conexao.execute(`
+      INSERT INTO administradores (usuario, email, nome, senha_hash, ativo) VALUES (?, ?, ?, ?, 1)
+    `, [usuario, email, nome, criarHashSenha(senha)]);
+    await registrarAuditoria(conexao, administradorId, 'administrador.criado', 'administrador', resultado.insertId, { usuario, email });
+    return Number(resultado.insertId);
+  });
+  const [linhas] = await banco.execute('SELECT id, usuario, email, nome, ativo, criado_em FROM administradores WHERE id = ?', [id]);
+  return mapearAdministrador(linhas[0]);
+}
+
+export async function alternarStatusAdministrador(banco, id, ativo, administradorId) {
+  const alvoId = Number(id);
+  if (!Number.isInteger(alvoId) || alvoId <= 0) return null;
+  if (!ativo && alvoId === Number(administradorId)) throw erroDominio('Você não pode desativar o próprio acesso.', 409);
+  return executarTransacao(banco, async (conexao) => {
+    const [alvos] = await conexao.execute('SELECT id FROM administradores WHERE id = ? FOR UPDATE', [alvoId]);
+    if (!alvos[0]) return null;
+    if (!ativo) {
+      const [[contagem]] = await conexao.execute('SELECT COUNT(*) AS total FROM administradores WHERE ativo = 1 FOR UPDATE');
+      if (Number(contagem.total) <= 1) throw erroDominio('Mantenha ao menos um administrador ativo.', 409);
+    }
+    await conexao.execute('UPDATE administradores SET ativo = ? WHERE id = ?', [ativo ? 1 : 0, alvoId]);
+    if (!ativo) await conexao.execute('DELETE FROM sessoes_admin WHERE administrador_id = ?', [alvoId]);
+    await registrarAuditoria(conexao, administradorId, ativo ? 'administrador.ativado' : 'administrador.desativado', 'administrador', alvoId);
+    const [linhas] = await conexao.execute('SELECT id, usuario, email, nome, ativo, criado_em FROM administradores WHERE id = ?', [alvoId]);
+    return mapearAdministrador(linhas[0]);
+  });
+}
+
+export async function alterarSenhaAdministrador(banco, administradorId, dados, tokenAtual) {
+  const senhaAtual = String(dados.senhaAtual ?? '');
+  const novaSenha = String(dados.novaSenha ?? '');
+  const confirmacao = String(dados.confirmacaoSenha ?? '');
+  if (novaSenha.length < 10) throw erroDominio('A nova senha deve ter pelo menos 10 caracteres.');
+  if (novaSenha !== confirmacao) throw erroDominio('A confirmação da nova senha não confere.');
+  await executarTransacao(banco, async (conexao) => {
+    const [linhas] = await conexao.execute('SELECT senha_hash FROM administradores WHERE id = ? FOR UPDATE', [administradorId]);
+    if (!linhas[0] || !verificarSenha(senhaAtual, linhas[0].senha_hash)) throw erroDominio('A senha atual está incorreta.', 401);
+    if (verificarSenha(novaSenha, linhas[0].senha_hash)) throw erroDominio('A nova senha deve ser diferente da senha atual.');
+    await conexao.execute('UPDATE administradores SET senha_hash = ? WHERE id = ?', [criarHashSenha(novaSenha), administradorId]);
+    await conexao.execute('DELETE FROM sessoes_admin WHERE administrador_id = ? AND token_hash <> ?', [administradorId, criarHashToken(tokenAtual)]);
+    await registrarAuditoria(conexao, administradorId, 'administrador.senha_alterada', 'administrador', administradorId);
+  });
+}
+
+export async function listarAuditoriaAdmin(banco) {
+  const [linhas] = await banco.query(`
+    SELECT au.*, a.nome AS administrador_nome
+    FROM auditoria_admin au
+    LEFT JOIN administradores a ON a.id = au.administrador_id
+    ORDER BY au.criado_em DESC, au.id DESC
+    LIMIT 100
+  `);
+  return linhas.map((linha) => ({
+    id: Number(linha.id),
+    administrador: linha.administrador_nome ?? 'Sistema',
+    acao: linha.acao,
+    entidade: linha.entidade,
+    entidadeId: linha.entidade_id ?? '',
+    detalhes: typeof linha.detalhes_json === 'string' ? JSON.parse(linha.detalhes_json) : (linha.detalhes_json ?? null),
+    criadoEm: dataIso(linha.criado_em)
+  }));
 }
 
 async function obterComandaDoGarcom(conexao, comandaId, funcionarioId, { bloquear = false } = {}) {
@@ -942,6 +1316,49 @@ export async function removerItemComanda(banco, comandaId, itemId, funcionarioId
       DELETE FROM comanda_itens WHERE id = ? AND comanda_id = ?
     `, [itemId, comandaId]);
     if (!resultado.affectedRows) throw erroDominio('Item da comanda não encontrado.', 404);
+    await conexao.execute("UPDATE comandas SET status = 'Aberta' WHERE id = ?", [comandaId]);
+  });
+}
+
+async function buscarResponsavelComanda(banco, comandaId) {
+  const [linhas] = await banco.execute('SELECT funcionario_id FROM comandas WHERE id = ?', [comandaId]);
+  if (!linhas[0]) throw erroDominio('Comanda não encontrada.', 404);
+  return Number(linhas[0].funcionario_id);
+}
+
+export async function adicionarItemComandaAdmin(banco, comandaId, dados) {
+  const funcionarioId = await buscarResponsavelComanda(banco, comandaId);
+  await adicionarItemComanda(banco, comandaId, funcionarioId, dados);
+}
+
+export async function removerItemComandaAdmin(banco, comandaId, itemId) {
+  const funcionarioId = await buscarResponsavelComanda(banco, comandaId);
+  await removerItemComanda(banco, comandaId, itemId, funcionarioId);
+}
+
+export async function atualizarQuantidadeItemComandaAdmin(banco, comandaId, itemId, quantidadeInformada) {
+  const quantidade = Number(quantidadeInformada);
+  if (!Number.isInteger(quantidade) || quantidade < 1 || quantidade > 50) {
+    throw erroDominio('Informe uma quantidade entre 1 e 50.');
+  }
+  await executarTransacao(banco, async (conexao) => {
+    const [comandas] = await conexao.execute('SELECT status FROM comandas WHERE id = ? FOR UPDATE', [comandaId]);
+    if (!comandas[0]) throw erroDominio('Comanda não encontrada.', 404);
+    if (comandas[0].status === 'Encerrada') throw erroDominio('Esta comanda já foi encerrada.', 409);
+
+    const [itens] = await conexao.execute(`
+      SELECT id FROM comanda_itens WHERE id = ? AND comanda_id = ? FOR UPDATE
+    `, [itemId, comandaId]);
+    if (!itens[0]) throw erroDominio('Item da comanda não encontrado.', 404);
+
+    const [[totais]] = await conexao.execute(`
+      SELECT COALESCE(SUM(quantidade), 0) AS unidades
+      FROM comanda_itens WHERE comanda_id = ? AND id <> ?
+    `, [comandaId, itemId]);
+    if (Number(totais.unidades) + quantidade > MAX_UNIDADES_PEDIDO) {
+      throw erroDominio('A comanda atingiu o limite de itens permitido.');
+    }
+    await conexao.execute('UPDATE comanda_itens SET quantidade = ? WHERE id = ?', [quantidade, itemId]);
     await conexao.execute("UPDATE comandas SET status = 'Aberta' WHERE id = ?", [comandaId]);
   });
 }
@@ -1036,11 +1453,59 @@ export async function fecharComanda(banco, comandaId, funcionarioId, pagamento) 
     await conexao.execute(`
       UPDATE pedidos SET status = 'Entregue na mesa', pagamento = ? WHERE id = ?
     `, [pagamento, pedido.id]);
-    await conexao.execute('DELETE FROM pagamentos WHERE pedido_id = ?', [pedido.id]);
     await conexao.execute(`
-      INSERT INTO pagamentos (pedido_id, comanda_id, forma, status, valor_centavos, pago_em)
-      VALUES (?, ?, ?, 'Pago', ?, CURRENT_TIMESTAMP)
+      INSERT INTO pagamentos (pedido_id, comanda_id, forma, status, valor_centavos, pago_em, confirmado_em)
+      VALUES (?, ?, ?, 'Pago', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `, [pedido.id, comandaId, pagamento, pedido.total_centavos]);
+  });
+}
+
+export async function finalizarComandaAdmin(banco, comandaId, pagamento, administradorId = null) {
+  if (!PAGAMENTOS.has(pagamento) || pagamento === 'A definir') {
+    throw erroDominio('Selecione uma forma de pagamento válida.');
+  }
+  await executarTransacao(banco, async (conexao) => {
+    const [comandas] = await conexao.execute(`
+      SELECT c.*, m.numero AS mesa_numero
+      FROM comandas c
+      INNER JOIN mesas m ON m.id = c.mesa_id
+      WHERE c.id = ? FOR UPDATE
+    `, [comandaId]);
+    const comanda = comandas[0];
+    if (!comanda) throw erroDominio('Comanda não encontrada.', 404);
+    if (comanda.status === 'Encerrada') throw erroDominio('Esta comanda já foi encerrada.', 409);
+
+    const [pedidos] = await conexao.execute('SELECT * FROM pedidos WHERE comanda_id = ? FOR UPDATE', [comandaId]);
+    let pedidoId = pedidos[0] ? Number(pedidos[0].id) : null;
+    if (!pedidoId) {
+      const [resultado] = await conexao.execute(`
+        INSERT INTO pedidos
+          (origem, cliente, telefone, status, pagamento, taxa_entrega_centavos,
+           total_centavos, comanda_id, mesa_id, funcionario_id)
+        VALUES ('mesa', ?, 'Atendimento presencial', 'Recebido', ?, 0, 0, ?, ?, ?)
+      `, [`Mesa ${comanda.mesa_numero}`, pagamento, comandaId, comanda.mesa_id, comanda.funcionario_id]);
+      pedidoId = Number(resultado.insertId);
+    } else {
+      await conexao.execute('DELETE FROM pedido_itens WHERE pedido_id = ?', [pedidoId]);
+    }
+
+    const total = await copiarItensComandaParaPedido(conexao, comandaId, pedidoId);
+    await conexao.execute(`
+      UPDATE pedidos SET total_centavos = ?, status = 'Entregue na mesa', pagamento = ? WHERE id = ?
+    `, [total, pagamento, pedidoId]);
+    await conexao.execute(`
+      UPDATE comandas SET status = 'Encerrada', pagamento = ?, encerrada_em = CURRENT_TIMESTAMP WHERE id = ?
+    `, [pagamento, comandaId]);
+    await conexao.execute(`
+      INSERT INTO pagamentos
+        (pedido_id, comanda_id, forma, status, valor_centavos, pago_em, confirmado_por, confirmado_em)
+      VALUES (?, ?, ?, 'Pago', ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)
+    `, [pedidoId, comandaId, pagamento, total, administradorId]);
+    await registrarAuditoria(conexao, administradorId, 'comanda.finalizada', 'pedido', pedidoId, {
+      comandaId: Number(comandaId),
+      forma: pagamento,
+      valorCentavos: total
+    });
   });
 }
 
@@ -1054,16 +1519,18 @@ export async function listarDadosPublicos(banco) {
 }
 
 export async function listarDadosAdmin(banco) {
-  const [catalogo, promocoes, funcionarios, mesas, comandas, pedidos, configuracao] = await Promise.all([
-    listarCatalogo(banco),
+  const [catalogo, promocoes, funcionarios, mesas, comandas, pedidos, configuracao, administradores, auditoria] = await Promise.all([
+    listarCatalogo(banco, { administrativo: true }),
     listarPromocoes(banco),
     listarFuncionarios(banco),
     listarMesas(banco),
     listarComandas(banco),
     listarPedidos(banco),
-    buscarConfiguracao(banco)
+    buscarConfiguracao(banco),
+    listarAdministradores(banco),
+    listarAuditoriaAdmin(banco)
   ]);
-  return { ...catalogo, promocoes, funcionarios, mesas, comandas, pedidos, configuracao };
+  return { ...catalogo, promocoes, funcionarios, mesas, comandas, pedidos, configuracao, administradores, auditoria };
 }
 
 export async function listarDadosGarcom(banco, funcionarioId) {

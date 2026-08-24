@@ -116,6 +116,7 @@ function ConfiguracoesAdmin() {
             <div className={styles.gridFormulario}>
               <div className={styles.campo}><label htmlFor="lojaAberta">Funcionamento atual</label><select id="lojaAberta" value={dados.lojaAberta ? 'aberta' : 'fechada'} onChange={(event) => alterar('lojaAberta', event.target.value === 'aberta')}><option value="aberta">Loja aberta</option><option value="fechada">Loja fechada</option></select></div>
               <div className={styles.campo}><label htmlFor="entregaAtiva">Delivery</label><select id="entregaAtiva" value={dados.entregaAtiva ? 'ativo' : 'inativo'} onChange={(event) => alterar('entregaAtiva', event.target.value === 'ativo')}><option value="ativo">Entrega ativa</option><option value="inativo">Entrega indisponível</option></select></div>
+              <div className={styles.campo}><label htmlFor="retiradaAtiva">Retirada no balcão</label><select id="retiradaAtiva" value={dados.retiradaAtiva !== false ? 'ativo' : 'inativo'} onChange={(event) => alterar('retiradaAtiva', event.target.value === 'ativo')}><option value="ativo">Retirada ativa</option><option value="inativo">Retirada indisponível</option></select></div>
               <div className={styles.campo}><label htmlFor="taxaEntrega">Taxa padrão de entrega</label><input id="taxaEntrega" min="0" required type="number" step="0.01" value={dados.taxaEntrega ?? 0} onChange={(event) => alterar('taxaEntrega', event.target.value)} /></div>
               <div className={styles.campo}><label htmlFor="tempoEntrega">Tempo estimado</label><input id="tempoEntrega" required value={dados.tempoEntrega ?? ''} onChange={(event) => alterar('tempoEntrega', event.target.value)} /></div>
               <div className={styles.campo}><label htmlFor="pedidoMinimo">Pedido mínimo</label><input id="pedidoMinimo" min="0" required type="number" step="0.01" value={dados.pedidoMinimo ?? 0} onChange={(event) => alterar('pedidoMinimo', event.target.value)} /></div>
@@ -136,12 +137,13 @@ function ConfiguracoesAdmin() {
               ))}
             </div>
 
-            <div className={styles.topoCard}><div><h2>Formas de pagamento</h2><p>O Pix só aparece quando chave e beneficiário estiverem preenchidos.</p></div></div>
+            <div className={styles.topoCard}><div><h2>Formas de pagamento</h2><p>O Pix só aparece quando chave, beneficiário e cidade estiverem preenchidos. O QR Code usa o total e o número reais do pedido.</p></div></div>
             <div className={styles.gridFormulario}>
               <div className={styles.campo}><label htmlFor="aceitaCartao">Cartão na entrega</label><select id="aceitaCartao" value={dados.aceitaCartao ? 'sim' : 'nao'} onChange={(event) => alterar('aceitaCartao', event.target.value === 'sim')}><option value="sim">Aceitar</option><option value="nao">Não aceitar</option></select></div>
               <div className={styles.campo}><label htmlFor="aceitaDinheiro">Dinheiro</label><select id="aceitaDinheiro" value={dados.aceitaDinheiro ? 'sim' : 'nao'} onChange={(event) => alterar('aceitaDinheiro', event.target.value === 'sim')}><option value="sim">Aceitar</option><option value="nao">Não aceitar</option></select></div>
               <div className={styles.campo}><label htmlFor="pixChave">Chave Pix <span>(opcional)</span></label><input id="pixChave" value={dados.pixChave ?? ''} onChange={(event) => alterar('pixChave', event.target.value)} placeholder="Cadastre a chave real da hamburgueria" /></div>
               <div className={styles.campo}><label htmlFor="pixBeneficiario">Beneficiário do Pix</label><input id="pixBeneficiario" value={dados.pixBeneficiario ?? ''} onChange={(event) => alterar('pixBeneficiario', event.target.value)} disabled={!dados.pixChave} /></div>
+              <div className={styles.campo}><label htmlFor="pixCidade">Cidade do beneficiário</label><input id="pixCidade" value={dados.pixCidade ?? ''} onChange={(event) => alterar('pixCidade', event.target.value)} disabled={!dados.pixChave} placeholder="Ex.: São Paulo" /></div>
             </div>
 
             {salvo && <div className={styles.sucesso} role="status">Configurações salvas com sucesso.</div>}

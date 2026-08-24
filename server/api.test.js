@@ -7,7 +7,7 @@ import { after, before, test } from 'node:test';
 
 import mysql from 'mysql2/promise';
 
-import { criarLimitadorTentativas, criarServidor } from './app.js';
+import { criarLimitadorTentativas, criarServidor, personalizarIndexHtml } from './app.js';
 import { precoParaCentavos } from './catalog.js';
 import { abrirBanco, fecharBanco } from './database.js';
 import { buscarItensValidados, calcularTotaisPedido } from './operations.js';
@@ -17,6 +17,17 @@ test('converte preços brasileiros e decimais para centavos', () => {
   assert.equal(precoParaCentavos('34,90'), 3490);
   assert.equal(precoParaCentavos('1.234,56'), 123456);
   assert.equal(precoParaCentavos(7.9), 790);
+});
+
+test('injeta metadados reais da loja no HTML de produção sem permitir markup', () => {
+  const modelo = '<title>Anterior</title><meta name="description" content="" /><meta property="og:title" content="" /><meta property="og:description" content="" /><meta property="og:url" content="" /><meta property="og:image" content="" /><meta name="twitter:title" content="" /><meta name="twitter:description" content="" />';
+  const html = personalizarIndexHtml(modelo, {
+    nomeLoja: 'Loja <Segura>',
+    logo: '/uploads/logo.webp'
+  }, 'https://pedidos.teste.local/');
+  assert.match(html, /Loja &lt;Segura&gt; \| Cardápio e pedidos/);
+  assert.match(html, /https:\/\/pedidos\.teste\.local\/uploads\/logo\.webp/);
+  assert.equal(html.includes('<Segura>'), false);
 });
 
 function conexaoCatalogo({ promocao = null } = {}) {
@@ -30,7 +41,7 @@ function conexaoCatalogo({ promocao = null } = {}) {
   };
   return {
     async execute(sql, parametros) {
-      if (sql.includes('FROM produtos WHERE id')) {
+      if (sql.includes('FROM produtos p') && sql.includes('WHERE p.id')) {
         return [[Number(parametros[0]) === produto.id ? produto : null].filter(Boolean)];
       }
       if (sql.includes('FROM promocoes WHERE id')) {
@@ -159,7 +170,8 @@ test('não expõe detalhes internos quando o banco falha', async () => {
     assert.equal(resposta.status, 500);
     assert.equal(corpo.erro, 'Erro interno do servidor.');
     assert.equal(JSON.stringify(corpo).includes('segredo-interno-do-mysql'), false);
-    assert.ok(errosRegistrados.some((argumentos) => argumentos.some((valor) => String(valor).includes('segredo-interno-do-mysql'))));
+    assert.ok(errosRegistrados.length > 0);
+    assert.equal(JSON.stringify(errosRegistrados).includes('segredo-interno-do-mysql'), false);
   } finally {
     console.error = erroOriginal;
     await fecharServidor(servidorComFalha);
@@ -200,6 +212,8 @@ if (!executarIntegracao) {
     aceitaDinheiro: true,
     pixChave: '',
     pixBeneficiario: '',
+    pixCidade: '',
+    retiradaAtiva: true,
     logo: '',
     areasEntrega: [
       { bairro: 'Centro', taxa: 5 },
@@ -290,9 +304,13 @@ if (!executarIntegracao) {
   });
 
   test('expõe saúde e dados públicos persistidos no MySQL', async () => {
-    const saude = await chamar('/api/saude');
-    assert.equal(saude.status, 200);
-    assert.equal(saude.corpo.banco, 'mysql-conectado');
+    const respostaSaude = await fetch(`${urlBase}/api/saude`, { headers: { Origin: 'http://localhost:5173' } });
+    assert.equal(respostaSaude.status, 200);
+    assert.equal(respostaSaude.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(respostaSaude.headers.get('x-frame-options'), 'DENY');
+    assert.equal(respostaSaude.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+    assert.equal(respostaSaude.headers.get('access-control-allow-origin'), 'http://localhost:5173');
+    assert.equal((await respostaSaude.json()).banco, 'mysql-conectado');
 
     const publico = await chamar('/api/publico/inicial');
     assert.equal(publico.status, 200);
@@ -470,6 +488,163 @@ if (!executarIntegracao) {
     assert.equal(Number(contagem.total), 1);
   });
 
+  test('revalida disponibilidade e preço do carrinho no servidor', async () => {
+    const [[produtoOriginal]] = await banco.execute('SELECT preco_centavos, ativo FROM produtos WHERE id = 1');
+    try {
+      await banco.execute('UPDATE produtos SET ativo = 0 WHERE id = 1');
+      const removido = await chamar('/api/carrinho/validar', {
+        metodo: 'POST',
+        dados: { itens: [{ id: 1, quantidade: 1, nome: 'X-Salada', precoFinal: 0.01 }] }
+      });
+      assert.equal(removido.status, 200);
+      assert.equal(removido.corpo.itens.length, 0);
+      assert.match(removido.corpo.alteracoes[0].mensagem, /não está mais disponível/i);
+
+      await banco.execute('UPDATE produtos SET ativo = 1, preco_centavos = 3190 WHERE id = 1');
+      const atualizado = await chamar('/api/carrinho/validar', {
+        metodo: 'POST',
+        dados: { itens: [{ id: 1, quantidade: 1, nome: 'X-Salada', precoFinal: 29.9 }] }
+      });
+      assert.equal(atualizado.status, 200);
+      assert.equal(atualizado.corpo.itens[0].precoFinal, 31.9);
+      assert.match(atualizado.corpo.alteracoes[0].mensagem, /preço.*atualizado/i);
+    } finally {
+      await banco.execute('UPDATE produtos SET ativo = ?, preco_centavos = ? WHERE id = 1', [produtoOriginal.ativo, produtoOriginal.preco_centavos]);
+    }
+  });
+
+  test('admin gerencia categorias e categorias inativas somem do cardápio público', async () => {
+    const criada = await chamar('/api/admin/categorias', {
+      metodo: 'POST',
+      token: tokenAdmin,
+      dados: { nome: `Sazonais ${randomUUID().slice(0, 8)}`, ordem: 90, ativo: true }
+    });
+    assert.equal(criada.status, 201);
+    const categoriaId = criada.corpo.categoria.id;
+    const publicoAtivo = await chamar('/api/publico/inicial');
+    assert.ok(publicoAtivo.corpo.categorias.some((categoria) => categoria.id === categoriaId));
+
+    const inativada = await chamar(`/api/admin/categorias/${categoriaId}/status`, {
+      metodo: 'PATCH',
+      token: tokenAdmin,
+      dados: { ativo: false }
+    });
+    assert.equal(inativada.status, 200);
+    assert.equal(inativada.corpo.categoria.ativo, false);
+    const publicoInativo = await chamar('/api/publico/inicial');
+    assert.equal(publicoInativo.corpo.categorias.some((categoria) => categoria.id === categoriaId), false);
+  });
+
+  test('retirada dispensa endereço e taxa, gera Pix e confirma pagamento uma única vez', async () => {
+    const pixConfigurado = await salvarConfiguracaoTeste({
+      pixChave: 'financeiro@hamburguerteste.local',
+      pixBeneficiario: 'Hambúrguer Teste',
+      pixCidade: 'São Paulo'
+    });
+    assert.equal(pixConfigurado.status, 200);
+
+    const criado = await chamar('/api/pedidos', {
+      metodo: 'POST',
+      dados: dadosPedido({
+        modalidade: 'retirada',
+        pagamento: 'Pix',
+        rua: '',
+        numero: '',
+        bairro: ''
+      })
+    });
+    assert.equal(criado.status, 201);
+    assert.equal(criado.corpo.pedido.origem, 'Retirada no balcão');
+    assert.equal(criado.corpo.pedido.taxaEntrega, 0);
+    assert.equal(criado.corpo.pedido.endereco, null);
+    assert.match(criado.corpo.pedido.pixCopiaCola, /^000201/);
+
+    const semAutorizacao = await chamar(`/api/admin/pedidos/${encodeURIComponent(criado.corpo.pedido.id)}/pagamento/confirmar`, { metodo: 'POST' });
+    assert.equal(semAutorizacao.status, 401);
+
+    const [[receitaAntes]] = await banco.execute("SELECT COALESCE(SUM(valor_centavos), 0) AS total FROM pagamentos WHERE status = 'Pago'");
+    const rotaConfirmacao = `/api/admin/pedidos/${encodeURIComponent(criado.corpo.pedido.id)}/pagamento/confirmar`;
+    const [confirmado, confirmadoOutraVez] = await Promise.all([
+      chamar(rotaConfirmacao, { metodo: 'POST', token: tokenAdmin }),
+      chamar(rotaConfirmacao, { metodo: 'POST', token: tokenAdmin })
+    ]);
+    assert.equal(confirmado.status, 200);
+    assert.equal(confirmado.corpo.pedido.pagamentoStatus, 'Pago');
+    assert.equal(confirmado.corpo.pedido.pagamentoConfirmadoPor, administrador.nome);
+    assert.ok(confirmado.corpo.pedido.pagamentoConfirmadoEm);
+    assert.equal(confirmadoOutraVez.status, 200);
+    assert.equal(confirmadoOutraVez.corpo.pedido.pagamentoConfirmadoEm, confirmado.corpo.pedido.pagamentoConfirmadoEm);
+
+    const pedidoNumero = Number(criado.corpo.pedido.id.replace(/\D/g, ''));
+    const [[auditoria]] = await banco.execute("SELECT COUNT(*) AS total FROM auditoria_admin WHERE acao = 'pagamento.confirmado' AND entidade_id = ?", [String(pedidoNumero)]);
+    assert.equal(Number(auditoria.total), 1);
+    const [[receitaDepois]] = await banco.execute("SELECT COALESCE(SUM(valor_centavos), 0) AS total FROM pagamentos WHERE status = 'Pago'");
+    assert.equal(Number(receitaDepois.total) - Number(receitaAntes.total), Math.round(criado.corpo.pedido.total * 100));
+
+    const estornado = await chamar(`/api/admin/pedidos/${encodeURIComponent(criado.corpo.pedido.id)}/pagamento/estornar`, {
+      metodo: 'POST',
+      token: tokenAdmin
+    });
+    assert.equal(estornado.status, 200);
+    assert.equal(estornado.corpo.pedido.pagamentoStatus, 'Estornado');
+    assert.equal(estornado.corpo.pedido.pagamentoEstornadoPor, administrador.nome);
+    const estornadoOutraVez = await chamar(`/api/admin/pedidos/${encodeURIComponent(criado.corpo.pedido.id)}/pagamento/estornar`, {
+      metodo: 'POST',
+      token: tokenAdmin
+    });
+    assert.equal(estornadoOutraVez.status, 200);
+    const [[auditoriaEstorno]] = await banco.execute("SELECT COUNT(*) AS total FROM auditoria_admin WHERE acao = 'pagamento.estornado' AND entidade_id = ?", [String(pedidoNumero)]);
+    assert.equal(Number(auditoriaEstorno.total), 1);
+    assert.equal((await salvarConfiguracaoTeste()).status, 200);
+  });
+
+  test('cancelamento cancela cobrança pendente e estorna cobrança já paga', async () => {
+    const pendente = await chamar('/api/pedidos', {
+      metodo: 'POST',
+      dados: dadosPedido({ modalidade: 'retirada', pagamento: 'Cartão na retirada', rua: '', numero: '', bairro: '' })
+    });
+    assert.equal(pendente.status, 201);
+    const cancelado = await chamar(`/api/admin/pedidos/${encodeURIComponent(pendente.corpo.pedido.id)}/status`, {
+      metodo: 'PATCH',
+      token: tokenAdmin,
+      dados: { status: 'Cancelado' }
+    });
+    assert.equal(cancelado.corpo.pedido.pagamentoStatus, 'Cancelado');
+
+    const pago = await chamar('/api/pedidos', {
+      metodo: 'POST',
+      dados: dadosPedido({ modalidade: 'retirada', pagamento: 'Cartão na retirada', rua: '', numero: '', bairro: '' })
+    });
+    await chamar(`/api/admin/pedidos/${encodeURIComponent(pago.corpo.pedido.id)}/pagamento/confirmar`, { metodo: 'POST', token: tokenAdmin });
+    const canceladoPago = await chamar(`/api/admin/pedidos/${encodeURIComponent(pago.corpo.pedido.id)}/status`, {
+      metodo: 'PATCH',
+      token: tokenAdmin,
+      dados: { status: 'Cancelado' }
+    });
+    assert.equal(canceladoPago.status, 200);
+    assert.equal(canceladoPago.corpo.pedido.pagamentoStatus, 'Estornado');
+    assert.equal(canceladoPago.corpo.pedido.pagamentoEstornadoPor, administrador.nome);
+  });
+
+  test('admin cria acessos adicionais e registra a ação na auditoria', async () => {
+    const usuario = `gestor-${randomUUID().slice(0, 8)}`;
+    const criado = await chamar('/api/admin/administradores', {
+      metodo: 'POST',
+      token: tokenAdmin,
+      dados: {
+        nome: 'Gestor adicional',
+        usuario,
+        email: `${usuario}@teste.local`,
+        senha: 'senha-adicional-segura',
+        confirmacaoSenha: 'senha-adicional-segura'
+      }
+    });
+    assert.equal(criado.status, 201);
+    assert.equal(criado.corpo.administrador.ativo, true);
+    const dados = await chamar('/api/admin/dados', { token: tokenAdmin });
+    assert.ok(dados.corpo.auditoria.some((item) => item.acao === 'administrador.criado'));
+  });
+
   test('persiste catálogo e imagem compartilhada', async () => {
     const login = await chamar('/api/admin/login', {
       metodo: 'POST',
@@ -589,6 +764,57 @@ if (!executarIntegracao) {
       dados: { produtoId: 1, quantidade: 1, adicionais: [] }
     });
     assert.equal(tentativaIdor.status, 403);
+  });
+
+  test('administrador cria mesas, edita itens e finaliza comandas', async () => {
+    const criada = await chamar('/api/admin/mesas', {
+      metodo: 'POST',
+      token: tokenAdmin,
+      dados: { numero: '13' }
+    });
+    assert.equal(criada.status, 201);
+    assert.equal(criada.corpo.mesa.numero, '13');
+
+    const duplicada = await chamar('/api/admin/mesas', {
+      metodo: 'POST',
+      token: tokenAdmin,
+      dados: { numero: '13' }
+    });
+    assert.equal(duplicada.status, 409);
+
+    const dados = await chamar('/api/admin/dados', { token: tokenAdmin });
+    const comanda = dados.corpo.comandas.find((item) => item.itens.length > 0);
+    assert.ok(comanda);
+
+    const adicionado = await chamar(`/api/admin/comandas/${comanda.id}/itens`, {
+      metodo: 'POST',
+      token: tokenAdmin,
+      dados: { produtoId: 1, quantidade: 1, adicionais: [] }
+    });
+    assert.equal(adicionado.status, 201);
+
+    const comItem = await chamar('/api/admin/dados', { token: tokenAdmin });
+    const atualizada = comItem.corpo.comandas.find((item) => item.id === comanda.id);
+    const itemNovo = atualizada.itens.at(-1);
+    const quantidade = await chamar(`/api/admin/comandas/${comanda.id}/itens/${itemNovo.linhaId}`, {
+      metodo: 'PATCH',
+      token: tokenAdmin,
+      dados: { quantidade: 2 }
+    });
+    assert.equal(quantidade.status, 200);
+
+    const finalizada = await chamar(`/api/admin/comandas/${comanda.id}/finalizar`, {
+      metodo: 'POST',
+      token: tokenAdmin,
+      dados: { pagamento: 'Cartão' }
+    });
+    assert.equal(finalizada.status, 200);
+
+    const depois = await chamar('/api/admin/dados', { token: tokenAdmin });
+    assert.equal(depois.corpo.comandas.some((item) => item.id === comanda.id), false);
+    const pedido = depois.corpo.pedidos.find((item) => item.comandaId === comanda.id);
+    assert.equal(pedido.status, 'Entregue na mesa');
+    assert.equal(pedido.pagamentoStatus, 'Pago');
   });
 
   test('bloqueia novas tentativas após repetidos PINs inválidos', async () => {

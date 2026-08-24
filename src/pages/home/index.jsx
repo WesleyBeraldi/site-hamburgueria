@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 
 import banner from '../../assets/banner.webp';
 import { useApp } from '../../context/appContext';
+import { usarPlaceholderProduto } from '../../utils/productImage';
 import styles from './index.module.css';
 
 function Home() {
@@ -25,6 +26,7 @@ function Home() {
 
   const navigate = useNavigate();
   const {
+    categorias: categoriasSalvas,
     produtos: produtosSalvos,
     promocoes: promocoesSalvas,
     adicionais: adicionaisSalvos,
@@ -32,19 +34,15 @@ function Home() {
     setCarrinho,
     configuracao,
     erroApi,
-    recarregarCatalogo
+    recarregarCatalogo,
+    revalidarCarrinho,
+    avisosCarrinho
   } = useApp();
 
   const [adicionaisSelecionados, setAdicionaisSelecionados] =
     useState([]);
 
-  const categorias = [
-    'Todos',
-    'Hambúrgueres',
-    'Combos',
-    'Porções',
-    'Bebidas'
-  ];
+  const categorias = ['Todos', ...categoriasSalvas.filter((categoria) => categoria.ativo !== false).map((categoria) => categoria.nome)];
 
   const produtos = produtosSalvos.filter((produto) => produto.ativo !== false);
   const promocoes = promocoesSalvas.filter((promocao) => promocao.disponivel !== false);
@@ -101,8 +99,9 @@ function Home() {
           (produto) => produto.categoria === categoriaAtiva
         );
 
-  function abrirCarrinho() {
+  async function abrirCarrinho() {
     setCarrinhoAberto(true);
+    await revalidarCarrinho().catch(() => {});
   }
 
   function fecharCarrinho() {
@@ -743,6 +742,7 @@ function Home() {
                     <img
                       src={promocao.imagem}
                       alt={promocao.nome}
+                      onError={usarPlaceholderProduto}
                       loading="lazy"
                       decoding="async"
                     />
@@ -866,6 +866,7 @@ function Home() {
                 <img
                   src={produto.imagem}
                   alt={produto.nome}
+                  onError={usarPlaceholderProduto}
                   className={styles.imagemProduto}
                   loading="lazy"
                   decoding="async"
@@ -1141,6 +1142,7 @@ function Home() {
                 <img
                   src={produtoSelecionado.imagem}
                   alt={produtoSelecionado.nome}
+                  onError={usarPlaceholderProduto}
                   decoding="async"
                 />
 
@@ -1415,6 +1417,12 @@ function Home() {
         <div className={styles.linhaCarrinho} />
 
         <div className={styles.produtosCarrinho}>
+          {avisosCarrinho.length > 0 && (
+            <div className={styles.avisosCarrinho} role="status" aria-live="polite">
+              <strong>Carrinho atualizado</strong>
+              {avisosCarrinho.map((aviso, indice) => <p key={`${aviso.carrinhoId ?? 'aviso'}-${indice}`}>{aviso.mensagem}</p>)}
+            </div>
+          )}
           {carrinho.length === 0 ? (
             <div className={styles.carrinhoVazio}>
               <div className={styles.iconeCarrinhoVazio}>
@@ -1451,6 +1459,7 @@ function Home() {
                 <img
                   src={item.imagem}
                   alt={item.nome}
+                  onError={usarPlaceholderProduto}
                   loading="lazy"
                   decoding="async"
                 />
@@ -1506,6 +1515,12 @@ function Home() {
                     ))}
 
                   </div>
+                )}
+
+                {item.observacao && (
+                  <p className={styles.observacaoCarrinho}>
+                    <strong>Observação:</strong> {item.observacao}
+                  </p>
                 )}
 
 

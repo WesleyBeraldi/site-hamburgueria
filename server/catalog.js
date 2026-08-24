@@ -28,6 +28,7 @@ function mapearAdicional(linha) {
 function mapearProduto(linha, vinculos) {
   return {
     id: Number(linha.id),
+    categoriaId: Number(linha.categoria_id),
     nome: linha.nome,
     categoria: linha.categoria,
     descricao: linha.descricao,
@@ -63,17 +64,73 @@ const SELECT_PRODUTOS = `
   INNER JOIN categorias c ON c.id = p.categoria_id
 `;
 
-export async function listarCatalogo(banco) {
+export async function listarCatalogo(banco, { administrativo = false } = {}) {
   const [[categorias], [adicionais], [produtos]] = await Promise.all([
-    banco.query('SELECT id, nome FROM categorias WHERE ativo = 1 ORDER BY ordem, nome'),
-    banco.query('SELECT * FROM adicionais ORDER BY nome'),
-    banco.query(`${SELECT_PRODUTOS} ORDER BY p.id`)
+    banco.query(`SELECT id, nome, ordem, ativo FROM categorias ${administrativo ? '' : 'WHERE ativo = 1'} ORDER BY ordem, nome`),
+    banco.query(`SELECT * FROM adicionais ${administrativo ? '' : 'WHERE ativo = 1'} ORDER BY nome`),
+    banco.query(`${SELECT_PRODUTOS} ${administrativo ? '' : 'WHERE p.ativo = 1 AND c.ativo = 1'} ORDER BY p.id`)
   ]);
   const vinculos = await buscarVinculos(banco, produtos.map((produto) => Number(produto.id)));
   return {
-    categorias: categorias.map((categoria) => ({ id: Number(categoria.id), nome: categoria.nome })),
+    categorias: categorias.map((categoria) => ({
+      id: Number(categoria.id),
+      nome: categoria.nome,
+      ordem: Number(categoria.ordem),
+      ativo: Boolean(categoria.ativo)
+    })),
     adicionais: adicionais.map(mapearAdicional),
     produtos: produtos.map((produto) => mapearProduto(produto, vinculos))
+  };
+}
+
+function validarCategoria(dados) {
+  const nome = String(dados?.nome ?? '').trim().slice(0, 100);
+  const ordem = Number(dados?.ordem ?? 0);
+  if (!nome) throw new Error('Informe o nome da categoria.');
+  if (!Number.isInteger(ordem) || ordem < 0 || ordem > 9999) {
+    throw new Error('Informe uma ordem entre 0 e 9999.');
+  }
+  return { nome, ordem, ativo: dados?.ativo === false ? 0 : 1 };
+}
+
+export async function criarCategoria(banco, dados) {
+  const categoria = validarCategoria(dados);
+  const [resultado] = await banco.execute(`
+    INSERT INTO categorias (nome, ordem, ativo) VALUES (?, ?, ?)
+  `, [categoria.nome, categoria.ordem, categoria.ativo]);
+  const [linhas] = await banco.execute('SELECT id, nome, ordem, ativo FROM categorias WHERE id = ?', [resultado.insertId]);
+  return {
+    id: Number(linhas[0].id),
+    nome: linhas[0].nome,
+    ordem: Number(linhas[0].ordem),
+    ativo: Boolean(linhas[0].ativo)
+  };
+}
+
+export async function atualizarCategoria(banco, id, dados) {
+  const categoria = validarCategoria(dados);
+  const [resultado] = await banco.execute(`
+    UPDATE categorias SET nome = ?, ordem = ?, ativo = ? WHERE id = ?
+  `, [categoria.nome, categoria.ordem, categoria.ativo, id]);
+  if (!resultado.affectedRows) return null;
+  const [linhas] = await banco.execute('SELECT id, nome, ordem, ativo FROM categorias WHERE id = ?', [id]);
+  return {
+    id: Number(linhas[0].id),
+    nome: linhas[0].nome,
+    ordem: Number(linhas[0].ordem),
+    ativo: Boolean(linhas[0].ativo)
+  };
+}
+
+export async function alternarStatusCategoria(banco, id, ativo) {
+  const [resultado] = await banco.execute('UPDATE categorias SET ativo = ? WHERE id = ?', [ativo ? 1 : 0, id]);
+  if (!resultado.affectedRows) return null;
+  const [linhas] = await banco.execute('SELECT id, nome, ordem, ativo FROM categorias WHERE id = ?', [id]);
+  return {
+    id: Number(linhas[0].id),
+    nome: linhas[0].nome,
+    ordem: Number(linhas[0].ordem),
+    ativo: Boolean(linhas[0].ativo)
   };
 }
 
@@ -97,7 +154,14 @@ async function obterCategoriaId(banco, nome) {
 async function validarProduto(banco, dados) {
   const nome = String(dados.nome ?? '').trim();
   const descricao = String(dados.descricao ?? '').trim();
-  const categoriaId = await obterCategoriaId(banco, String(dados.categoria ?? '').trim());
+  const categoriaInformada = Number(dados.categoriaId);
+  let categoriaId = Number.isInteger(categoriaInformada) && categoriaInformada > 0
+    ? categoriaInformada
+    : await obterCategoriaId(banco, String(dados.categoria ?? '').trim());
+  if (categoriaId) {
+    const [categorias] = await banco.execute('SELECT id FROM categorias WHERE id = ? AND ativo = 1', [categoriaId]);
+    categoriaId = categorias[0] ? Number(categorias[0].id) : null;
+  }
   const precoCentavos = precoParaCentavos(dados.preco);
   const adicionaisIds = [...new Set((dados.adicionaisIds ?? []).map(Number))]
     .filter((id) => Number.isInteger(id) && id > 0);

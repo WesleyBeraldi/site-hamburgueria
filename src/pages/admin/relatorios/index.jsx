@@ -60,7 +60,7 @@ function RelatoriosAdmin() {
         </section>
       </div>
 
-      <section className={styles.card}>
+      <section className={`${styles.card} ${styles.secaoSeparada}`}>
         <div className={styles.topoCard}><div><h2>Desempenho dos garçons</h2><p>Comandas e vendas atribuídas a cada funcionário.</p></div></div>
         <div className={styles.tabelaContainer}><table className={styles.tabela} aria-label="Desempenho dos funcionários"><thead><tr><th>Funcionário</th><th>Cargo</th><th>Comandas fechadas</th><th>Vendas</th><th>Status</th></tr></thead><tbody>{funcionarios.map((funcionario) => <tr key={funcionario.id}><td><strong>{funcionario.nome}</strong></td><td>{funcionario.cargo}</td><td>{funcionario.comandas}</td><td>{funcionario.vendas}</td><td><span className={`${styles.status} ${funcionario.status === 'Ativo' ? styles.statusAtivo : styles.statusInativo}`}>{funcionario.status}</span></td></tr>)}</tbody></table>{funcionarios.length === 0 && <div className={styles.vazio}><p>Nenhum funcionário cadastrado para exibir.</p></div>}</div>
       </section>

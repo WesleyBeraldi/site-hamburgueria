@@ -3,7 +3,7 @@
 .iconeAcesso { display: grid; width: 62px; height: 62px; margin: 0 auto 18px; place-items: center; border: 1px solid #ffc107; border-radius: 17px; color: #ffc107; }
 .acessoCard h1 { margin: 0; font-size: 28px; text-align: center; }
 .acessoCard > p { margin: 9px 0 25px; color: #858585; font-size: 13px; line-height: 1.6; text-align: center; }
-.identificado { display: flex; align-items: center; gap: 13px; border: 1px solid #343434; border-radius: 12px; background: #111; padding: 14px; }
+.identificado { display: flex; align-items: center; gap: 13px; border: 1px solid #343434; border-radius: 12px; background: #111; margin-bottom: 18px; padding: 14px; }
 .identificado > span { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 50%; background: #ffc107; color: #111; font-weight: 900; }
 .identificado strong,
 .identificado small { display: block; }
@@ -39,12 +39,12 @@
 .mesa { border: 1px solid rgba(255, 193, 7, 0.22); border-radius: 15px; background: #151515; padding: 18px; }
 .mesaTopo { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .numeroMesa { display: grid; width: 50px; height: 50px; place-items: center; border-radius: 13px; background: #242424; color: #ffc107; font-size: 20px; font-weight: 900; }
-.status { display: inline-flex; min-height: 27px; align-items: center; border: 1px solid; border-radius: 999px; padding: 0 10px; font-size: 10px; font-weight: 800; }
+.status { display: inline-flex; min-height: 30px; align-items: center; border: 1px solid; border-radius: 999px; padding: 0 11px; font-size: 12px; font-weight: 800; }
 .livre { border-color: rgba(52, 211, 120, 0.35); background: rgba(52, 211, 120, 0.07); color: #48d986; }
 .ocupada { border-color: rgba(255, 193, 7, 0.4); background: rgba(255, 193, 7, 0.08); color: #ffc107; }
-.mesa h2 { margin: 16px 0 5px; font-size: 18px; }
+.mesa h2 { margin: 16px 0 5px; font-size: 20px; }
 .mesa p { margin: 0; color: #929292; font-size: 12px; }
-.mesaInfo { display: grid; gap: 7px; border-top: 1px solid #292929; margin-top: 15px; padding-top: 14px; color: #999; font-size: 11px; }
+.mesaInfo { display: grid; gap: 7px; border-top: 1px solid #292929; margin-top: 15px; padding-top: 14px; color: #aaa; font-size: 13px; }
 .mesa .botaoPrincipal,
 .mesa .botaoSecundario { width: 100%; margin-top: 15px; }
 .comandaLayout { display: grid; width: 100%; min-width: 0; grid-template-columns: minmax(0, 1.6fr) minmax(330px, 0.7fr); gap: 18px; align-items: start; }
