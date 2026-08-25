@@ -82,6 +82,8 @@ npm run dev
 
 Esse comando inicia a API e o site juntos. O frontend normalmente fica em `http://localhost:5173` e a API em `http://localhost:3001`.
 
+Se o `.env` ou o MySQL ainda não estiverem disponíveis, o frontend continua iniciando em `http://localhost:5173` e o terminal mostra por que a API ficou indisponível. Depois de configurar o banco, basta reiniciar `npm run dev` para habilitar o sistema completo.
+
 ## Acessos iniciais
 
 - Cliente: `/`
