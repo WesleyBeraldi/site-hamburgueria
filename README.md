@@ -98,8 +98,6 @@ Em desenvolvimento, o banco pode receber dados demonstrativos. Em produção ele
 npm run dev       # frontend e backend
 npm run dev:web   # somente frontend
 npm run dev:api   # somente backend
-npm run db:backup # backup consistente com mysqldump
-npm run db:restore -- caminho/backup.sql # restauração com confirmação explícita
 npm run lint      # análise estática
 npm test          # testes puros e integração MySQL quando DB_PASSWORD estiver definido
 npm run build     # frontend de produção
@@ -143,7 +141,7 @@ Os testes de integração usam e removem o banco isolado `hamburgueria_testes`. 
 
 Defina `NODE_ENV=production`, `ADMIN_PASSWORD` com pelo menos 12 caracteres e todas as variáveis `DB_HOST`, `DB_USER`, `DB_PASSWORD` e `DB_NAME`. Use uma conta MySQL com acesso somente ao banco já provisionado da aplicação. Antes de abrir pedidos, cadastre o cardápio e preencha **Configurações** com identidade, contatos, horário, áreas atendidas, taxas, mínimo e pagamentos reais. O Pix só aparece com chave, beneficiário e cidade; o QR Code BR Code é montado a partir desses dados, do total recalculado e do identificador real do pedido. Não há confirmação bancária automática: um administrador autenticado precisa confirmar o recebimento. Cartão e dinheiro também entram na receita somente após confirmação.
 
-Fotos e logo ficam no caminho configurado em `UPLOADS_PATH` (padrão local `server/uploads`). Em hospedagem, esse caminho precisa ser um volume persistente e deve ter backup próprio. O sitemap usa `PUBLIC_SITE_URL`/`VITE_PUBLIC_URL`; nenhum domínio é inventado quando elas não estão definidas. Consulte [implantação](docs/DEPLOY.md) e [backup/restauração](docs/BACKUP.md).
+Fotos e logo ficam no caminho configurado em `UPLOADS_PATH` (padrão local `server/uploads`). Em hospedagem, esse caminho precisa ser um volume persistente e deve ter cópia própria. O sitemap usa `PUBLIC_SITE_URL`/`VITE_PUBLIC_URL`; nenhum domínio é inventado quando elas não estão definidas. Consulte [implantação](docs/DEPLOY.md) e os scripts SQL numerados em [`database/create_db`](database/create_db/000-LEIA-PRIMEIRO.sql).
 
 Alterações compatíveis são aplicadas na inicialização. Para operação controlada pelo MySQL Workbench, o script não destrutivo [20260824_operacao_comercial.sql](server/migrations/20260824_operacao_comercial.sql) documenta as novas colunas, chaves e a tabela de auditoria; aplique-o uma única vez em bancos gerenciados manualmente e mantenha um backup antes de migrations.
 

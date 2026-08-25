@@ -7,8 +7,6 @@
     "dev": "node --env-file-if-exists=.env server/dev.js",
     "dev:web": "vite",
     "dev:api": "node --env-file-if-exists=.env server/index.js",
-    "db:backup": "node --env-file-if-exists=.env scripts/backup-mysql.js",
-    "db:restore": "node --env-file-if-exists=.env scripts/restore-mysql.js",
     "build": "vite build && node --env-file-if-exists=.env scripts/generate-seo-files.js",
     "seo:generate": "node --env-file-if-exists=.env scripts/generate-seo-files.js",
     "lint": "eslint .",

@@ -18,7 +18,6 @@ server/data/*
 !server/data/.gitkeep
 server/uploads/*
 !server/uploads/.gitkeep
-backups/
 
 # Editor directories and files
 .vscode/*
