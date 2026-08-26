@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises';
-import { randomInt, randomUUID } from 'node:crypto';
+import { readdir, readFile } from 'node:fs/promises';
+import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,7 +19,14 @@ import {
 } from './seed.js';
 
 const pastaServidor = dirname(fileURLToPath(import.meta.url));
-const caminhoSchema = resolve(pastaServidor, 'schema.mysql.sql');
+const pastaProjeto = resolve(pastaServidor, '..');
+const pastaMigracoes = resolve(pastaProjeto, 'database/migrations');
+const padraoMigration = /^\d{3}_[a-z0-9_-]+\.sql$/;
+const caminhosEstrutura = [
+  resolve(pastaProjeto, 'database/estrutura/001_criar_tabelas.sql'),
+  resolve(pastaProjeto, 'database/estrutura/003_criar_indices.sql'),
+  resolve(pastaProjeto, 'database/estrutura/002_criar_relacionamentos.sql')
+];
 
 function validarNomeBanco(nome) {
   if (!/^[a-zA-Z0-9_]+$/.test(nome)) {
@@ -32,106 +39,61 @@ function dataMySql(valor = new Date()) {
   return valor.toISOString().slice(0, 23).replace('T', ' ');
 }
 
-async function aplicarSchema(banco) {
-  const schema = await readFile(caminhoSchema, 'utf8');
-  const instrucoes = schema
+function separarInstrucoesSql(conteudo) {
+  return conteudo
     .split(/;\s*(?:\r?\n|$)/)
     .map((instrucao) => instrucao.trim())
     .filter(Boolean);
-
-  for (const instrucao of instrucoes) await banco.query(instrucao);
 }
 
-async function garantirColuna(banco, tabela, coluna, definicao) {
-  const [linhas] = await banco.execute(`
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?
-    LIMIT 1
-  `, [tabela, coluna]);
-  if (linhas.length === 0) await banco.query(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${definicao}`);
-}
-
-async function garantirChaveEstrangeira(banco, tabela, restricao, definicao) {
-  const [linhas] = await banco.execute(`
-    SELECT 1
-    FROM information_schema.table_constraints
-    WHERE table_schema = DATABASE() AND table_name = ?
-      AND constraint_name = ? AND constraint_type = 'FOREIGN KEY'
-    LIMIT 1
-  `, [tabela, restricao]);
-  if (linhas.length === 0) {
-    await banco.query(`ALTER TABLE ${tabela} ADD CONSTRAINT ${restricao} ${definicao}`);
+async function aplicarEstruturaInicial(banco) {
+  for (const caminho of caminhosEstrutura) {
+    const conteudo = await readFile(caminho, 'utf8');
+    for (const instrucao of separarInstrucoesSql(conteudo)) await banco.query(instrucao);
   }
 }
 
-async function garantirIndice(banco, tabela, indice, definicao) {
-  const [linhas] = await banco.execute(`
-    SELECT 1
-    FROM information_schema.statistics
-    WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?
-    LIMIT 1
-  `, [tabela, indice]);
-  if (linhas.length === 0) await banco.query(`ALTER TABLE ${tabela} ADD ${definicao}`);
+async function registrarBaselineMigracoes(banco) {
+  const arquivos = (await readdir(pastaMigracoes))
+    .filter((arquivo) => padraoMigration.test(arquivo))
+    .sort((a, b) => a.localeCompare(b));
+
+  for (const arquivo of arquivos) {
+    const conteudo = await readFile(resolve(pastaMigracoes, arquivo), 'utf8');
+    const checksum = createHash('sha256').update(conteudo).digest('hex');
+    await banco.execute(
+      'INSERT INTO schema_migrations (versao, checksum) VALUES (?, ?)',
+      [arquivo, checksum]
+    );
+  }
 }
 
-async function aplicarMigracoes(banco) {
-  await garantirColuna(banco, 'promocoes', 'inicio_em', 'DATETIME NULL');
-  await garantirColuna(banco, 'promocoes', 'fim_em', 'DATETIME NULL');
-  await garantirColuna(banco, 'pedido_itens', 'promocao_id', 'BIGINT UNSIGNED NULL AFTER produto_id');
-  await garantirColuna(banco, 'configuracoes', 'pix_chave', 'VARCHAR(180) NULL');
-  await garantirColuna(banco, 'configuracoes', 'pix_beneficiario', 'VARCHAR(160) NULL');
-  await garantirColuna(banco, 'pagamentos', 'pix_chave', 'VARCHAR(180) NULL');
-  await garantirColuna(banco, 'pagamentos', 'pix_beneficiario', 'VARCHAR(160) NULL');
-  await garantirColuna(banco, 'pedidos', 'chave_idempotencia_hash', 'CHAR(64) NULL AFTER token_acompanhamento_hash');
-  await garantirColuna(banco, 'pagamentos', 'sem_troco', 'TINYINT(1) NULL AFTER pix_beneficiario');
-  await garantirColuna(banco, 'pagamentos', 'troco_para_centavos', 'INT UNSIGNED NULL AFTER sem_troco');
-  await garantirColuna(banco, 'pagamentos', 'pix_copia_cola', 'TEXT NULL AFTER troco_para_centavos');
-  await garantirColuna(banco, 'pagamentos', 'confirmado_por', 'BIGINT UNSIGNED NULL AFTER pago_em');
-  await garantirColuna(banco, 'pagamentos', 'confirmado_em', 'DATETIME NULL AFTER confirmado_por');
-  await garantirColuna(banco, 'pagamentos', 'estornado_por', 'BIGINT UNSIGNED NULL AFTER confirmado_em');
-  await garantirColuna(banco, 'pagamentos', 'estornado_em', 'DATETIME NULL AFTER estornado_por');
-  await garantirColuna(banco, 'configuracoes', 'logo_url', 'VARCHAR(500) NULL');
-  await garantirColuna(banco, 'configuracoes', 'whatsapp', 'VARCHAR(40) NULL');
-  await garantirColuna(banco, 'configuracoes', 'horario_funcionamento', 'TEXT NULL');
-  await garantirColuna(banco, 'configuracoes', 'instagram_url', 'VARCHAR(500) NULL');
-  await garantirColuna(banco, 'configuracoes', 'facebook_url', 'VARCHAR(500) NULL');
-  await garantirColuna(banco, 'configuracoes', 'entrega_ativa', 'TINYINT(1) NOT NULL DEFAULT 1');
-  await garantirColuna(banco, 'configuracoes', 'retirada_ativa', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER entrega_ativa');
-  await garantirColuna(banco, 'configuracoes', 'aceita_cartao', 'TINYINT(1) NOT NULL DEFAULT 1');
-  await garantirColuna(banco, 'configuracoes', 'aceita_dinheiro', 'TINYINT(1) NOT NULL DEFAULT 1');
-  await garantirColuna(banco, 'configuracoes', 'areas_entrega_json', 'JSON NULL');
-  await garantirColuna(banco, 'configuracoes', 'pix_cidade', 'VARCHAR(60) NULL AFTER pix_beneficiario');
-  await garantirIndice(
-    banco,
-    'pedidos',
-    'uk_pedidos_chave_idempotencia',
-    'UNIQUE KEY uk_pedidos_chave_idempotencia (chave_idempotencia_hash)'
-  );
-  await garantirChaveEstrangeira(
-    banco,
-    'pedido_itens',
-    'fk_pedido_itens_promocao',
-    'FOREIGN KEY (promocao_id) REFERENCES promocoes(id) ON DELETE SET NULL'
-  );
-  await garantirChaveEstrangeira(
-    banco,
-    'pagamentos',
-    'fk_pagamentos_confirmado_por',
-    'FOREIGN KEY (confirmado_por) REFERENCES administradores(id) ON DELETE SET NULL'
-  );
-  await garantirChaveEstrangeira(
-    banco,
-    'pagamentos',
-    'fk_pagamentos_estornado_por',
-    'FOREIGN KEY (estornado_por) REFERENCES administradores(id) ON DELETE SET NULL'
-  );
-  await garantirIndice(banco, 'pagamentos', 'idx_pagamentos_status', 'INDEX idx_pagamentos_status (status)');
-  await banco.execute(`
-    UPDATE pagamentos
-    SET status = CASE WHEN forma = 'Pix' THEN 'Aguardando pagamento' ELSE 'Pagamento na entrega' END
-    WHERE status = 'Pendente'
-  `);
+async function carregarSsl(configuracaoMySql) {
+  if (!configuracaoMySql.ssl) return undefined;
+  const caInformada = String(configuracaoMySql.sslCa ?? '').trim();
+  let ca;
+  if (caInformada) {
+    ca = caInformada.includes('-----BEGIN CERTIFICATE-----')
+      ? caInformada.replaceAll('\\n', '\n')
+      : await readFile(resolve(pastaProjeto, caInformada), 'utf8');
+  }
+  return {
+    rejectUnauthorized: true,
+    ...(ca ? { ca } : {})
+  };
+}
+
+async function configuracaoBaseMySql(configuracaoMySql) {
+  return {
+    host: configuracaoMySql.host,
+    port: configuracaoMySql.port,
+    user: configuracaoMySql.user,
+    password: configuracaoMySql.password,
+    charset: 'utf8mb4',
+    timezone: 'Z',
+    decimalNumbers: true,
+    ...(configuracaoMySql.ssl ? { ssl: await carregarSsl(configuracaoMySql) } : {})
+  };
 }
 
 async function revogarCredenciaisDemonstracaoLegadas(banco) {
@@ -174,8 +136,8 @@ export async function executarTransacao(banco, operacao) {
   }
 }
 
-async function criarAdministradorInicial(banco, administrador) {
-  const [linhas] = await banco.execute('SELECT * FROM administradores ORDER BY id LIMIT 1');
+export async function criarAdministradorInicial(banco, administrador) {
+  const [linhas] = await banco.execute('SELECT id FROM administradores ORDER BY id LIMIT 1');
   const existente = linhas[0];
   if (!existente) {
     await banco.execute(`
@@ -426,25 +388,41 @@ async function criarOperacaoInicial(banco, incluirDadosDemonstracao, pinFunciona
   });
 }
 
-export async function abrirBanco({
+async function criarPool(configuracaoMySql) {
+  const nomeBanco = validarNomeBanco(configuracaoMySql.database);
+  const configuracaoBase = await configuracaoBaseMySql(configuracaoMySql);
+  return mysql.createPool({
+    ...configuracaoBase,
+    database: nomeBanco,
+    waitForConnections: true,
+    connectionLimit: Number(configuracaoMySql.connectionLimit) || 10,
+    queueLimit: 0
+  });
+}
+
+export async function abrirBanco({ mysql: configuracaoMySql }) {
+  const banco = await criarPool(configuracaoMySql);
+  try {
+    await banco.query('SELECT 1 AS conexao');
+    return banco;
+  } catch (erro) {
+    await banco.end();
+    throw erro;
+  }
+}
+
+export async function prepararBanco({
   mysql: configuracaoMySql,
   administrador,
-  incluirDadosDemonstracao = true,
+  incluirDadosDemonstracao = false,
   pinFuncionarioDemonstracao = null
 }) {
+  if (!administrador?.senha) throw new Error('Defina ADMIN_PASSWORD para preparar o banco.');
   if (pinFuncionarioDemonstracao && !/^\d{4,6}$/.test(pinFuncionarioDemonstracao)) {
     throw new Error('DEMO_WAITER_PIN deve conter de 4 a 6 dígitos.');
   }
   const nomeBanco = validarNomeBanco(configuracaoMySql.database);
-  const configuracaoBase = {
-    host: configuracaoMySql.host,
-    port: configuracaoMySql.port,
-    user: configuracaoMySql.user,
-    password: configuracaoMySql.password,
-    charset: 'utf8mb4',
-    timezone: 'Z',
-    decimalNumbers: true
-  };
+  const configuracaoBase = await configuracaoBaseMySql(configuracaoMySql);
 
   if (configuracaoMySql.criarBancoSeAusente !== false) {
     const inicial = await mysql.createConnection(configuracaoBase);
@@ -455,21 +433,29 @@ export async function abrirBanco({
     }
   }
 
-  const banco = mysql.createPool({
-    ...configuracaoBase,
-    database: nomeBanco,
-    waitForConnections: true,
-    connectionLimit: configuracaoMySql.connectionLimit,
-    queueLimit: 0
-  });
-
-  await aplicarSchema(banco);
-  await aplicarMigracoes(banco);
-  await revogarCredenciaisDemonstracaoLegadas(banco);
-  await criarAdministradorInicial(banco, administrador);
-  await criarCatalogoInicial(banco, incluirDadosDemonstracao);
-  await criarOperacaoInicial(banco, incluirDadosDemonstracao, pinFuncionarioDemonstracao);
-  return banco;
+  const banco = await criarPool(configuracaoMySql);
+  try {
+    const [tabelasExistentes] = await banco.query(`
+      SELECT COUNT(*) AS total
+      FROM information_schema.tables
+      WHERE table_schema = DATABASE()
+    `);
+    if (Number(tabelasExistentes[0]?.total) > 0) {
+      throw new Error(
+        'O preparo inicial exige um banco vazio. Para um banco existente, use npm run db:migrate.'
+      );
+    }
+    await aplicarEstruturaInicial(banco);
+    await registrarBaselineMigracoes(banco);
+    await revogarCredenciaisDemonstracaoLegadas(banco);
+    await criarAdministradorInicial(banco, administrador);
+    await criarCatalogoInicial(banco, incluirDadosDemonstracao);
+    await criarOperacaoInicial(banco, incluirDadosDemonstracao, pinFuncionarioDemonstracao);
+    return banco;
+  } catch (erro) {
+    await banco.end();
+    throw erro;
+  }
 }
 
 export async function fecharBanco(banco) {

@@ -18,6 +18,8 @@ Aplicação responsiva com três áreas integradas: cliente, administrador e gar
 
 O carrinho permanece no navegador somente até o cliente finalizar a compra. Ao abrir o carrinho e antes do checkout, a API remove itens indisponíveis e atualiza preço, promoção e adicionais. Na criação do pedido, o servidor recalcula tudo novamente, inclusive taxa por bairro e pedido mínimo, e grava pedido, itens e pagamento na mesma transação. Cada tentativa leva uma chave idempotente para que reenvios não criem pedidos duplicados.
 
+O banco já contém a fundação das entidades `estabelecimentos` e `configuracoes_estabelecimento`, além das migrations que associam os registros atuais a um estabelecimento padrão. As colunas de escopo permanecem nullable até que todas as consultas e escritas sejam atualizadas; portanto, esta versão continua operando como uma instalação de estabelecimento único.
+
 ## Requisitos
 
 - Node.js 22.13 ou superior;
@@ -25,34 +27,27 @@ O carrinho permanece no navegador somente até o cliente finalizar a compra. Ao 
 - MySQL Server 8.0 em execução;
 - MySQL Workbench opcional para visualizar e administrar o banco.
 
-## Configuração do MySQL Workbench
+## Configuração inicial
 
-1. Abra a conexão local, normalmente `Local instance MySQL80`.
-2. Confirme que o servidor está disponível em `127.0.0.1:3306`.
-3. Na pasta do projeto, crie a configuração local:
+1. Copie o modelo de ambiente e preencha somente valores locais:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-4. No editor SQL conectado como administrador, crie bancos separados para a aplicação e para os testes, além de um usuário restrito:
+2. No MySQL Workbench, crie e selecione um schema vazio e então execute [`database/CRIAR_db.sql`](database/CRIAR_db.sql). O arquivo cria a estrutura atual e os dados mínimos, sem criar/selecionar o banco, sem usuário administrativo e sem conteúdo demonstrativo.
+
+3. Crie um usuário MySQL restrito para a aplicação. O exemplo abaixo pressupõe que o schema selecionado se chama `hamburgueria`:
 
 ```sql
-CREATE DATABASE IF NOT EXISTS hamburgueria
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-CREATE DATABASE IF NOT EXISTS hamburgueria_testes
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-
 CREATE USER IF NOT EXISTS 'hamburgueria_app'@'localhost'
   IDENTIFIED BY 'troque-por-uma-senha-local-segura';
-GRANT ALL PRIVILEGES ON hamburgueria.*
-  TO 'hamburgueria_app'@'localhost';
-GRANT ALL PRIVILEGES ON hamburgueria_testes.*
+GRANT SELECT, INSERT, UPDATE, DELETE ON hamburgueria.*
   TO 'hamburgueria_app'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
-5. Edite o `.env` com a conta exclusiva da aplicação, usando a mesma senha definida no SQL:
+4. Edite o `.env` com a mesma conta e defina o primeiro administrador:
 
 ```dotenv
 DB_HOST=127.0.0.1
@@ -62,16 +57,18 @@ DB_PASSWORD=sua-senha-local-da-aplicacao
 DB_NAME=hamburgueria
 
 ADMIN_USER=admin
-ADMIN_EMAIL=admin@hamburgueria.com
+ADMIN_EMAIL=admin@exemplo.com
 ADMIN_PASSWORD=uma-senha-administrativa-segura
 ```
 
-O `.env` é ignorado pelo Git. Nunca envie senhas ao repositório.
+5. Crie a conta administrativa e valide a conexão:
 
-`ADMIN_PASSWORD` é obrigatório também em desenvolvimento; o projeto não contém senha administrativa padrão no código.
-Ele cria a primeira conta quando o banco ainda não possui administradores. Para forçar uma redefinição controlada da conta inicial, use temporariamente `SYNC_ADMIN_CREDENTIALS=1` em uma única inicialização e volte a `0`; assim, alterações de senha feitas no painel não são sobrescritas a cada reinício.
+```bash
+npm run criar-admin-inicial
+npm run db:check
+```
 
-Em desenvolvimento, a API pode criar o banco ausente. Em produção, o banco deve ser provisionado antes da primeira inicialização; a aplicação cria ou atualiza as tabelas dentro dele, mas não solicita privilégio global de `CREATE DATABASE`. O arquivo [`server/schema.mysql.sql`](server/schema.mysql.sql) também pode ser aberto no Workbench para consultar o esquema completo. O backend não precisa armazenar a senha do usuário `root`.
+O `.env` é ignorado pelo Git. Nunca envie senhas ao repositório. `ADMIN_PASSWORD` é lido pelos comandos explícitos de preparação/administração, não pelo startup do servidor. Para uma instalação local totalmente vazia, `npm run db:prepare` pode criar e preparar o schema; ele recusa schemas que já possuam tabelas. Consulte [`database/README.md`](database/README.md) antes de preparar ou migrar um ambiente.
 
 ## Executar localmente
 
@@ -90,7 +87,7 @@ Esse comando inicia a API e o site juntos. O frontend normalmente fica em `http:
 - Administrador: `/admin/login`, com as credenciais definidas em `ADMIN_USER` e `ADMIN_PASSWORD`
 - Garçom: cadastre o funcionário no painel administrativo e abra o QR Code individual por esse painel
 
-Em desenvolvimento, o banco pode receber dados demonstrativos. Em produção eles ficam desativados por padrão: a loja nasce fechada, sem produtos, adicionais, promoções, funcionários ou pedidos fictícios. Use `SEED_DEMO_DATA=1` somente em ambientes descartáveis. Os tokens demonstrativos são aleatórios e, sem `DEMO_WAITER_PIN`, o PIN inicial também é aleatório: defina um novo PIN no painel antes de usar esse funcionário. Se precisar de um PIN conhecido em um ambiente descartável, configure explicitamente `DEMO_WAITER_PIN` com 4 a 6 dígitos. Contas demonstrativas legadas com credenciais conhecidas são revogadas automaticamente e devem ser redefinidas pelo administrador. PINs são armazenados como hash, e tokens de acesso só aparecem em rotas administrativas autenticadas. O QR Code identifica o funcionário, mas a sessão só é criada depois da validação do PIN.
+Dados demonstrativos ficam desativados por padrão em todos os ambientes: a loja nasce fechada, sem produtos, adicionais, promoções, funcionários ou pedidos fictícios. `SEED_DEMO_DATA=1` só tem efeito no comando explícito `npm run db:prepare` e deve ser usado exclusivamente em ambiente descartável. Os tokens demonstrativos são aleatórios e, sem `DEMO_WAITER_PIN`, o PIN inicial também é aleatório. PINs são armazenados como hash, e tokens de acesso só aparecem em rotas administrativas autenticadas. O QR Code identifica o funcionário, mas a sessão só é criada depois da validação do PIN.
 
 ## Comandos
 
@@ -102,9 +99,13 @@ npm run lint      # análise estática
 npm test          # testes puros e integração MySQL quando DB_PASSWORD estiver definido
 npm run build     # frontend de produção
 npm start         # API, uploads e frontend já compilado
+npm run db:check  # valida a conexão sem alterar a estrutura
+npm run db:migrate # aplica migrations incrementais versionadas
+npm run db:prepare # prepara somente um banco novo e vazio
+npm run criar-admin-inicial # cria/verifica o primeiro administrador
 ```
 
-Os testes de integração usam e removem o banco isolado `hamburgueria_testes`. Eles nunca usam o banco `hamburgueria` como alvo de limpeza. A permissão sobre `hamburgueria_testes.*` permanece registrada no MySQL, permitindo que o banco seja recriado na próxima execução.
+Os testes de integração exigem configuração própria e usam um banco isolado cujo nome termina em `_testes`. Nunca execute testes de integração com credenciais apontadas para um banco persistente.
 
 ## Rotas principais da API
 
@@ -139,11 +140,11 @@ Os testes de integração usam e removem o banco isolado `hamburgueria_testes`. 
 
 ## Produção
 
-Defina `NODE_ENV=production`, `ADMIN_PASSWORD` com pelo menos 12 caracteres e todas as variáveis `DB_HOST`, `DB_USER`, `DB_PASSWORD` e `DB_NAME`. Use uma conta MySQL com acesso somente ao banco já provisionado da aplicação. Antes de abrir pedidos, cadastre o cardápio e preencha **Configurações** com identidade, contatos, horário, áreas atendidas, taxas, mínimo e pagamentos reais. O Pix só aparece com chave, beneficiário e cidade; o QR Code BR Code é montado a partir desses dados, do total recalculado e do identificador real do pedido. Não há confirmação bancária automática: um administrador autenticado precisa confirmar o recebimento. Cartão e dinheiro também entram na receita somente após confirmação.
+Defina `NODE_ENV=production` e todas as variáveis `DB_HOST`, `DB_USER`, `DB_PASSWORD` e `DB_NAME`. Provisione a estrutura e execute migrations antes de iniciar a API; o startup nunca altera o schema. `ADMIN_PASSWORD` deve ter ao menos 12 caracteres quando usado para criar ou recuperar a conta inicial. Use uma conta MySQL com acesso somente ao banco já provisionado da aplicação. Antes de abrir pedidos, cadastre o cardápio e preencha **Configurações** com identidade, contatos, horário, áreas atendidas, taxas, mínimo e pagamentos reais. O Pix só aparece com chave, beneficiário e cidade; o QR Code BR Code é montado a partir desses dados, do total recalculado e do identificador real do pedido. Não há confirmação bancária automática: um administrador autenticado precisa confirmar o recebimento. Cartão e dinheiro também entram na receita somente após confirmação.
 
-Fotos e logo ficam no caminho configurado em `UPLOADS_PATH` (padrão local `server/uploads`). Em hospedagem, esse caminho precisa ser um volume persistente e deve ter cópia própria. O sitemap usa `PUBLIC_SITE_URL`/`VITE_PUBLIC_URL`; nenhum domínio é inventado quando elas não estão definidas. Consulte [implantação](docs/DEPLOY.md) e os scripts SQL numerados em [`database/create_db`](database/create_db/000-LEIA-PRIMEIRO.sql).
+Fotos e logo ficam no caminho configurado em `UPLOADS_PATH` (padrão local `server/uploads`). Em hospedagem, esse caminho precisa ser um volume persistente e deve ter cópia própria. O sitemap usa `PUBLIC_SITE_URL`/`VITE_PUBLIC_URL`; nenhum domínio é inventado quando elas não estão definidas. Consulte [implantação](docs/DEPLOY.md) e o [guia do banco](database/README.md).
 
-Alterações compatíveis são aplicadas na inicialização. Para operação controlada pelo MySQL Workbench, o script não destrutivo [20260824_operacao_comercial.sql](server/migrations/20260824_operacao_comercial.sql) documenta as novas colunas, chaves e a tabela de auditoria; aplique-o uma única vez em bancos gerenciados manualmente e mantenha um backup antes de migrations.
+Alterações de estrutura são aplicadas somente pelo comando explícito `npm run db:migrate`. Mantenha um backup validado antes de cada migration e nunca use o instalador de banco novo sobre dados existentes.
 
 O sistema não possui gateway bancário nem serviço SMTP. A conciliação é manual e auditada; recuperação de senha por e-mail depende da infraestrutura descrita em [implantação](docs/DEPLOY.md). Logs HTTP 5xx são emitidos em JSON com campos sensíveis redigidos e devem ser coletados/rotacionados pela infraestrutura.
 

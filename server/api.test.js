@@ -9,7 +9,7 @@ import mysql from 'mysql2/promise';
 
 import { criarLimitadorTentativas, criarServidor, personalizarIndexHtml } from './app.js';
 import { precoParaCentavos } from './catalog.js';
-import { abrirBanco, fecharBanco } from './database.js';
+import { fecharBanco, prepararBanco } from './database.js';
 import { buscarItensValidados, calcularTotaisPedido } from './operations.js';
 import { aguardarServidor, fecharServidor } from './runtime.js';
 
@@ -278,7 +278,7 @@ if (!executarIntegracao) {
   before(async () => {
     pastaTemporaria = await mkdtemp(join(tmpdir(), 'hamburgueria-api-'));
     pastaUploads = join(pastaTemporaria, 'uploads');
-    banco = await abrirBanco({
+    banco = await prepararBanco({
       mysql: configuracaoMySql,
       administrador,
       incluirDadosDemonstracao: true,

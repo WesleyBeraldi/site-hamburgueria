@@ -1,12 +1,88 @@
-USE hamburgueria;
+-- Estrutura base multiempresa. As tabelas operacionais serão relacionadas
+-- aos estabelecimentos por migrations posteriores e não destrutivas.
+-- Não cria nem seleciona banco. Execute sobre um schema MySQL vazio.
+
+SET NAMES utf8mb4;
+SET time_zone = '-03:00';
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  versao VARCHAR(255) PRIMARY KEY,
+  checksum CHAR(64) NOT NULL,
+  executado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS metadados (
   chave VARCHAR(100) PRIMARY KEY,
   valor TEXT NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS estabelecimentos (
+  id_estabelecimento BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  nome_fantasia VARCHAR(160) NOT NULL,
+  slug VARCHAR(100) NOT NULL,
+  dominio_personalizado VARCHAR(253),
+  status VARCHAR(30) NOT NULL DEFAULT 'ativo',
+  plano VARCHAR(50) NOT NULL DEFAULT 'basico',
+  status_assinatura VARCHAR(30) NOT NULL DEFAULT 'ativa',
+  vencimento_assinatura_em DATETIME,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_estabelecimentos_slug (slug),
+  UNIQUE KEY uk_estabelecimentos_dominio (dominio_personalizado),
+  CONSTRAINT chk_estabelecimentos_slug_preenchido
+    CHECK (CHAR_LENGTH(TRIM(slug)) > 0),
+  CONSTRAINT chk_estabelecimentos_dominio_preenchido
+    CHECK (dominio_personalizado IS NULL OR CHAR_LENGTH(TRIM(dominio_personalizado)) > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS configuracoes_estabelecimento (
+  id_estabelecimento BIGINT UNSIGNED PRIMARY KEY,
+  logo_url VARCHAR(500),
+  banner_url VARCHAR(500),
+  cor_principal CHAR(7) NOT NULL DEFAULT '#FFC107',
+  cor_secundaria CHAR(7) NOT NULL DEFAULT '#0A0A0A',
+  cor_fundo CHAR(7) NOT NULL DEFAULT '#111111',
+  cor_card CHAR(7) NOT NULL DEFAULT '#181818',
+  cor_texto CHAR(7) NOT NULL DEFAULT '#FFFFFF',
+  fonte VARCHAR(80) NOT NULL DEFAULT 'Poppins',
+  telefone VARCHAR(40),
+  whatsapp VARCHAR(40),
+  email VARCHAR(160),
+  endereco VARCHAR(255),
+  horario_funcionamento TEXT,
+  loja_aberta TINYINT(1) NOT NULL DEFAULT 0,
+  pedido_minimo_centavos INT UNSIGNED NOT NULL DEFAULT 0,
+  taxa_entrega_centavos INT UNSIGNED NOT NULL DEFAULT 0,
+  tempo_entrega VARCHAR(60),
+  pix_chave VARCHAR(180),
+  pix_beneficiario VARCHAR(160),
+  pix_cidade VARCHAR(60),
+  entrega_ativa TINYINT(1) NOT NULL DEFAULT 0,
+  retirada_ativa TINYINT(1) NOT NULL DEFAULT 0,
+  atendimento_garcom_ativo TINYINT(1) NOT NULL DEFAULT 0,
+  aceita_cartao TINYINT(1) NOT NULL DEFAULT 0,
+  aceita_dinheiro TINYINT(1) NOT NULL DEFAULT 0,
+  areas_entrega_json JSON,
+  formas_pagamento_json JSON,
+  politica_cancelamento TEXT,
+  informacoes_legais TEXT,
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT chk_config_cor_principal
+    CHECK (cor_principal REGEXP '^#[0-9A-Fa-f]{6}$'),
+  CONSTRAINT chk_config_cor_secundaria
+    CHECK (cor_secundaria REGEXP '^#[0-9A-Fa-f]{6}$'),
+  CONSTRAINT chk_config_cor_fundo
+    CHECK (cor_fundo REGEXP '^#[0-9A-Fa-f]{6}$'),
+  CONSTRAINT chk_config_cor_card
+    CHECK (cor_card REGEXP '^#[0-9A-Fa-f]{6}$'),
+  CONSTRAINT chk_config_cor_texto
+    CHECK (cor_texto REGEXP '^#[0-9A-Fa-f]{6}$')
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS administradores (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_estabelecimento BIGINT UNSIGNED,
   usuario VARCHAR(80) NOT NULL UNIQUE,
   email VARCHAR(160) NOT NULL UNIQUE,
   nome VARCHAR(160) NOT NULL,
@@ -18,28 +94,28 @@ CREATE TABLE IF NOT EXISTS administradores (
 
 CREATE TABLE IF NOT EXISTS sessoes_admin (
   token_hash CHAR(64) PRIMARY KEY,
+  id_estabelecimento BIGINT UNSIGNED,
   administrador_id BIGINT UNSIGNED NOT NULL,
   expira_em DATETIME(3) NOT NULL,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_sessoes_admin_expiracao (expira_em),
   INDEX idx_sessoes_admin_administrador (administrador_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS auditoria_admin (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_estabelecimento BIGINT UNSIGNED,
   administrador_id BIGINT UNSIGNED,
   acao VARCHAR(80) NOT NULL,
   entidade VARCHAR(60) NOT NULL,
   entidade_id VARCHAR(80),
   detalhes_json JSON,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_auditoria_admin_administrador (administrador_id),
-  INDEX idx_auditoria_admin_criado_em (criado_em),
-  INDEX idx_auditoria_admin_entidade (entidade, entidade_id)
+  INDEX idx_auditoria_admin_administrador (administrador_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS categorias (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_estabelecimento BIGINT UNSIGNED,
   nome VARCHAR(100) NOT NULL UNIQUE,
   ordem INT NOT NULL DEFAULT 0,
   ativo TINYINT(1) NOT NULL DEFAULT 1
@@ -47,6 +123,7 @@ CREATE TABLE IF NOT EXISTS categorias (
 
 CREATE TABLE IF NOT EXISTS adicionais (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_estabelecimento BIGINT UNSIGNED,
   nome VARCHAR(120) NOT NULL UNIQUE,
   preco_centavos INT UNSIGNED NOT NULL,
   ativo TINYINT(1) NOT NULL DEFAULT 1,
@@ -56,6 +133,7 @@ CREATE TABLE IF NOT EXISTS adicionais (
 
 CREATE TABLE IF NOT EXISTS produtos (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_estabelecimento BIGINT UNSIGNED,
   categoria_id BIGINT UNSIGNED NOT NULL,
   nome VARCHAR(160) NOT NULL,
   descricao TEXT NOT NULL,
@@ -65,11 +143,11 @@ CREATE TABLE IF NOT EXISTS produtos (
   ativo TINYINT(1) NOT NULL DEFAULT 1,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_produtos_categoria (categoria_id),
-  INDEX idx_produtos_ativo (ativo)
+  INDEX idx_produtos_categoria (categoria_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS produto_adicionais (
+  id_estabelecimento BIGINT UNSIGNED,
   produto_id BIGINT UNSIGNED NOT NULL,
   adicional_id BIGINT UNSIGNED NOT NULL,
   PRIMARY KEY (produto_id, adicional_id),
@@ -78,6 +156,7 @@ CREATE TABLE IF NOT EXISTS produto_adicionais (
 
 CREATE TABLE IF NOT EXISTS promocoes (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_estabelecimento BIGINT UNSIGNED,
   produto_id BIGINT UNSIGNED,
   nome VARCHAR(160) NOT NULL,
   categoria VARCHAR(100) NOT NULL,
@@ -92,33 +171,33 @@ CREATE TABLE IF NOT EXISTS promocoes (
   fim_em DATETIME,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_promocoes_produto (produto_id),
-  INDEX idx_promocoes_ativo (ativo)
+  INDEX idx_promocoes_produto (produto_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS funcionarios (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_estabelecimento BIGINT UNSIGNED,
   nome VARCHAR(160) NOT NULL,
   cargo VARCHAR(80) NOT NULL,
   pin_hash VARCHAR(255) NOT NULL,
   token_acesso VARCHAR(160) NOT NULL UNIQUE,
   ativo TINYINT(1) NOT NULL DEFAULT 1,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_funcionarios_ativo (ativo)
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS sessoes_garcom (
   token_hash CHAR(64) PRIMARY KEY,
+  id_estabelecimento BIGINT UNSIGNED,
   funcionario_id BIGINT UNSIGNED NOT NULL,
   expira_em DATETIME(3) NOT NULL,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_sessoes_garcom_funcionario (funcionario_id),
-  INDEX idx_sessoes_garcom_expiracao (expira_em)
+  INDEX idx_sessoes_garcom_funcionario (funcionario_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS mesas (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_estabelecimento BIGINT UNSIGNED,
   numero VARCHAR(10) NOT NULL UNIQUE,
   lugares INT UNSIGNED NOT NULL DEFAULT 4,
   ativo TINYINT(1) NOT NULL DEFAULT 1,
@@ -127,6 +206,7 @@ CREATE TABLE IF NOT EXISTS mesas (
 
 CREATE TABLE IF NOT EXISTS comandas (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_estabelecimento BIGINT UNSIGNED,
   mesa_id BIGINT UNSIGNED NOT NULL,
   funcionario_id BIGINT UNSIGNED NOT NULL,
   status VARCHAR(40) NOT NULL DEFAULT 'Aberta',
@@ -140,6 +220,7 @@ CREATE TABLE IF NOT EXISTS comandas (
 
 CREATE TABLE IF NOT EXISTS comanda_itens (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_estabelecimento BIGINT UNSIGNED,
   comanda_id BIGINT UNSIGNED NOT NULL,
   produto_id BIGINT UNSIGNED,
   nome_produto VARCHAR(160) NOT NULL,
@@ -152,6 +233,7 @@ CREATE TABLE IF NOT EXISTS comanda_itens (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS comanda_item_adicionais (
+  id_estabelecimento BIGINT UNSIGNED,
   comanda_item_id BIGINT UNSIGNED NOT NULL,
   adicional_id BIGINT UNSIGNED,
   nome_adicional VARCHAR(120) NOT NULL,
@@ -162,6 +244,7 @@ CREATE TABLE IF NOT EXISTS comanda_item_adicionais (
 
 CREATE TABLE IF NOT EXISTS pedidos (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_estabelecimento BIGINT UNSIGNED,
   token_acompanhamento_hash CHAR(64),
   chave_idempotencia_hash CHAR(64),
   origem VARCHAR(20) NOT NULL,
@@ -185,14 +268,12 @@ CREATE TABLE IF NOT EXISTS pedidos (
   UNIQUE KEY uk_pedidos_comanda (comanda_id),
   UNIQUE KEY uk_pedidos_chave_idempotencia (chave_idempotencia_hash),
   INDEX idx_pedidos_mesa (mesa_id),
-  INDEX idx_pedidos_funcionario (funcionario_id),
-  INDEX idx_pedidos_criado_em (criado_em),
-  INDEX idx_pedidos_status (status),
-  INDEX idx_pedidos_token_acompanhamento (token_acompanhamento_hash)
+  INDEX idx_pedidos_funcionario (funcionario_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS pedido_itens (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_estabelecimento BIGINT UNSIGNED,
   pedido_id BIGINT UNSIGNED NOT NULL,
   produto_id BIGINT UNSIGNED,
   promocao_id BIGINT UNSIGNED,
@@ -208,6 +289,7 @@ CREATE TABLE IF NOT EXISTS pedido_itens (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS pedido_item_adicionais (
+  id_estabelecimento BIGINT UNSIGNED,
   pedido_item_id BIGINT UNSIGNED NOT NULL,
   adicional_id BIGINT UNSIGNED,
   nome_adicional VARCHAR(120) NOT NULL,
@@ -218,6 +300,7 @@ CREATE TABLE IF NOT EXISTS pedido_item_adicionais (
 
 CREATE TABLE IF NOT EXISTS pagamentos (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  id_estabelecimento BIGINT UNSIGNED,
   pedido_id BIGINT UNSIGNED,
   comanda_id BIGINT UNSIGNED,
   forma VARCHAR(40) NOT NULL,
@@ -237,12 +320,12 @@ CREATE TABLE IF NOT EXISTS pagamentos (
   INDEX idx_pagamentos_pedido (pedido_id),
   INDEX idx_pagamentos_comanda (comanda_id),
   INDEX idx_pagamentos_confirmado_por (confirmado_por),
-  INDEX idx_pagamentos_estornado_por (estornado_por),
-  INDEX idx_pagamentos_status (status)
+  INDEX idx_pagamentos_estornado_por (estornado_por)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS configuracoes (
   id TINYINT UNSIGNED PRIMARY KEY,
+  id_estabelecimento BIGINT UNSIGNED,
   nome_loja VARCHAR(160) NOT NULL,
   telefone VARCHAR(40) NOT NULL,
   email VARCHAR(160) NOT NULL,

@@ -1,8 +1,6 @@
-USE hamburgueria;
+-- Seed opcional. Nunca execute automaticamente em produção.
+-- Troque a variável para 1 somente em ambiente descartável.
 
--- Arquivo opcional. Os registros abaixo ja existem como demonstracao no
--- codigo do projeto, mas permanecem DESATIVADOS neste script por seguranca.
--- Troque 0 por 1 somente em ambiente descartavel de desenvolvimento.
 SET @CARREGAR_DEMONSTRACAO = 0;
 
 START TRANSACTION;
@@ -50,7 +48,3 @@ FROM (
 WHERE @CARREGAR_DEMONSTRACAO = 1;
 
 COMMIT;
-
-SELECT IF(@CARREGAR_DEMONSTRACAO = 1,
-  'Dados demonstrativos inseridos.',
-  'Nenhum dado demonstrativo foi inserido.') AS resultado;

@@ -1,5 +1,7 @@
+-- Migração histórica preservada apenas para rastreabilidade.
+-- Não é executada automaticamente pelo runner de migrações atual.
+
 -- Migração não destrutiva para pagamentos auditáveis, retirada e auditoria administrativa.
--- O bootstrap da aplicação aplica as mesmas alterações de modo idempotente.
 
 ALTER TABLE pagamentos
   ADD COLUMN pix_copia_cola TEXT NULL AFTER troco_para_centavos,
