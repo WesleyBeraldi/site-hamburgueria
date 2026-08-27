@@ -40,7 +40,7 @@ export const config = {
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'hamburgueria',
     connectionLimit: Number(process.env.DB_CONNECTION_LIMIT) || 10,
-    criarBancoSeAusente: !producao
+    criarBancoSeAusente: !producao && process.env.DB_CREATE_IF_MISSING !== '0'
   },
   pastaUploads: caminhoConfigurado(process.env.UPLOADS_PATH, 'server/uploads'),
   pastaDist: resolve(pastaProjeto, 'dist'),

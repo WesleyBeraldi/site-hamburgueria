@@ -57,6 +57,7 @@ FLUSH PRIVILEGES;
 ```dotenv
 DB_HOST=127.0.0.1
 DB_PORT=3306
+DB_CREATE_IF_MISSING=1
 DB_USER=hamburgueria_app
 DB_PASSWORD=sua-senha-local-da-aplicacao
 DB_NAME=hamburgueria

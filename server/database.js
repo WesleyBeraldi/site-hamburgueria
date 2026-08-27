@@ -139,9 +139,10 @@ async function revogarCredenciaisDemonstracaoLegadas(banco) {
     'eae37569f974549b25e5d60627f12fbef1dafe4f79a950eff455a62b38c7b9c1',
     '816711d2b11be214316287916c7a1f3bd61ca9be413755f8dbb1d51bfac9fb36'
   ];
-  const marcadores = hashesTokensLegados.map(() => '?').join(', ');
+  const marcadores = hashesTokensLegados.map(() => 'CAST(? AS BINARY)').join(', ');
   const [funcionarios] = await banco.execute(`
-    SELECT id FROM funcionarios WHERE SHA2(token_acesso, 256) IN (${marcadores})
+    SELECT id FROM funcionarios
+    WHERE CAST(SHA2(token_acesso, 256) AS BINARY) IN (${marcadores})
   `, hashesTokensLegados);
   if (funcionarios.length === 0) return;
 
