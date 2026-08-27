@@ -8,10 +8,22 @@ import { after, before, test } from 'node:test';
 import mysql from 'mysql2/promise';
 
 import { criarLimitadorTentativas, criarServidor, personalizarIndexHtml } from './app.js';
-import { precoParaCentavos } from './catalog.js';
-import { abrirBanco, fecharBanco } from './database.js';
-import { buscarItensValidados, calcularTotaisPedido } from './operations.js';
+import { listarCatalogo, precoParaCentavos } from './catalog.js';
+import { fecharBanco, prepararBanco } from './database.js';
+import {
+  buscarConfiguracaoPublica,
+  buscarItensValidados,
+  calcularTotaisPedido
+} from './operations.js';
 import { aguardarServidor, fecharServidor } from './runtime.js';
+import { criarJwt, verificarJwt } from './security.js';
+import {
+  extrairHostname,
+  identificarEstabelecimentoPeloHost,
+  resolverEstabelecimento
+} from './tenant.js';
+
+const JWT_SECRET_TESTE = 'segredo-jwt-exclusivo-para-testes-com-mais-de-32-bytes';
 
 test('converte preços brasileiros e decimais para centavos', () => {
   assert.equal(precoParaCentavos('34,90'), 3490);
@@ -30,6 +42,378 @@ test('injeta metadados reais da loja no HTML de produção sem permitir markup',
   assert.equal(html.includes('<Segura>'), false);
 });
 
+test('identifica o estabelecimento somente pelo host da requisição', () => {
+  assert.equal(extrairHostname('Loja-A.Exemplo.com:443'), 'loja-a.exemplo.com');
+  assert.deepEqual(
+    identificarEstabelecimentoPeloHost('loja-a.exemplo.com', {
+      dominioPrincipal: 'exemplo.com'
+    }),
+    { tipo: 'slug', valor: 'loja-a' }
+  );
+  assert.deepEqual(
+    identificarEstabelecimentoPeloHost('pedidos.loja.com', {
+      dominioPrincipal: 'exemplo.com'
+    }),
+    { tipo: 'dominio', valor: 'pedidos.loja.com' }
+  );
+  assert.deepEqual(
+    identificarEstabelecimentoPeloHost('127.0.0.1:3001', {
+      tenantDesenvolvimento: 'estabelecimento-padrao'
+    }),
+    { tipo: 'slug', valor: 'estabelecimento-padrao' }
+  );
+});
+
+test('resolve dois tenants independentes pelo domínio sem aceitar ID do cliente', async () => {
+  const tenants = new Map([
+    ['loja-a', { id_estabelecimento: 11, nome_fantasia: 'Loja A', slug: 'loja-a' }],
+    ['loja-b', { id_estabelecimento: 22, nome_fantasia: 'Loja B', slug: 'loja-b' }]
+  ]);
+  const banco = {
+    async execute(sql, parametros) {
+      assert.match(sql, /FROM estabelecimentos/i);
+      const estabelecimento = tenants.get(parametros[0]);
+      return [[estabelecimento && {
+        ...estabelecimento,
+        dominio_personalizado: null,
+        status: 'ativo',
+        plano: 'basico',
+        status_assinatura: 'ativa',
+        vencimento_assinatura_em: null
+      }].filter(Boolean)];
+    }
+  };
+  const opcoes = { dominioPrincipal: 'exemplo.com' };
+  const lojaA = await resolverEstabelecimento(
+    banco,
+    { headers: { host: 'loja-a.exemplo.com' }, idEstabelecimento: 22 },
+    opcoes
+  );
+  const lojaB = await resolverEstabelecimento(
+    banco,
+    { headers: { host: 'loja-b.exemplo.com' }, idEstabelecimento: 11 },
+    opcoes
+  );
+  assert.equal(lojaA.id, 11);
+  assert.equal(lojaB.id, 22);
+});
+
+test('mantém o catálogo de dois tenants separado em todas as consultas', async () => {
+  const nomes = new Map([[11, 'Produto A'], [22, 'Produto B']]);
+  const banco = {
+    async execute(sql, parametros) {
+      const idEstabelecimento = Number(parametros[0]);
+      assert.ok(nomes.has(idEstabelecimento));
+      if (sql.includes('FROM categorias')) {
+        return [[{ id: idEstabelecimento, nome: `Categoria ${idEstabelecimento}`, ordem: 1, ativo: 1 }]];
+      }
+      if (sql.includes('FROM adicionais')) return [[]];
+      if (sql.includes('FROM produtos p')) {
+        return [[{
+          id: idEstabelecimento,
+          categoria_id: idEstabelecimento,
+          nome: nomes.get(idEstabelecimento),
+          categoria: `Categoria ${idEstabelecimento}`,
+          descricao: 'Descrição',
+          preco_centavos: 1000,
+          imagem_url: null,
+          destaque: null,
+          ativo: 1
+        }]];
+      }
+      if (sql.includes('FROM produto_adicionais')) return [[]];
+      throw new Error(`Consulta inesperada no teste: ${sql}`);
+    }
+  };
+  const [catalogoA, catalogoB] = await Promise.all([
+    listarCatalogo(banco, 11),
+    listarCatalogo(banco, 22)
+  ]);
+  assert.equal(catalogoA.produtos[0].nome, 'Produto A');
+  assert.equal(catalogoB.produtos[0].nome, 'Produto B');
+});
+
+test('publica somente configurações seguras do tenant resolvido pelo domínio', async () => {
+  const estabelecimentos = new Map([
+    ['loja-a', {
+      id_estabelecimento: 11,
+      nome_fantasia: 'Loja A',
+      slug: 'loja-a',
+      status: 'ativo'
+    }],
+    ['loja-b', {
+      id_estabelecimento: 22,
+      nome_fantasia: 'Loja B',
+      slug: 'loja-b',
+      status: 'ativo'
+    }],
+    ['loja-inativa', {
+      id_estabelecimento: 33,
+      nome_fantasia: 'Loja inativa',
+      slug: 'loja-inativa',
+      status: 'inativo'
+    }]
+  ]);
+  const configuracoes = new Map([
+    [11, {
+      nome_loja: 'Loja A',
+      slug: 'loja-a',
+      logo_url: '/uploads/loja-a/logo.webp',
+      banner_url: 'https://cdn.exemplo.com/loja-a/banner.webp',
+      cor_principal: '#a1b2c3',
+      cor_secundaria: '#0A0A0A',
+      cor_fundo: '#111111',
+      cor_card: '#181818',
+      cor_texto: '#FFFFFF',
+      fonte: 'Georgia',
+      telefone: '(11) 4000-0000',
+      whatsapp: '(11) 98888-0000',
+      email: 'contato@loja-a.local',
+      endereco: 'Rua A, 10',
+      horario_funcionamento: 'Todos os dias, das 18h às 23h',
+      instagram_url: 'https://instagram.com/loja-a',
+      facebook_url: '',
+      loja_aberta: 1,
+      pedido_minimo_centavos: 2500,
+      taxa_entrega_centavos: 700,
+      tempo_entrega: '30–45 min',
+      pix_chave: 'pix-loja-a',
+      pix_beneficiario: 'LOJA A',
+      pix_cidade: 'SAO PAULO',
+      entrega_ativa: 1,
+      retirada_ativa: 1,
+      atendimento_garcom_ativo: 0,
+      aceita_cartao: 1,
+      aceita_dinheiro: 1,
+      areas_entrega_json: JSON.stringify([
+        { bairro: 'Centro', taxaCentavos: 500 },
+        null,
+        { bairro: 'Taxa inválida', taxaCentavos: -1 },
+        { bairro: 'centro', taxaCentavos: 900 }
+      ]),
+      formas_pagamento_json: JSON.stringify(['Pix', 'Dinheiro', 'Pix', 'Pagamento arbitrário']),
+      politica_cancelamento: 'Cancelamentos devem ser solicitados antes do preparo.',
+      informacoes_legais: 'Informações legais da Loja A.',
+      segredo_interno: 'não publicar'
+    }],
+    [22, {
+      nome_loja: 'Loja B',
+      slug: 'loja-b',
+      logo_url: 'javascript:alert(1)',
+      banner_url: '//dominio-inseguro.exemplo/banner.webp',
+      cor_principal: 'amarelo',
+      cor_secundaria: null,
+      cor_fundo: null,
+      cor_card: null,
+      cor_texto: null,
+      fonte: 'Fonte não permitida',
+      telefone: '',
+      whatsapp: '',
+      email: '',
+      endereco: '',
+      horario_funcionamento: '',
+      instagram_url: 'javascript:alert(1)',
+      facebook_url: '',
+      loja_aberta: 0,
+      pedido_minimo_centavos: 0,
+      taxa_entrega_centavos: 0,
+      tempo_entrega: '',
+      pix_chave: null,
+      pix_beneficiario: null,
+      pix_cidade: null,
+      entrega_ativa: 0,
+      retirada_ativa: 1,
+      atendimento_garcom_ativo: 1,
+      aceita_cartao: 0,
+      aceita_dinheiro: 1,
+      areas_entrega_json: 'JSON inválido',
+      formas_pagamento_json: null,
+      politica_cancelamento: null,
+      informacoes_legais: null
+    }]
+  ]);
+  let consultasConfiguracaoInativa = 0;
+  const banco = {
+    async execute(sql, parametros) {
+      if (sql.includes('FROM estabelecimentos AS e')) {
+        const estabelecimento = estabelecimentos.get(parametros[0]);
+        return [[estabelecimento && {
+          ...estabelecimento,
+          dominio_personalizado: null,
+          plano: 'basico',
+          status_assinatura: 'ativa',
+          vencimento_assinatura_em: null
+        }].filter(Boolean)];
+      }
+      if (sql.includes('INNER JOIN configuracoes_estabelecimento ce')) {
+        assert.equal(/SELECT\s+\*/i.test(sql), false);
+        const idEstabelecimento = Number(parametros[0]);
+        if (idEstabelecimento === 33) consultasConfiguracaoInativa += 1;
+        return [[configuracoes.get(idEstabelecimento)].filter(Boolean)];
+      }
+      throw new Error(`Consulta inesperada no teste: ${sql}`);
+    }
+  };
+  const servidores = [
+    criarServidor({ banco, pastaUploads: tmpdir(), tenantDesenvolvimento: 'loja-a' }),
+    criarServidor({ banco, pastaUploads: tmpdir(), tenantDesenvolvimento: 'loja-b' }),
+    criarServidor({ banco, pastaUploads: tmpdir(), tenantDesenvolvimento: 'loja-inativa' })
+  ];
+
+  try {
+    await Promise.all(servidores.map((servidor) => aguardarServidor(servidor, 0)));
+    const urls = servidores.map((servidor) => `http://127.0.0.1:${servidor.address().port}`);
+    const [respostaA, respostaB, respostaInativa] = await Promise.all([
+      fetch(`${urls[0]}/api/publico/configuracao?id_estabelecimento=22`),
+      fetch(`${urls[1]}/api/publico/configuracao`),
+      fetch(`${urls[2]}/api/publico/configuracao`)
+    ]);
+    const configuracaoA = (await respostaA.json()).configuracao;
+    const configuracaoB = (await respostaB.json()).configuracao;
+
+    assert.equal(respostaA.status, 200);
+    assert.equal(respostaA.headers.get('cache-control'), 'no-store');
+    assert.equal(configuracaoA.nomeLoja, 'Loja A');
+    assert.equal(configuracaoA.slug, 'loja-a');
+    assert.equal(configuracaoA.corPrincipal, '#A1B2C3');
+    assert.equal(configuracaoA.fonte, 'Georgia');
+    assert.deepEqual(configuracaoA.formasPagamento, ['Pix', 'Dinheiro']);
+    assert.deepEqual(configuracaoA.areasEntrega, [{ bairro: 'Centro', taxa: 5 }]);
+    assert.equal('segredoInterno' in configuracaoA, false);
+    assert.equal('idEstabelecimento' in configuracaoA, false);
+
+    assert.equal(respostaB.status, 200);
+    assert.equal(configuracaoB.nomeLoja, 'Loja B');
+    assert.equal(configuracaoB.logo, '');
+    assert.equal(configuracaoB.banner, '');
+    assert.equal(configuracaoB.instagramUrl, '');
+    assert.equal(configuracaoB.corPrincipal, '#FFC107');
+    assert.equal(configuracaoB.fonte, 'Poppins');
+    assert.deepEqual(configuracaoB.formasPagamento, ['Dinheiro']);
+    assert.deepEqual(configuracaoB.areasEntrega, []);
+
+    assert.equal(respostaInativa.status, 403);
+    assert.equal(consultasConfiguracaoInativa, 0);
+  } finally {
+    await Promise.all(servidores.map(fecharServidor));
+  }
+
+  const configuracaoDireta = await buscarConfiguracaoPublica(banco, 11);
+  assert.equal(configuracaoDireta.nomeLoja, 'Loja A');
+  assert.equal('segredo_interno' in configuracaoDireta, false);
+});
+
+test('assina JWT com perfil e tenant e rejeita adulteração ou expiração', () => {
+  const agoraMs = Date.UTC(2026, 7, 26, 12, 0, 0);
+  const token = criarJwt({
+    idUsuario: 7,
+    perfil: 'administrador',
+    idEstabelecimento: 11,
+    duracaoMs: 60_000,
+    segredo: JWT_SECRET_TESTE,
+    agoraMs
+  });
+  const identidade = verificarJwt(token, JWT_SECRET_TESTE, { agoraMs: agoraMs + 30_000 });
+  assert.match(identidade.idToken, /^[A-Za-z0-9_-]{16,}$/);
+  assert.deepEqual({ ...identidade, idToken: undefined }, {
+    idUsuario: 7,
+    perfil: 'administrador',
+    idEstabelecimento: 11,
+    superadministrador: false,
+    idToken: undefined,
+    emitidoEm: Math.floor(agoraMs / 1000),
+    expiraEm: Math.floor((agoraMs + 60_000) / 1000)
+  });
+  const partes = token.split('.');
+  const carga = JSON.parse(Buffer.from(partes[1], 'base64url').toString('utf8'));
+  carga.id_estabelecimento = 22;
+  const adulterado = `${partes[0]}.${Buffer.from(JSON.stringify(carga)).toString('base64url')}.${partes[2]}`;
+  assert.equal(verificarJwt(adulterado, JWT_SECRET_TESTE, { agoraMs: agoraMs + 30_000 }), null);
+  assert.equal(verificarJwt(token, `${JWT_SECRET_TESTE}-outro`, { agoraMs: agoraMs + 30_000 }), null);
+  assert.equal(verificarJwt(token, JWT_SECRET_TESTE, { agoraMs: agoraMs + 60_000 }), null);
+});
+
+test('JWT de superadministrador é global e explicitamente identificado', () => {
+  const token = criarJwt({
+    idUsuario: 1,
+    perfil: 'superadministrador',
+    superadministrador: true,
+    duracaoMs: 60_000,
+    segredo: JWT_SECRET_TESTE
+  });
+  const identidade = verificarJwt(token, JWT_SECRET_TESTE);
+  assert.equal(identidade.perfil, 'superadministrador');
+  assert.equal(identidade.idEstabelecimento, null);
+  assert.equal(identidade.superadministrador, true);
+});
+
+test('API bloqueia JWT de perfil ou estabelecimento diferente antes de consultar dados', async () => {
+  const banco = {
+    async execute(sql) {
+      if (sql.includes('FROM estabelecimentos AS e')) {
+        return [[{
+          id_estabelecimento: 11,
+          nome_fantasia: 'Loja A',
+          slug: 'loja-a',
+          dominio_personalizado: null,
+          status: 'ativo',
+          plano: 'basico',
+          status_assinatura: 'ativa',
+          vencimento_assinatura_em: null
+        }]];
+      }
+      if (sql.includes('DELETE FROM sessoes_admin')) return [{ affectedRows: 0 }];
+      if (sql.includes('FROM sessoes_admin s')) {
+        return [[{
+          id: 7,
+          nome: 'Administrador A',
+          usuario: 'admin-a',
+          email: 'admin-a@teste.local',
+          id_estabelecimento: 11
+        }]];
+      }
+      throw new Error(`Consulta inesperada no teste: ${sql}`);
+    }
+  };
+  const servidor = criarServidor({
+    banco,
+    pastaUploads: tmpdir(),
+    tenantDesenvolvimento: 'loja-a',
+    jwtSecret: JWT_SECRET_TESTE
+  });
+  await aguardarServidor(servidor, 0);
+  const baseUrl = `http://127.0.0.1:${servidor.address().port}`;
+  const criarToken = (perfil, idEstabelecimento) => criarJwt({
+    idUsuario: 7,
+    perfil,
+    idEstabelecimento,
+    duracaoMs: 60_000,
+    segredo: JWT_SECRET_TESTE
+  });
+  const chamarSessao = async (token) => {
+    const resposta = await fetch(`${baseUrl}/api/admin/sessao`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    return { status: resposta.status, corpo: await resposta.json() };
+  };
+
+  try {
+    const permitido = await chamarSessao(criarToken('administrador', 11));
+    assert.equal(permitido.status, 200);
+    assert.equal(permitido.corpo.admin.idEstabelecimento, 11);
+
+    const perfilIncorreto = await chamarSessao(criarToken('garcom', 11));
+    assert.equal(perfilIncorreto.status, 403);
+    const tenantIncorreto = await chamarSessao(criarToken('administrador', 22));
+    assert.equal(tenantIncorreto.status, 403);
+    const tokenValido = criarToken('administrador', 11);
+    const adulterado = await chamarSessao(`x${tokenValido.slice(1)}`);
+    assert.equal(adulterado.status, 401);
+  } finally {
+    await fecharServidor(servidor);
+  }
+});
+
 function conexaoCatalogo({ promocao = null } = {}) {
   const produto = {
     id: 5,
@@ -44,10 +428,11 @@ function conexaoCatalogo({ promocao = null } = {}) {
       if (sql.includes('FROM produtos p') && sql.includes('WHERE p.id')) {
         return [[Number(parametros[0]) === produto.id ? produto : null].filter(Boolean)];
       }
-      if (sql.includes('FROM promocoes WHERE id')) {
+      if (sql.includes('FROM promocoes') && sql.includes('WHERE id')) {
         const corresponde = promocao
           && Number(parametros[0]) === Number(promocao.id)
-          && Number(parametros[1]) === Number(promocao.produto_id);
+          && Number(parametros[1]) === Number(promocao.produto_id)
+          && Number(parametros[2]) === 1;
         return [[corresponde ? promocao : null].filter(Boolean)];
       }
       throw new Error(`Consulta inesperada no teste: ${sql}`);
@@ -71,7 +456,7 @@ function promocaoTeste(sobrescritas = {}) {
 }
 
 test('recalcula produto normal e ignora preço adulterado pelo navegador', async () => {
-  const [item] = await buscarItensValidados(conexaoCatalogo(), [{
+  const [item] = await buscarItensValidados(conexaoCatalogo(), 1, [{
     produtoId: 5,
     quantidade: 2,
     preco: 0.01
@@ -84,7 +469,7 @@ test('recalcula produto normal e ignora preço adulterado pelo navegador', async
 });
 
 test('aplica promoção vinculada e calcula o total no servidor', async () => {
-  const [item] = await buscarItensValidados(conexaoCatalogo({ promocao: promocaoTeste() }), [{
+  const [item] = await buscarItensValidados(conexaoCatalogo({ promocao: promocaoTeste() }), 1, [{
     produtoId: 5,
     promocaoId: 101,
     quantidade: 1,
@@ -99,7 +484,7 @@ test('aplica promoção vinculada e calcula o total no servidor', async () => {
 test('rejeita promoção vencida', async () => {
   const promocao = promocaoTeste({ fim_em: new Date(Date.now() - 60_000) });
   await assert.rejects(
-    buscarItensValidados(conexaoCatalogo({ promocao }), [{ produtoId: 5, promocaoId: 101, quantidade: 1 }]),
+    buscarItensValidados(conexaoCatalogo({ promocao }), 1, [{ produtoId: 5, promocaoId: 101, quantidade: 1 }]),
     (erro) => erro.status === 409
   );
 });
@@ -107,30 +492,30 @@ test('rejeita promoção vencida', async () => {
 test('rejeita promoção desativada', async () => {
   const promocao = promocaoTeste({ ativo: 0 });
   await assert.rejects(
-    buscarItensValidados(conexaoCatalogo({ promocao }), [{ produtoId: 5, promocaoId: 101, quantidade: 1 }]),
+    buscarItensValidados(conexaoCatalogo({ promocao }), 1, [{ produtoId: 5, promocaoId: 101, quantidade: 1 }]),
     (erro) => erro.status === 409
   );
 });
 
 test('rejeita formatos e volumes abusivos antes de persistir o pedido', async () => {
   await assert.rejects(
-    buscarItensValidados(conexaoCatalogo(), [null]),
+    buscarItensValidados(conexaoCatalogo(), 1, [null]),
     (erro) => erro.status === 400 && /formato inválido/i.test(erro.message)
   );
   await assert.rejects(
-    buscarItensValidados(conexaoCatalogo(), [{ produtoId: 5, quantidade: -1 }]),
+    buscarItensValidados(conexaoCatalogo(), 1, [{ produtoId: 5, quantidade: -1 }]),
     (erro) => erro.status === 400 && /quantidade inválida/i.test(erro.message)
   );
   await assert.rejects(
-    buscarItensValidados(conexaoCatalogo(), Array.from({ length: 101 }, () => ({ produtoId: 5, quantidade: 1 }))),
+    buscarItensValidados(conexaoCatalogo(), 1, Array.from({ length: 101 }, () => ({ produtoId: 5, quantidade: 1 }))),
     (erro) => erro.status === 400 && /no máximo 100/i.test(erro.message)
   );
   await assert.rejects(
-    buscarItensValidados(conexaoCatalogo(), Array.from({ length: 11 }, () => ({ produtoId: 5, quantidade: 50 }))),
+    buscarItensValidados(conexaoCatalogo(), 1, Array.from({ length: 11 }, () => ({ produtoId: 5, quantidade: 50 }))),
     (erro) => erro.status === 400 && /no máximo 500/i.test(erro.message)
   );
   await assert.rejects(
-    buscarItensValidados(conexaoCatalogo(), [{ produtoId: 5, quantidade: 1, adicionais: '1,2' }]),
+    buscarItensValidados(conexaoCatalogo(), 1, [{ produtoId: 5, quantidade: 1, adicionais: '1,2' }]),
     (erro) => erro.status === 400 && /lista de adicionais/i.test(erro.message)
   );
   assert.throws(
@@ -185,9 +570,11 @@ if (!executarIntegracao) {
 } else {
   let banco;
   let servidor;
+  let servidorTenantB;
   let pastaTemporaria;
   let pastaUploads;
   let urlBase;
+  let urlBaseTenantB;
   let tokenGarcomDemonstracao;
   let tokenGarcomAna;
   let tokenSessaoGarcom;
@@ -238,8 +625,8 @@ if (!executarIntegracao) {
     sincronizarCredenciais: true
   };
 
-  async function chamar(caminho, { metodo = 'GET', dados, token } = {}) {
-    const resposta = await fetch(`${urlBase}${caminho}`, {
+  async function chamar(caminho, { metodo = 'GET', dados, token, baseUrl = urlBase } = {}) {
+    const resposta = await fetch(`${baseUrl}${caminho}`, {
       method: metodo,
       headers: {
         Accept: 'application/json',
@@ -278,19 +665,48 @@ if (!executarIntegracao) {
   before(async () => {
     pastaTemporaria = await mkdtemp(join(tmpdir(), 'hamburgueria-api-'));
     pastaUploads = join(pastaTemporaria, 'uploads');
-    banco = await abrirBanco({
+    banco = await prepararBanco({
       mysql: configuracaoMySql,
       administrador,
       incluirDadosDemonstracao: true,
       pinFuncionarioDemonstracao: '246810'
     });
-    servidor = criarServidor({ banco, pastaUploads });
+    const [tenantB] = await banco.execute(`
+      INSERT INTO estabelecimentos
+        (nome_fantasia, slug, status, plano, status_assinatura)
+      VALUES ('Loja B', 'loja-b', 'ativo', 'basico', 'ativa')
+    `);
+    const idTenantB = Number(tenantB.insertId);
+    await banco.execute(`
+      INSERT INTO configuracoes_estabelecimento
+        (id_estabelecimento, loja_aberta, entrega_ativa, retirada_ativa)
+      VALUES (?, 1, 1, 1)
+    `, [idTenantB]);
+    const [categoriaB] = await banco.execute(`
+      INSERT INTO categorias (id_estabelecimento, nome, ordem, ativo)
+      VALUES (?, 'Hambúrgueres', 1, 1)
+    `, [idTenantB]);
+    await banco.execute(`
+      INSERT INTO produtos
+        (id_estabelecimento, categoria_id, nome, descricao, preco_centavos, ativo)
+      VALUES (?, ?, 'Produto exclusivo B', 'Visível somente na Loja B', 2500, 1)
+    `, [idTenantB, categoriaB.insertId]);
+    servidor = criarServidor({ banco, pastaUploads, jwtSecret: JWT_SECRET_TESTE });
+    servidorTenantB = criarServidor({
+      banco,
+      pastaUploads,
+      tenantDesenvolvimento: 'loja-b',
+      jwtSecret: JWT_SECRET_TESTE
+    });
     await aguardarServidor(servidor, 0);
+    await aguardarServidor(servidorTenantB, 0);
     urlBase = `http://127.0.0.1:${servidor.address().port}`;
+    urlBaseTenantB = `http://127.0.0.1:${servidorTenantB.address().port}`;
   });
 
   after(async () => {
     if (servidor) await fecharServidor(servidor);
+    if (servidorTenantB) await fecharServidor(servidorTenantB);
     if (banco) await fecharBanco(banco);
     const conexao = await mysql.createConnection({
       host: configuracaoMySql.host,
@@ -318,6 +734,26 @@ if (!executarIntegracao) {
     assert.equal(publico.corpo.adicionais.length, 6);
     assert.equal(publico.corpo.promocoes.length, 5);
     assert.equal('funcionarios' in publico.corpo, false);
+  });
+
+  test('isola catálogo e sessão administrativa entre dois tenants', async () => {
+    const catalogoA = await chamar('/api/catalogo');
+    const catalogoB = await chamar('/api/catalogo', { baseUrl: urlBaseTenantB });
+    assert.equal(catalogoA.status, 200);
+    assert.equal(catalogoB.status, 200);
+    assert.equal(catalogoA.corpo.produtos.some((produto) => produto.nome === 'Produto exclusivo B'), false);
+    assert.deepEqual(catalogoB.corpo.produtos.map((produto) => produto.nome), ['Produto exclusivo B']);
+
+    const loginA = await chamar('/api/admin/login', {
+      metodo: 'POST',
+      dados: { usuario: 'admin-teste', senha: 'senha-segura' }
+    });
+    assert.equal(loginA.status, 200);
+    const sessaoCruzada = await chamar('/api/admin/dados', {
+      token: loginA.corpo.token,
+      baseUrl: urlBaseTenantB
+    });
+    assert.equal(sessaoCruzada.status, 403);
   });
 
   test('autentica o administrador e protege os dados gerenciais', async () => {
@@ -705,6 +1141,11 @@ if (!executarIntegracao) {
     const sessao = await chamar('/api/garcom/sessao', { token: login.corpo.token });
     assert.equal(sessao.status, 200);
     assert.equal('acessoToken' in sessao.corpo.garcom, false);
+
+    const perfilIncorretoAdmin = await chamar('/api/admin/dados', { token: login.corpo.token });
+    assert.equal(perfilIncorretoAdmin.status, 403);
+    const perfilIncorretoGarcom = await chamar('/api/garcom/dados', { token: tokenAdmin });
+    assert.equal(perfilIncorretoGarcom.status, 403);
 
     const aberta = await chamar('/api/garcom/comandas', {
       metodo: 'POST',

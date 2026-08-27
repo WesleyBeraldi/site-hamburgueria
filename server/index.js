@@ -3,19 +3,17 @@ import { config } from './config.js';
 import { abrirBanco, fecharBanco } from './database.js';
 import { aguardarServidor, fecharServidor } from './runtime.js';
 
-const banco = await abrirBanco({
-  mysql: config.mysql,
-  administrador: config.administrador,
-  incluirDadosDemonstracao: config.incluirDadosDemonstracao,
-  pinFuncionarioDemonstracao: config.pinFuncionarioDemonstracao
-});
+const banco = await abrirBanco({ mysql: config.mysql });
 const servidor = criarServidor({
   banco,
   pastaUploads: config.pastaUploads,
   pastaDist: config.pastaDist,
   producao: config.producao,
   corsOrigins: config.corsOrigins,
-  publicSiteUrl: config.publicSiteUrl
+  publicSiteUrl: config.publicSiteUrl,
+  dominioPrincipal: config.dominioPrincipal,
+  tenantDesenvolvimento: config.tenantDesenvolvimento,
+  jwtSecret: config.jwtSecret
 });
 
 await aguardarServidor(servidor, config.porta);
