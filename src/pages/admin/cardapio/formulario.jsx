@@ -5,11 +5,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 import AdminLayout from '../../../components/AdminLayout';
 import { useApp } from '../../../context/appContext';
 import { otimizarImagemProduto } from '../../../utils/imageUpload';
+import { usarPlaceholderProduto } from '../../../utils/productImage';
 import styles from '../shared.module.css';
 
 const formularioVazio = {
   nome: '',
-  categoria: 'Hambúrgueres',
+  categoriaId: '',
   descricao: '',
   preco: '',
   imagem: '',
@@ -20,12 +21,12 @@ const formularioVazio = {
 
 function FormularioProduto() {
   const { id } = useParams();
-  const { produtos, adicionais, salvarProduto } = useApp();
+  const { produtos, adicionais, categorias, salvarProduto } = useApp();
   const navigate = useNavigate();
   const existente = produtos.find((produto) => String(produto.id) === id);
   const [dados, setDados] = useState(() => existente
     ? { ...existente, adicionaisIds: existente.adicionaisIds ?? adicionais.map((adicional) => adicional.id) }
-    : formularioVazio);
+    : { ...formularioVazio, categoriaId: categorias.find((categoria) => categoria.ativo)?.id ?? '' });
   const [erro, setErro] = useState('');
   const [processandoImagem, setProcessandoImagem] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -87,7 +88,7 @@ function FormularioProduto() {
           <div className={styles.uploadImagem}>
             <div className={styles.previaImagem}>
               {dados.imagem
-                ? <img src={dados.imagem} alt="Prévia do produto" />
+                ? <img src={dados.imagem} alt="Prévia do produto" onError={usarPlaceholderProduto} />
                 : <div><ImagePlus size={34} /><span>A foto do produto aparecerá aqui</span></div>}
             </div>
             <div className={styles.uploadConteudo}>
@@ -102,14 +103,14 @@ function FormularioProduto() {
 
           <div className={styles.gridFormulario}>
             <div className={styles.campo}><label htmlFor="nome">Nome do produto</label><input id="nome" value={dados.nome} onChange={(event) => alterar('nome', event.target.value)} placeholder="Ex: X-Bacon Especial" /></div>
-            <div className={styles.campo}><label htmlFor="categoria">Categoria</label><select id="categoria" value={dados.categoria} onChange={(event) => alterar('categoria', event.target.value)}><option>Hambúrgueres</option><option>Combos</option><option>Porções</option><option>Bebidas</option></select></div>
+            <div className={styles.campo}><label htmlFor="categoria">Categoria</label><select id="categoria" required value={dados.categoriaId ?? ''} onChange={(event) => alterar('categoriaId', Number(event.target.value))}><option value="">Selecione</option>{categorias.filter((categoria) => categoria.ativo || categoria.id === dados.categoriaId).map((categoria) => <option key={categoria.id} value={categoria.id}>{categoria.nome}{categoria.ativo ? '' : ' (inativa)'}</option>)}</select></div>
             <div className={`${styles.campo} ${styles.campoCompleto}`}><label htmlFor="descricao">Descrição</label><textarea id="descricao" value={dados.descricao} onChange={(event) => alterar('descricao', event.target.value)} placeholder="Descreva ingredientes e características..." /></div>
             <div className={styles.campo}><label htmlFor="preco">Preço</label><input id="preco" inputMode="decimal" value={dados.preco} onChange={(event) => alterar('preco', event.target.value)} placeholder="34,90" /></div>
             <div className={styles.campo}><label htmlFor="destaque">Destaque <span>(opcional)</span></label><input id="destaque" value={dados.destaque ?? ''} onChange={(event) => alterar('destaque', event.target.value)} placeholder="Ex: Mais vendido" /></div>
 
             <div className={`${styles.campo} ${styles.campoCompleto}`}>
               <div className={styles.tituloCampoComAcao}>
-                <div><label>Adicionais permitidos</label><p>Marque somente os extras que podem ser escolhidos neste produto.</p></div>
+                <div><strong>Adicionais permitidos</strong><p>Marque somente os extras que podem ser escolhidos neste produto.</p></div>
                 <button type="button" className={styles.botaoSecundario} onClick={() => navigate('/admin/adicionais')}><ListPlus size={16} /> Gerenciar adicionais</button>
               </div>
               <div className={styles.gradeSelecaoAdicionais}>
@@ -134,7 +135,7 @@ function FormularioProduto() {
               </div>
             </div>
           </div>
-          {erro && <div className={styles.erro}>{erro}</div>}
+          {erro && <div className={styles.erro} role="alert">{erro}</div>}
           <div className={styles.rodapeFormulario}>
             <button type="button" className={styles.botaoSecundario} onClick={() => navigate('/admin/cardapio')}>Cancelar</button>
             <button type="submit" className={styles.botaoPrimario} disabled={salvando || processandoImagem}><Save size={17} /> {salvando ? 'Salvando...' : 'Salvar produto'}</button>

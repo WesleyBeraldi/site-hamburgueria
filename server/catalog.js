@@ -1,6 +1,6 @@
 import { executarTransacao } from './database.js';
 
-function formatarPreco(centavos) {
+export function formatarPreco(centavos) {
   return (Number(centavos) / 100).toFixed(2).replace('.', ',');
 }
 
@@ -25,22 +25,37 @@ function mapearAdicional(linha) {
   };
 }
 
-function mapearProduto(banco, linha) {
-  const adicionaisIds = banco.prepare(`
-    SELECT adicional_id FROM produto_adicionais WHERE produto_id = ? ORDER BY adicional_id
-  `).all(linha.id).map((item) => Number(item.adicional_id));
-
+function mapearProduto(linha, vinculos) {
   return {
     id: Number(linha.id),
+    categoriaId: Number(linha.categoria_id),
     nome: linha.nome,
     categoria: linha.categoria,
     descricao: linha.descricao,
     preco: formatarPreco(linha.preco_centavos),
     imagem: linha.imagem_url,
-    adicionaisIds,
+    adicionaisIds: vinculos.get(Number(linha.id)) ?? [],
     destaque: linha.destaque ?? '',
     ativo: Boolean(linha.ativo)
   };
+}
+
+async function buscarVinculos(banco, produtosIds = []) {
+  if (produtosIds.length === 0) return new Map();
+  const marcadores = produtosIds.map(() => '?').join(', ');
+  const [linhas] = await banco.execute(`
+    SELECT produto_id, adicional_id
+    FROM produto_adicionais
+    WHERE produto_id IN (${marcadores})
+    ORDER BY adicional_id
+  `, produtosIds);
+  const vinculos = new Map();
+  for (const linha of linhas) {
+    const produtoId = Number(linha.produto_id);
+    if (!vinculos.has(produtoId)) vinculos.set(produtoId, []);
+    vinculos.get(produtoId).push(Number(linha.adicional_id));
+  }
+  return vinculos;
 }
 
 const SELECT_PRODUTOS = `
@@ -49,36 +64,104 @@ const SELECT_PRODUTOS = `
   INNER JOIN categorias c ON c.id = p.categoria_id
 `;
 
-export function listarCatalogo(banco) {
-  const categorias = banco.prepare(`
-    SELECT id, nome FROM categorias WHERE ativo = 1 ORDER BY ordem, nome
-  `).all().map((categoria) => ({ id: Number(categoria.id), nome: categoria.nome }));
-  const adicionais = banco.prepare('SELECT * FROM adicionais ORDER BY nome').all().map(mapearAdicional);
-  const produtos = banco.prepare(`${SELECT_PRODUTOS} ORDER BY p.id`).all()
-    .map((produto) => mapearProduto(banco, produto));
-
-  return { categorias, adicionais, produtos };
+export async function listarCatalogo(banco, { administrativo = false } = {}) {
+  const [[categorias], [adicionais], [produtos]] = await Promise.all([
+    banco.query(`SELECT id, nome, ordem, ativo FROM categorias ${administrativo ? '' : 'WHERE ativo = 1'} ORDER BY ordem, nome`),
+    banco.query(`SELECT * FROM adicionais ${administrativo ? '' : 'WHERE ativo = 1'} ORDER BY nome`),
+    banco.query(`${SELECT_PRODUTOS} ${administrativo ? '' : 'WHERE p.ativo = 1 AND c.ativo = 1'} ORDER BY p.id`)
+  ]);
+  const vinculos = await buscarVinculos(banco, produtos.map((produto) => Number(produto.id)));
+  return {
+    categorias: categorias.map((categoria) => ({
+      id: Number(categoria.id),
+      nome: categoria.nome,
+      ordem: Number(categoria.ordem),
+      ativo: Boolean(categoria.ativo)
+    })),
+    adicionais: adicionais.map(mapearAdicional),
+    produtos: produtos.map((produto) => mapearProduto(produto, vinculos))
+  };
 }
 
-export function buscarProduto(banco, id) {
-  const linha = banco.prepare(`${SELECT_PRODUTOS} WHERE p.id = ?`).get(id);
-  return linha ? mapearProduto(banco, linha) : null;
+function validarCategoria(dados) {
+  const nome = String(dados?.nome ?? '').trim().slice(0, 100);
+  const ordem = Number(dados?.ordem ?? 0);
+  if (!nome) throw new Error('Informe o nome da categoria.');
+  if (!Number.isInteger(ordem) || ordem < 0 || ordem > 9999) {
+    throw new Error('Informe uma ordem entre 0 e 9999.');
+  }
+  return { nome, ordem, ativo: dados?.ativo === false ? 0 : 1 };
 }
 
-export function buscarAdicional(banco, id) {
-  const linha = banco.prepare('SELECT * FROM adicionais WHERE id = ?').get(id);
-  return linha ? mapearAdicional(linha) : null;
+export async function criarCategoria(banco, dados) {
+  const categoria = validarCategoria(dados);
+  const [resultado] = await banco.execute(`
+    INSERT INTO categorias (nome, ordem, ativo) VALUES (?, ?, ?)
+  `, [categoria.nome, categoria.ordem, categoria.ativo]);
+  const [linhas] = await banco.execute('SELECT id, nome, ordem, ativo FROM categorias WHERE id = ?', [resultado.insertId]);
+  return {
+    id: Number(linhas[0].id),
+    nome: linhas[0].nome,
+    ordem: Number(linhas[0].ordem),
+    ativo: Boolean(linhas[0].ativo)
+  };
 }
 
-function obterCategoriaId(banco, nome) {
-  const categoria = banco.prepare('SELECT id FROM categorias WHERE nome = ? COLLATE NOCASE AND ativo = 1').get(nome);
-  return categoria ? Number(categoria.id) : null;
+export async function atualizarCategoria(banco, id, dados) {
+  const categoria = validarCategoria(dados);
+  const [resultado] = await banco.execute(`
+    UPDATE categorias SET nome = ?, ordem = ?, ativo = ? WHERE id = ?
+  `, [categoria.nome, categoria.ordem, categoria.ativo, id]);
+  if (!resultado.affectedRows) return null;
+  const [linhas] = await banco.execute('SELECT id, nome, ordem, ativo FROM categorias WHERE id = ?', [id]);
+  return {
+    id: Number(linhas[0].id),
+    nome: linhas[0].nome,
+    ordem: Number(linhas[0].ordem),
+    ativo: Boolean(linhas[0].ativo)
+  };
 }
 
-function validarProduto(banco, dados) {
+export async function alternarStatusCategoria(banco, id, ativo) {
+  const [resultado] = await banco.execute('UPDATE categorias SET ativo = ? WHERE id = ?', [ativo ? 1 : 0, id]);
+  if (!resultado.affectedRows) return null;
+  const [linhas] = await banco.execute('SELECT id, nome, ordem, ativo FROM categorias WHERE id = ?', [id]);
+  return {
+    id: Number(linhas[0].id),
+    nome: linhas[0].nome,
+    ordem: Number(linhas[0].ordem),
+    ativo: Boolean(linhas[0].ativo)
+  };
+}
+
+export async function buscarProduto(banco, id) {
+  const [linhas] = await banco.execute(`${SELECT_PRODUTOS} WHERE p.id = ?`, [id]);
+  if (!linhas[0]) return null;
+  const vinculos = await buscarVinculos(banco, [Number(id)]);
+  return mapearProduto(linhas[0], vinculos);
+}
+
+export async function buscarAdicional(banco, id) {
+  const [linhas] = await banco.execute('SELECT * FROM adicionais WHERE id = ?', [id]);
+  return linhas[0] ? mapearAdicional(linhas[0]) : null;
+}
+
+async function obterCategoriaId(banco, nome) {
+  const [linhas] = await banco.execute('SELECT id FROM categorias WHERE nome = ? AND ativo = 1', [nome]);
+  return linhas[0] ? Number(linhas[0].id) : null;
+}
+
+async function validarProduto(banco, dados) {
   const nome = String(dados.nome ?? '').trim();
   const descricao = String(dados.descricao ?? '').trim();
-  const categoriaId = obterCategoriaId(banco, String(dados.categoria ?? '').trim());
+  const categoriaInformada = Number(dados.categoriaId);
+  let categoriaId = Number.isInteger(categoriaInformada) && categoriaInformada > 0
+    ? categoriaInformada
+    : await obterCategoriaId(banco, String(dados.categoria ?? '').trim());
+  if (categoriaId) {
+    const [categorias] = await banco.execute('SELECT id FROM categorias WHERE id = ? AND ativo = 1', [categoriaId]);
+    categoriaId = categorias[0] ? Number(categorias[0].id) : null;
+  }
   const precoCentavos = precoParaCentavos(dados.preco);
   const adicionaisIds = [...new Set((dados.adicionaisIds ?? []).map(Number))]
     .filter((id) => Number.isInteger(id) && id > 0);
@@ -89,9 +172,10 @@ function validarProduto(banco, dados) {
 
   if (adicionaisIds.length > 0) {
     const marcadores = adicionaisIds.map(() => '?').join(', ');
-    const encontrados = banco.prepare(`SELECT COUNT(*) AS total FROM adicionais WHERE id IN (${marcadores})`)
-      .get(...adicionaisIds).total;
-    if (Number(encontrados) !== adicionaisIds.length) throw new Error('Um ou mais adicionais não existem.');
+    const [linhas] = await banco.execute(`
+      SELECT COUNT(*) AS total FROM adicionais WHERE id IN (${marcadores})
+    `, adicionaisIds);
+    if (Number(linhas[0].total) !== adicionaisIds.length) throw new Error('Um ou mais adicionais não existem.');
   }
 
   return {
@@ -105,20 +189,23 @@ function validarProduto(banco, dados) {
   };
 }
 
-function salvarVinculos(banco, produtoId, adicionaisIds) {
-  banco.prepare('DELETE FROM produto_adicionais WHERE produto_id = ?').run(produtoId);
-  const inserir = banco.prepare('INSERT INTO produto_adicionais (produto_id, adicional_id) VALUES (?, ?)');
-  adicionaisIds.forEach((adicionalId) => inserir.run(produtoId, adicionalId));
+async function salvarVinculos(conexao, produtoId, adicionaisIds) {
+  await conexao.execute('DELETE FROM produto_adicionais WHERE produto_id = ?', [produtoId]);
+  for (const adicionalId of adicionaisIds) {
+    await conexao.execute(`
+      INSERT INTO produto_adicionais (produto_id, adicional_id) VALUES (?, ?)
+    `, [produtoId, adicionalId]);
+  }
 }
 
-export function criarProduto(banco, dados, imagemUrl) {
-  const produto = validarProduto(banco, dados);
-  const id = executarTransacao(banco, () => {
-    const resultado = banco.prepare(`
+export async function criarProduto(banco, dados, imagemUrl) {
+  const produto = await validarProduto(banco, dados);
+  const id = await executarTransacao(banco, async (conexao) => {
+    const [resultado] = await conexao.execute(`
       INSERT INTO produtos
         (categoria_id, nome, descricao, preco_centavos, imagem_url, destaque, ativo)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `, [
       produto.categoriaId,
       produto.nome,
       produto.descricao,
@@ -126,25 +213,24 @@ export function criarProduto(banco, dados, imagemUrl) {
       imagemUrl,
       produto.destaque,
       produto.ativo
-    );
-    const novoId = Number(resultado.lastInsertRowid);
-    salvarVinculos(banco, novoId, produto.adicionaisIds);
-    return novoId;
+    ]);
+    await salvarVinculos(conexao, resultado.insertId, produto.adicionaisIds);
+    return Number(resultado.insertId);
   });
   return buscarProduto(banco, id);
 }
 
-export function atualizarProduto(banco, id, dados, imagemUrl) {
-  if (!buscarProduto(banco, id)) return null;
-  const produto = validarProduto(banco, dados);
+export async function atualizarProduto(banco, id, dados, imagemUrl) {
+  if (!await buscarProduto(banco, id)) return null;
+  const produto = await validarProduto(banco, dados);
 
-  executarTransacao(banco, () => {
-    banco.prepare(`
+  await executarTransacao(banco, async (conexao) => {
+    await conexao.execute(`
       UPDATE produtos
       SET categoria_id = ?, nome = ?, descricao = ?, preco_centavos = ?, imagem_url = ?,
-          destaque = ?, ativo = ?, atualizado_em = CURRENT_TIMESTAMP
+          destaque = ?, ativo = ?
       WHERE id = ?
-    `).run(
+    `, [
       produto.categoriaId,
       produto.nome,
       produto.descricao,
@@ -153,21 +239,20 @@ export function atualizarProduto(banco, id, dados, imagemUrl) {
       produto.destaque,
       produto.ativo,
       id
-    );
-    salvarVinculos(banco, id, produto.adicionaisIds);
+    ]);
+    await salvarVinculos(conexao, id, produto.adicionaisIds);
   });
   return buscarProduto(banco, id);
 }
 
-export function alternarStatusProduto(banco, id, ativo) {
-  const resultado = banco.prepare(`
-    UPDATE produtos SET ativo = ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?
-  `).run(ativo ? 1 : 0, id);
-  return resultado.changes ? buscarProduto(banco, id) : null;
+export async function alternarStatusProduto(banco, id, ativo) {
+  const [resultado] = await banco.execute('UPDATE produtos SET ativo = ? WHERE id = ?', [ativo ? 1 : 0, id]);
+  return resultado.affectedRows ? buscarProduto(banco, id) : null;
 }
 
-export function excluirProduto(banco, id) {
-  return banco.prepare('DELETE FROM produtos WHERE id = ?').run(id).changes > 0;
+export async function excluirProduto(banco, id) {
+  const [resultado] = await banco.execute('DELETE FROM produtos WHERE id = ?', [id]);
+  return resultado.affectedRows > 0;
 }
 
 function validarAdicional(dados) {
@@ -178,31 +263,28 @@ function validarAdicional(dados) {
   return { nome, precoCentavos, ativo: dados.ativo === false ? 0 : 1 };
 }
 
-export function criarAdicional(banco, dados) {
+export async function criarAdicional(banco, dados) {
   const adicional = validarAdicional(dados);
-  const resultado = banco.prepare(`
+  const [resultado] = await banco.execute(`
     INSERT INTO adicionais (nome, preco_centavos, ativo) VALUES (?, ?, ?)
-  `).run(adicional.nome, adicional.precoCentavos, adicional.ativo);
-  return buscarAdicional(banco, Number(resultado.lastInsertRowid));
+  `, [adicional.nome, adicional.precoCentavos, adicional.ativo]);
+  return buscarAdicional(banco, Number(resultado.insertId));
 }
 
-export function atualizarAdicional(banco, id, dados) {
+export async function atualizarAdicional(banco, id, dados) {
   const adicional = validarAdicional(dados);
-  const resultado = banco.prepare(`
-    UPDATE adicionais
-    SET nome = ?, preco_centavos = ?, ativo = ?, atualizado_em = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(adicional.nome, adicional.precoCentavos, adicional.ativo, id);
-  return resultado.changes ? buscarAdicional(banco, id) : null;
+  const [resultado] = await banco.execute(`
+    UPDATE adicionais SET nome = ?, preco_centavos = ?, ativo = ? WHERE id = ?
+  `, [adicional.nome, adicional.precoCentavos, adicional.ativo, id]);
+  return resultado.affectedRows ? buscarAdicional(banco, id) : null;
 }
 
-export function alternarStatusAdicional(banco, id, ativo) {
-  const resultado = banco.prepare(`
-    UPDATE adicionais SET ativo = ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?
-  `).run(ativo ? 1 : 0, id);
-  return resultado.changes ? buscarAdicional(banco, id) : null;
+export async function alternarStatusAdicional(banco, id, ativo) {
+  const [resultado] = await banco.execute('UPDATE adicionais SET ativo = ? WHERE id = ?', [ativo ? 1 : 0, id]);
+  return resultado.affectedRows ? buscarAdicional(banco, id) : null;
 }
 
-export function excluirAdicional(banco, id) {
-  return banco.prepare('DELETE FROM adicionais WHERE id = ?').run(id).changes > 0;
+export async function excluirAdicional(banco, id) {
+  const [resultado] = await banco.execute('DELETE FROM adicionais WHERE id = ?', [id]);
+  return resultado.affectedRows > 0;
 }

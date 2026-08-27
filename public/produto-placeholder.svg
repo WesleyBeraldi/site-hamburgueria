@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" role="img" aria-labelledby="title description">
+  <title id="title">Imagem de produto indisponível</title>
+  <desc id="description">Ilustração de um hambúrguer em fundo escuro.</desc>
+  <rect width="640" height="480" rx="32" fill="#15181d"/>
+  <circle cx="320" cy="240" r="170" fill="#101216"/>
+  <path d="M170 230c7-91 70-142 150-142s143 51 150 142H170Z" fill="#ffc107"/>
+  <circle cx="264" cy="151" r="12" fill="#15181d"/>
+  <circle cx="330" cy="127" r="12" fill="#15181d"/>
+  <circle cx="394" cy="160" r="12" fill="#15181d"/>
+  <rect x="168" y="246" width="304" height="54" rx="8" fill="#f4f5f7"/>
+  <path d="M174 318h292l-55 47-67-39-71 42-99-50Z" fill="#43d58a"/>
+  <path d="M170 386h300c-8 48-45 72-95 72H265c-50 0-87-24-95-72Z" fill="#ffc107"/>
+</svg>

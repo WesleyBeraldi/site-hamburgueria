@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
-import banner from '../../assets/banner.png';
-import xBacon from '../../assets/xbacon.png';
+import banner from '../../assets/banner.webp';
 import { useApp } from '../../context/appContext';
+import { usarPlaceholderProduto } from '../../utils/productImage';
 import styles from './index.module.css';
 
 function Home() {
@@ -16,194 +16,36 @@ function Home() {
   const [carrinhoAberto, setCarrinhoAberto] = useState(false);
   const [modalProdutoAberto, setModalProdutoAberto] = useState(false);
   const [produtoSelecionado, setProdutoSelecionado] = useState(null);
+  const modalProdutoRef = useRef(null);
+  const fecharModalRef = useRef(null);
+  const carrinhoRef = useRef(null);
+  const fecharCarrinhoRef = useRef(null);
 
   const [observacao, setObservacao] = useState('');
   const [quantidadeModal, setQuantidadeModal] = useState(1);
 
   const navigate = useNavigate();
   const {
+    categorias: categoriasSalvas,
     produtos: produtosSalvos,
     promocoes: promocoesSalvas,
     adicionais: adicionaisSalvos,
     carrinho,
-    setCarrinho
+    setCarrinho,
+    configuracao,
+    erroApi,
+    recarregarCatalogo,
+    revalidarCarrinho,
+    avisosCarrinho
   } = useApp();
 
   const [adicionaisSelecionados, setAdicionaisSelecionados] =
     useState([]);
 
-  const categorias = [
-    'Todos',
-    'Hambúrgueres',
-    'Combos',
-    'Porções',
-    'Bebidas'
-  ];
+  const categorias = ['Todos', ...categoriasSalvas.filter((categoria) => categoria.ativo !== false).map((categoria) => categoria.nome)];
 
-  const produtosPadrao = [
-    {
-      id: 1,
-      nome: 'X-Bacon',
-      categoria: 'Hambúrgueres',
-      descricao:
-        'Pão brioche, hambúrguer artesanal, cheddar cremoso, bacon crocante, alface e tomate.',
-      preco: '34,90',
-      imagem: xBacon,
-      destaque: 'Mais vendido'
-    },
-    {
-      id: 2,
-      nome: 'X-Salada',
-      categoria: 'Hambúrgueres',
-      descricao:
-        'Pão brioche, hambúrguer artesanal, queijo, alface, tomate e molho especial da casa.',
-      preco: '29,90',
-      imagem: xBacon
-    },
-    {
-      id: 3,
-      nome: 'Duplo Bacon',
-      categoria: 'Hambúrgueres',
-      descricao:
-        'Dois hambúrgueres artesanais, cheddar duplo, bacon crocante e molho especial.',
-      preco: '42,90',
-      imagem: xBacon,
-      destaque: 'Recomendado'
-    },
-    {
-      id: 4,
-      nome: 'X-Tudo',
-      categoria: 'Hambúrgueres',
-      descricao:
-        'Hambúrguer artesanal, queijo, bacon, ovo, presunto, alface, tomate e maionese.',
-      preco: '39,90',
-      imagem: xBacon
-    },
-    {
-      id: 5,
-      nome: 'Combo X-Bacon',
-      categoria: 'Combos',
-      descricao:
-        'X-Bacon acompanhado de batata frita e refrigerante.',
-      preco: '49,90',
-      imagem: xBacon
-    },
-    {
-      id: 6,
-      nome: 'Batata com Cheddar',
-      categoria: 'Porções',
-      descricao:
-        'Batata frita crocante com cheddar cremoso e bacon.',
-      preco: '24,90',
-      imagem: xBacon
-    },
-    {
-      id: 7,
-      nome: 'Refrigerante',
-      categoria: 'Bebidas',
-      descricao:
-        'Refrigerante gelado disponível em diversos sabores.',
-      preco: '7,00',
-      imagem: xBacon
-    }
-  ];
-
-  const produtos = (produtosSalvos.length > 0
-    ? produtosSalvos
-    : produtosPadrao
-  ).filter((produto) => produto.ativo !== false);
-
-  const promocoesPadrao = [
-    {
-      id: 101,
-      nome: 'Combo X-Bacon',
-      categoria: 'Combos',
-
-      descricao:
-        'X-Bacon artesanal + batata frita crocante + refrigerante.',
-
-      precoAntigo: '49,90',
-      preco: '42,40',
-
-      imagem: xBacon,
-
-      destaque: '15% OFF',
-      tipo: 'COMBO ESPECIAL'
-    },
-
-    {
-      id: 102,
-      nome: 'Combo Duplo',
-      categoria: 'Combos',
-
-      descricao:
-        '2 X-Bacon artesanais + porção de fritas + 2 refrigerantes.',
-
-      precoAntigo: '79,90',
-      preco: '69,90',
-
-      imagem: xBacon,
-
-      destaque: 'MAIS PEDIDO',
-      tipo: 'PARA COMPARTILHAR'
-    },
-
-    {
-      id: 103,
-      nome: 'X-Bacon em Dobro',
-      categoria: 'Combos',
-
-      descricao:
-        'Dois X-Bacon artesanais com muito cheddar e bacon crocante.',
-
-      precoAntigo: '74,90',
-      preco: '59,90',
-
-      imagem: xBacon,
-
-      destaque: '20% OFF',
-      tipo: 'OFERTA DO DIA'
-    },
-
-    {
-      id: 104,
-      nome: 'Combo Família',
-      categoria: 'Combos',
-
-      descricao:
-        '3 hambúrgueres artesanais + fritas grandes + refrigerante.',
-
-      precoAntigo: '119,90',
-      preco: '99,90',
-
-      imagem: xBacon,
-
-      destaque: 'ECONOMIZE',
-      tipo: 'PARA A GALERA'
-    },
-
-    {
-      id: 105,
-      nome: 'Duplo Cheddar',
-      categoria: 'Hambúrgueres',
-
-      descricao:
-        'Hambúrguer duplo, cheddar cremoso e bacon crocante.',
-
-      precoAntigo: '46,90',
-      preco: '39,90',
-
-      imagem: xBacon,
-
-      destaque: '15% OFF',
-      tipo: 'OFERTA ESPECIAL'
-    }
-  ];
-
-  const promocoes = (promocoesSalvas.length > 0
-    ? promocoesSalvas
-    : promocoesPadrao
-  ).filter((promocao) => promocao.ativo !== false);
+  const produtos = produtosSalvos.filter((produto) => produto.ativo !== false);
+  const promocoes = promocoesSalvas.filter((promocao) => promocao.disponivel !== false);
 
   const quantidadePromocoesVisiveis = 2;
 
@@ -242,42 +84,7 @@ function Home() {
         indicePromocao + quantidadePromocoesVisiveis
       );
 
-  const adicionaisPadrao = [
-    {
-      id: 1,
-      nome: 'Bacon extra',
-      preco: 5
-    },
-    {
-      id: 2,
-      nome: 'Cheddar extra',
-      preco: 4
-    },
-    {
-      id: 3,
-      nome: 'Hambúrguer extra',
-      preco: 10
-    },
-    {
-      id: 4,
-      nome: 'Ovo',
-      preco: 3
-    },
-    {
-      id: 5,
-      nome: 'Cebola caramelizada',
-      preco: 4
-    },
-    {
-      id: 6,
-      nome: 'Catupiry',
-      preco: 6
-    }
-  ];
-
-  const adicionais = adicionaisSalvos.length > 0
-    ? adicionaisSalvos
-    : adicionaisPadrao;
+  const adicionais = adicionaisSalvos;
 
   const adicionaisProduto = adicionais.filter((adicional) => {
     if (adicional.ativo === false) return false;
@@ -292,8 +99,9 @@ function Home() {
           (produto) => produto.categoria === categoriaAtiva
         );
 
-  function abrirCarrinho() {
+  async function abrirCarrinho() {
     setCarrinhoAberto(true);
+    await revalidarCarrinho().catch(() => {});
   }
 
   function fecharCarrinho() {
@@ -342,7 +150,7 @@ function Home() {
     setCarrinho(
       carrinho.map((item) =>
         (item.carrinhoId ?? item.id) === chave
-          ? { ...item, quantidade: item.quantidade + 1 }
+          ? { ...item, quantidade: Math.min(50, item.quantidade + 1) }
           : item
       )
     );
@@ -380,6 +188,15 @@ function Home() {
     (total, item) => total + item.quantidade,
     0
   );
+  const pedidoMinimo = Number(configuracao.pedidoMinimo);
+  const minimoAtingido = totalCarrinho >= pedidoMinimo;
+  const lojaDisponivel = Boolean(configuracao.lojaAberta && configuracao.entregaAtiva);
+  const podeFinalizar = lojaDisponivel && minimoAtingido;
+  const nomeExibicao = configuracao.nomeLoja || 'Cardápio online';
+  const digitosWhatsapp = String(configuracao.whatsapp ?? '').replace(/\D/g, '');
+  const whatsappUrl = digitosWhatsapp.length >= 10
+    ? `https://wa.me/${digitosWhatsapp.length <= 11 ? `55${digitosWhatsapp}` : digitosWhatsapp}`
+    : '';
   
   function irParaSecao(id) {
   const secao = document.getElementById(id);
@@ -405,6 +222,65 @@ function Home() {
       window.removeEventListener('scroll', verificarScroll);
     };
   }, []);
+
+  useEffect(() => {
+    if (!modalProdutoAberto && !carrinhoAberto) return undefined;
+
+    const focoAnterior = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const container = modalProdutoAberto ? modalProdutoRef.current : carrinhoRef.current;
+    const alvoInicial = modalProdutoAberto ? fecharModalRef.current : fecharCarrinhoRef.current;
+    const overflowAnterior = document.body.style.overflow;
+    const animacao = window.requestAnimationFrame(() => alvoInicial?.focus());
+
+    document.body.style.overflow = 'hidden';
+
+    function fecharCamadaAtiva() {
+      if (modalProdutoAberto) {
+        setModalProdutoAberto(false);
+        setProdutoSelecionado(null);
+        setObservacao('');
+        setQuantidadeModal(1);
+        setAdicionaisSelecionados([]);
+      } else {
+        setCarrinhoAberto(false);
+      }
+    }
+
+    function tratarTeclado(evento) {
+      if (evento.key === 'Escape') {
+        evento.preventDefault();
+        fecharCamadaAtiva();
+        return;
+      }
+
+      if (evento.key !== 'Tab' || !container) return;
+      const focaveis = [...container.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )];
+      if (focaveis.length === 0) return;
+      const primeiro = focaveis[0];
+      const ultimo = focaveis[focaveis.length - 1];
+
+      if (evento.shiftKey && document.activeElement === primeiro) {
+        evento.preventDefault();
+        ultimo.focus();
+      } else if (!evento.shiftKey && document.activeElement === ultimo) {
+        evento.preventDefault();
+        primeiro.focus();
+      }
+    }
+
+    document.addEventListener('keydown', tratarTeclado);
+
+    return () => {
+      window.cancelAnimationFrame(animacao);
+      document.removeEventListener('keydown', tratarTeclado);
+      document.body.style.overflow = overflowAnterior;
+      focoAnterior?.focus();
+    };
+  }, [carrinhoAberto, modalProdutoAberto]);
 
   useEffect(() => {
     function verificarSecaoAtual() {
@@ -556,6 +432,12 @@ function Home() {
     const novoItem = {
       ...produtoSelecionado,
 
+      id: produtoSelecionado.produtoId ?? produtoSelecionado.id,
+
+      produtoId: produtoSelecionado.produtoId ?? produtoSelecionado.id,
+
+      promocaoId: produtoSelecionado.produtoId ? produtoSelecionado.id : null,
+
       carrinhoId: `${produtoSelecionado.id}-${Date.now()}`,
 
       quantidade: quantidadeModal,
@@ -586,10 +468,12 @@ function Home() {
       >
         <div className={styles.conteudoHeader}>
           <Link to="/" className={styles.logo}>
-            Logo
+            {configuracao.logo
+              ? <img src={configuracao.logo} alt={configuracao.nomeLoja || 'Logo da loja'} decoding="async" />
+              : nomeExibicao}
           </Link>
 
-          <nav className={styles.menu}>
+          <nav className={styles.menu} aria-label="Navegação principal">
 
             <a
               href="#inicio"
@@ -672,6 +556,9 @@ function Home() {
             type="button"
             className={styles.botaoCarrinho}
             onClick={abrirCarrinho}
+            aria-haspopup="dialog"
+            aria-expanded={carrinhoAberto}
+            aria-controls="carrinho-lateral"
           >
             <svg
               className={styles.iconeCarrinho}
@@ -703,12 +590,23 @@ function Home() {
         </div>
       </header>
 
+      <main id="conteudo-principal">
+      {erroApi && (
+        <div className={styles.erroCatalogo} role="alert">
+          <div><strong>Não foi possível atualizar o cardápio.</strong><span>{erroApi}</span></div>
+          <button type="button" onClick={() => recarregarCatalogo().catch(() => {})}>Tentar novamente</button>
+        </div>
+      )}
       <section
         id="inicio"
         className={styles.banner}
         style={{ backgroundImage: `url(${banner})` }}
       >
         <div className={styles.conteudoBanner}>
+          <div className={`${styles.statusLoja} ${lojaDisponivel ? styles.statusAberta : styles.statusFechada}`} role="status">
+            <strong>{lojaDisponivel ? 'Aberta para pedidos' : configuracao.lojaAberta ? 'Entrega indisponível' : 'Fechada no momento'}</strong>
+            <span>{lojaDisponivel ? `Entrega estimada: ${configuracao.tempoEntrega}` : 'O cardápio continua disponível para consulta.'}</span>
+          </div>
           <span className={styles.textoPequeno}>
             🔥 FEITO NA HORA
           </span>
@@ -829,6 +727,7 @@ function Home() {
             <div
               key={indicePromocao}
               className={styles.listaPromocoes}
+              aria-live="polite"
             >
 
               {promocoesVisiveis.map((promocao) => (
@@ -843,6 +742,9 @@ function Home() {
                     <img
                       src={promocao.imagem}
                       alt={promocao.nome}
+                      onError={usarPlaceholderProduto}
+                      loading="lazy"
+                      decoding="async"
                     />
 
 
@@ -898,6 +800,10 @@ function Home() {
 
               ))}
 
+              {promocoes.length === 0 && (
+                <p className={styles.semResultados}>Nenhuma promoção disponível no momento.</p>
+              )}
+
             </div>
 
           </div>
@@ -905,7 +811,7 @@ function Home() {
 
           {/* INDICADOR */}
 
-          <div className={styles.indicadoresPromocao}>
+          {promocoes.length > 0 && <div className={styles.indicadoresPromocao}>
 
             {Array.from({
               length: maxIndicePromocao + 1
@@ -923,11 +829,12 @@ function Home() {
                     ? styles.indicadorAtivo
                     : ''
                 }
+                aria-current={indicePromocao === indice ? 'true' : undefined}
               />
 
             ))}
 
-          </div>
+          </div>}
 
         </div>
 
@@ -937,6 +844,7 @@ function Home() {
               key={categoria}
               type="button"
               onClick={() => setCategoriaAtiva(categoria)}
+              aria-pressed={categoriaAtiva === categoria}
               className={`${styles.botaoCategoria} ${
                 categoriaAtiva === categoria
                   ? styles.categoriaAtiva
@@ -958,7 +866,10 @@ function Home() {
                 <img
                   src={produto.imagem}
                   alt={produto.nome}
+                  onError={usarPlaceholderProduto}
                   className={styles.imagemProduto}
+                  loading="lazy"
+                  decoding="async"
                 />
 
                 {produto.destaque && (
@@ -992,14 +903,18 @@ function Home() {
               </div>
             </article>
           ))}
+          {produtosFiltrados.length === 0 && (
+            <p className={styles.semResultados} role="status">Nenhum produto disponível nesta categoria.</p>
+          )}
         </div>
       </section>
+      </main>
 
       {/* =========================
           SOBRE A LOJA
       ========================= */}
 
-      <section
+      <footer
         id="sobre"
         className={styles.sobreLoja}
       >
@@ -1012,7 +927,9 @@ function Home() {
               to="/"
               className={styles.logoRodape}
             >
-              Logo
+              {configuracao.logo
+                ? <img src={configuracao.logo} alt={configuracao.nomeLoja || 'Logo da loja'} loading="lazy" decoding="async" />
+                : nomeExibicao}
             </Link>
 
             <h2>
@@ -1026,13 +943,15 @@ function Home() {
               sabor em cada pedido.
             </p>
 
-            <div className={styles.redesSociais}>
+            {(configuracao.instagramUrl || configuracao.facebookUrl || whatsappUrl) && <div className={styles.redesSociais}>
               <span>Siga a gente</span>
 
               <div className={styles.iconesSociais}>
 
-                <a
-                  href="#"
+                {configuracao.instagramUrl && <a
+                  href={configuracao.instagramUrl}
+                  target="_blank"
+                  rel="noreferrer"
                   aria-label="Instagram"
                 >
                   <svg viewBox="0 0 24 24">
@@ -1063,10 +982,12 @@ function Home() {
                       fill="currentColor"
                     />
                   </svg>
-                </a>
+                </a>}
 
-                <a
-                  href="#"
+                {configuracao.facebookUrl && <a
+                  href={configuracao.facebookUrl}
+                  target="_blank"
+                  rel="noreferrer"
                   aria-label="Facebook"
                 >
                   <svg viewBox="0 0 24 24">
@@ -1075,10 +996,12 @@ function Home() {
                       fill="currentColor"
                     />
                   </svg>
-                </a>
+                </a>}
 
-                <a
-                  href="#"
+                {whatsappUrl && <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noreferrer"
                   aria-label="WhatsApp"
                 >
                   <svg viewBox="0 0 24 24">
@@ -1090,10 +1013,10 @@ function Home() {
                       strokeLinejoin="round"
                     />
                   </svg>
-                </a>
+                </a>}
 
               </div>
-            </div>
+            </div>}
           </div>
 
 
@@ -1138,18 +1061,7 @@ function Home() {
             <h3>Funcionamento</h3>
 
             <div className={styles.horario}>
-              <span>Segunda a Quinta</span>
-              <strong>18:00 — 23:00</strong>
-            </div>
-
-            <div className={styles.horario}>
-              <span>Sexta e Sábado</span>
-              <strong>18:00 — 00:00</strong>
-            </div>
-
-            <div className={styles.horario}>
-              <span>Domingo</span>
-              <strong>18:00 — 23:30</strong>
+              <strong>{configuracao.horarioFuncionamento || 'Horário ainda não configurado.'}</strong>
             </div>
           </div>
 
@@ -1161,24 +1073,24 @@ function Home() {
 
             <div className={styles.contatoSobre}>
               <span>Telefone</span>
-              <strong>
-                (00) 00000-0000
-              </strong>
+              <strong>{configuracao.telefone || 'Não informado'}</strong>
             </div>
 
             <div className={styles.contatoSobre}>
               <span>E-mail</span>
-              <strong>
-                contato@hamburgueria.com
-              </strong>
+              <strong>{configuracao.email || 'Não informado'}</strong>
             </div>
 
-            <button
-              type="button"
+            {whatsappUrl && <a
+              href={whatsappUrl}
+              target="_blank"
+              rel="noreferrer"
               className={styles.botaoWhatsapp}
             >
               Pedir pelo WhatsApp
-            </button>
+            </a>}
+
+            {configuracao.endereco && <div className={styles.contatoSobre}><span>Endereço</span><strong>{configuracao.endereco}</strong></div>}
           </div>
 
         </div>
@@ -1188,23 +1100,23 @@ function Home() {
 
         <div className={styles.rodapeFinal}>
           <p>
-            © 2026 Hamburgueria. Todos os direitos reservados.
+            © {new Date().getFullYear()} {nomeExibicao}. Todos os direitos reservados.
           </p>
 
           <div>
-            <a href="#">
+            <Link to="/politica-de-privacidade">
               Política de Privacidade
-            </a>
+            </Link>
 
             <span>•</span>
 
-            <a href="#">
+            <Link to="/termos-de-uso">
               Termos de Uso
-            </a>
+            </Link>
           </div>
         </div>
 
-      </section>
+      </footer>
 
       {modalProdutoAberto && produtoSelecionado && (
         <div
@@ -1214,6 +1126,10 @@ function Home() {
 
           <div
             className={styles.modalProduto}
+            ref={modalProdutoRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="titulo-modal-produto"
             onClick={(evento) => evento.stopPropagation()}
           >
 
@@ -1226,12 +1142,14 @@ function Home() {
                 <img
                   src={produtoSelecionado.imagem}
                   alt={produtoSelecionado.nome}
+                  onError={usarPlaceholderProduto}
+                  decoding="async"
                 />
 
                 <div>
                   <span>PERSONALIZE SEU PEDIDO</span>
 
-                  <h2>
+                  <h2 id="titulo-modal-produto">
                     {produtoSelecionado.nome}
                   </h2>
 
@@ -1250,6 +1168,7 @@ function Home() {
               <button
                 type="button"
                 className={styles.fecharModalProduto}
+                ref={fecharModalRef}
                 onClick={fecharModalProduto}
                 aria-label="Fechar"
               >
@@ -1309,6 +1228,7 @@ function Home() {
                       onClick={() =>
                         selecionarAdicional(adicional)
                       }
+                      aria-pressed={selecionado}
                     >
 
                       <div
@@ -1361,6 +1281,7 @@ function Home() {
               </div>
 
               <textarea
+                aria-label="Observações do produto"
                 value={observacao}
                 maxLength={180}
                 onChange={(evento) =>
@@ -1380,13 +1301,14 @@ function Home() {
 
                 <button
                   type="button"
+                  aria-label="Diminuir quantidade"
                   onClick={() =>
                     setQuantidadeModal(
                       Math.max(1, quantidadeModal - 1)
                     )
                   }
                 >
-                  <svg viewBox="0 0 24 24">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M6 12H18"
                       fill="none"
@@ -1403,13 +1325,15 @@ function Home() {
 
                 <button
                   type="button"
+                  aria-label="Aumentar quantidade"
                   onClick={() =>
                     setQuantidadeModal(
-                      quantidadeModal + 1
+                      Math.min(50, quantidadeModal + 1)
                     )
                   }
+                  disabled={quantidadeModal >= 50}
                 >
-                  <svg viewBox="0 0 24 24">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M12 6V18M6 12H18"
                       fill="none"
@@ -1455,13 +1379,20 @@ function Home() {
         className={`${styles.overlayCarrinho} ${
           carrinhoAberto ? styles.overlayVisivel : ''
         }`}
+        aria-hidden="true"
         onClick={fecharCarrinho}
       />
 
       <aside
+        id="carrinho-lateral"
         className={`${styles.carrinhoLateral} ${
           carrinhoAberto ? styles.carrinhoAberto : ''
         }`}
+        ref={carrinhoRef}
+        role="dialog"
+        aria-modal={carrinhoAberto ? 'true' : undefined}
+        aria-hidden={!carrinhoAberto}
+        aria-labelledby="titulo-carrinho"
       >
         <div className={styles.topoCarrinho}>
           <div>
@@ -1469,12 +1400,14 @@ function Home() {
               SEU PEDIDO
             </span>
 
-            <h2>Meu Carrinho</h2>
+            <h2 id="titulo-carrinho">Meu Carrinho</h2>
           </div>
 
           <button
             type="button"
             className={styles.fecharCarrinho}
+            ref={fecharCarrinhoRef}
+            aria-label="Fechar carrinho"
             onClick={fecharCarrinho}
           >
             ×
@@ -1484,6 +1417,12 @@ function Home() {
         <div className={styles.linhaCarrinho} />
 
         <div className={styles.produtosCarrinho}>
+          {avisosCarrinho.length > 0 && (
+            <div className={styles.avisosCarrinho} role="status" aria-live="polite">
+              <strong>Carrinho atualizado</strong>
+              {avisosCarrinho.map((aviso, indice) => <p key={`${aviso.carrinhoId ?? 'aviso'}-${indice}`}>{aviso.mensagem}</p>)}
+            </div>
+          )}
           {carrinho.length === 0 ? (
             <div className={styles.carrinhoVazio}>
               <div className={styles.iconeCarrinhoVazio}>
@@ -1520,6 +1459,9 @@ function Home() {
                 <img
                   src={item.imagem}
                   alt={item.nome}
+                  onError={usarPlaceholderProduto}
+                  loading="lazy"
+                  decoding="async"
                 />
 
                <div className={styles.infoItemCarrinho}>
@@ -1531,7 +1473,7 @@ function Home() {
                     type="button"
                     className={styles.botaoRemover}
                     onClick={() => removerProduto(item.carrinhoId ?? item.id)}
-                    aria-label="Remover produto"
+                    aria-label={`Remover ${item.nome}`}
                   >
                     <svg
                       viewBox="0 0 24 24"
@@ -1575,6 +1517,12 @@ function Home() {
                   </div>
                 )}
 
+                {item.observacao && (
+                  <p className={styles.observacaoCarrinho}>
+                    <strong>Observação:</strong> {item.observacao}
+                  </p>
+                )}
+
 
                 {/* PREÇO */}
 
@@ -1595,7 +1543,7 @@ function Home() {
                     onClick={() => diminuirQuantidade(item.carrinhoId ?? item.id)}
                     aria-label="Diminuir quantidade"
                   >
-                    <svg viewBox="0 0 24 24">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path
                         d="M6 12H18"
                         fill="none"
@@ -1610,10 +1558,11 @@ function Home() {
 
                   <button
                     type="button"
+                    disabled={item.quantidade >= 50}
                     onClick={() => aumentarQuantidade(item.carrinhoId ?? item.id)}
                     aria-label="Aumentar quantidade"
                   >
-                    <svg viewBox="0 0 24 24">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path
                         d="M12 6V18M6 12H18"
                         fill="none"
@@ -1642,12 +1591,21 @@ function Home() {
               </strong>
             </div>
 
+            <div className={`${styles.progressoMinimo} ${minimoAtingido ? styles.minimoAtingido : ''}`}>
+              <div><span>Pedido mínimo</span><strong>R$ {pedidoMinimo.toFixed(2).replace('.', ',')}</strong></div>
+              <div className={styles.barraMinimo}><span style={{ width: `${pedidoMinimo > 0 ? Math.min(100, (totalCarrinho / pedidoMinimo) * 100) : 100}%` }} /></div>
+              <small>{minimoAtingido ? 'Pedido mínimo atingido.' : `Faltam R$ ${(pedidoMinimo - totalCarrinho).toFixed(2).replace('.', ',')}.`}</small>
+            </div>
+
+            {!lojaDisponivel && <p className={styles.bloqueioCarrinho}>{configuracao.lojaAberta ? 'A entrega está indisponível.' : 'A loja está fechada no momento.'}</p>}
+
             <button
               type="button"
               className={styles.finalizarPedido}
               onClick={() => navigate('/finalizar-pedido')}
+              disabled={!podeFinalizar}
             >
-              Finalizar Pedido
+              {podeFinalizar ? 'Finalizar Pedido' : !lojaDisponivel ? 'Pedidos indisponíveis' : 'Complete o pedido mínimo'}
             </button>
 
             <button

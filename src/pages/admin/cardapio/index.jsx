@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 
 import AdminLayout from '../../../components/AdminLayout';
 import { useApp } from '../../../context/appContext';
+import { usarPlaceholderProduto } from '../../../utils/productImage';
 import styles from '../shared.module.css';
 
 function CardapioAdmin() {
@@ -57,18 +58,18 @@ function CardapioAdmin() {
     <AdminLayout titulo="Cardápio / Produtos" subtitulo="Gerencie os mesmos produtos usados no site e nas comandas." acao={acao}>
       <section className={styles.card}>
         <div className={styles.filtros}>
-          <label className={styles.busca}><Search size={17} /><input value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar produto..." /></label>
+          <label className={styles.busca}><Search size={17} /><input aria-label="Buscar produtos" value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar produto..." /></label>
           <div className={styles.abas}>
-            {categorias.map((item) => <button type="button" key={item} className={`${styles.aba} ${categoria === item ? styles.abaAtiva : ''}`} onClick={() => setCategoria(item)}>{item}</button>)}
+            {categorias.map((item) => <button type="button" key={item} aria-pressed={categoria === item} className={`${styles.aba} ${categoria === item ? styles.abaAtiva : ''}`} onClick={() => setCategoria(item)}>{item}</button>)}
           </div>
         </div>
       </section>
 
-      <section className={styles.gradeProdutos}>
+      <section className={`${styles.gradeProdutos} ${styles.secaoSeparada}`}>
         {filtrados.map((produto) => (
           <article className={styles.produtoCard} key={produto.id}>
             <div className={styles.produtoImagem}>
-              <img src={produto.imagem} alt={produto.nome} />
+              <img src={produto.imagem} alt={produto.nome} loading="lazy" decoding="async" onError={usarPlaceholderProduto} />
               <button type="button" disabled={processandoId === produto.id} className={`${styles.status} ${produto.ativo ? styles.statusAtivo : styles.statusInativo}`} onClick={() => mudarStatus(produto)}>{processandoId === produto.id ? 'Salvando...' : produto.ativo ? 'Ativo' : 'Inativo'}</button>
             </div>
             <div className={styles.produtoConteudo}>
@@ -88,7 +89,7 @@ function CardapioAdmin() {
         ))}
       </section>
 
-      {erro && <div className={styles.erro}>{erro}</div>}
+      {erro && <div className={styles.erro} role="alert">{erro}</div>}
 
       {filtrados.length === 0 && <section className={styles.card}><div className={styles.vazio}><Package size={36} /><h3>Nenhum produto encontrado</h3><p>Use outros filtros ou cadastre um novo produto.</p></div></section>}
     </AdminLayout>

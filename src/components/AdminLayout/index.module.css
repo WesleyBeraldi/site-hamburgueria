@@ -173,6 +173,37 @@
 .perfil small { margin-top: 2px; color: #8e8e8e; }
 .conteudo { width: 100%; }
 
+.alertaPedido {
+  position: fixed;
+  top: 18px;
+  right: 20px;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  width: min(420px, calc(100vw - 40px));
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #ffc107;
+  border-radius: 13px;
+  background: #18150a;
+  padding: 14px;
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.5);
+  color: #ffc107;
+  animation: entrarAlerta 0.25s ease-out;
+}
+
+.alertaPedido strong,
+.alertaPedido span { display: block; }
+.alertaPedido strong { color: white; font-size: 14px; }
+.alertaPedido span { overflow: hidden; margin-top: 3px; color: #b5b5b5; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.alertaPedido button { display: grid; width: 36px; height: 36px; place-items: center; border: 0; border-radius: 8px; background: transparent; color: #aaa; cursor: pointer; }
+.alertaPedido button:hover { background: rgba(255, 255, 255, 0.06); color: white; }
+
+@keyframes entrarAlerta {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @media (max-width: 900px) {
   .botaoMenu {
     position: fixed;
@@ -202,8 +233,8 @@
   .sidebarAberta { transform: translateX(0); }
   .fecharMenu {
     display: grid;
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     margin-left: auto;
     place-items: center;
     border: 0;
@@ -219,6 +250,7 @@
 }
 
 @media (max-width: 600px) {
+  .alertaPedido { top: 72px; right: 12px; width: calc(100vw - 24px); }
   .cabecalho { display: block; }
   .cabecalhoDireita { margin-top: 18px; justify-content: space-between; }
 }
