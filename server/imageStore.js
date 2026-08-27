@@ -13,7 +13,7 @@ const TIPOS = {
   }
 };
 
-export async function salvarImagemDataUrl(imagem, pastaUploads) {
+export async function salvarImagemDataUrl(imagem, pastaUploads, prefixo = 'produto') {
   if (!imagem || !String(imagem).startsWith('data:')) return null;
 
   const correspondencia = String(imagem).match(/^data:image\/(jpeg|jpg|png|webp);base64,([a-zA-Z0-9+/=\r\n]+)$/);
@@ -25,7 +25,8 @@ export async function salvarImagemDataUrl(imagem, pastaUploads) {
   if (!tipo.validar(buffer)) throw new Error('O conteúdo da imagem não corresponde ao formato informado.');
 
   await mkdir(pastaUploads, { recursive: true });
-  const nomeArquivo = `produto-${randomUUID()}.${tipo.extensao}`;
+  if (!['produto', 'logo'].includes(prefixo)) throw new Error('O tipo da imagem é inválido.');
+  const nomeArquivo = `${prefixo}-${randomUUID()}.${tipo.extensao}`;
   await writeFile(join(pastaUploads, nomeArquivo), buffer, { flag: 'wx' });
   return `/uploads/${nomeArquivo}`;
 }
@@ -33,6 +34,6 @@ export async function salvarImagemDataUrl(imagem, pastaUploads) {
 export async function removerImagemLocal(imagemUrl, pastaUploads) {
   if (!String(imagemUrl ?? '').startsWith('/uploads/')) return;
   const nomeArquivo = basename(imagemUrl);
-  if (!/^produto-[a-f0-9-]+\.(jpg|png|webp)$/.test(nomeArquivo)) return;
+  if (!/^(produto|logo)-[a-f0-9-]+\.(jpg|png|webp)$/.test(nomeArquivo)) return;
   await rm(join(pastaUploads, nomeArquivo), { force: true });
 }

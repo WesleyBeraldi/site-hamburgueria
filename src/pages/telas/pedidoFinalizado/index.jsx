@@ -1,83 +1,40 @@
-import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
+import { useState } from 'react';
 
-import xBacon from '../../../assets/xbacon.png';
 import { useApp } from '../../../context/appContext';
+import { usarPlaceholderProduto } from '../../../utils/productImage';
+import { QRCodeSVG } from '../../../vendor/qrcode';
 import styles from './index.module.css';
 
 function PedidoFinalizado() {
 
-  const { pedidoAtual, configuracao, acompanharPedido } = useApp();
+  const [pixCopiado, setPixCopiado] = useState(false);
 
-  useEffect(() => {
-    const codigo = pedidoAtual?.id;
-    const token = pedidoAtual?.tokenAcompanhamento;
-    if (!codigo || !token || ['Entregue', 'Cancelado'].includes(pedidoAtual.status)) return undefined;
+  const { pedidoAtual, pedidoAtualCarregando, configuracao } = useApp();
 
-    let ativo = true;
-    async function atualizar() {
-      try {
-        if (ativo) await acompanharPedido(codigo, token);
-      } catch {
-        // Mantém os últimos dados conhecidos caso a conexão oscile.
-      }
-    }
+  if (pedidoAtualCarregando) {
+    return (
+      <div className="carregamentoAplicacao" role="status">
+        <span />
+        <strong>Atualizando os dados do pedido...</strong>
+      </div>
+    );
+  }
+  if (!pedidoAtual?.id || !pedidoAtual?.tokenAcompanhamento) return <Navigate to="/" replace />;
 
-    atualizar();
-    const intervalo = setInterval(atualizar, 10000);
-    return () => {
-      ativo = false;
-      clearInterval(intervalo);
-    };
-  }, [acompanharPedido, pedidoAtual?.id, pedidoAtual?.status, pedidoAtual?.tokenAcompanhamento]);
-
-  const pedidoDemonstracao = {
-    numero: '#PED25678',
-
-    data: '14/08/2026',
-    horario: '19:42',
-
-    previsao: '35–45 min',
-
-    pagamento: 'Pix',
-
-    endereco:
-      'Rua das Palmeiras, 123 - Centro',
-
-    itens: [
-      {
-        id: 1,
-        nome: 'Combo X-Bacon',
-        descricao:
-          'X-Bacon artesanal, batata frita crocante e refrigerante.',
-        quantidade: 1,
-        preco: 42.40,
-        imagem: xBacon
-      },
-
-      {
-        id: 2,
-        nome: 'Batata com Cheddar',
-        descricao:
-          'Batata frita crocante com cheddar cremoso e bacon.',
-        quantidade: 1,
-        preco: 24.90,
-        imagem: xBacon
-      }
-    ],
-
-    taxaEntrega: 7.90
-  };
-
-  const pedido = pedidoAtual ?? pedidoDemonstracao;
-  const dataPedido = pedido.data ?? new Intl.DateTimeFormat('pt-BR').format(
-    pedido.criadoEm ? new Date(pedido.criadoEm) : new Date()
-  );
-  const fluxo = ['Recebido', 'Em preparo', 'Saiu para entrega', 'Entregue'];
+  const pedido = pedidoAtual;
+  const dataPedido = pedido.criadoEm
+    ? new Intl.DateTimeFormat('pt-BR').format(new Date(pedido.criadoEm))
+    : '';
+  const retirada = pedido.origem === 'Retirada no balcão' || pedido.modalidade === 'retirada';
+  const fluxo = retirada
+    ? ['Recebido', 'Em preparo', 'Pronto', 'Retirado']
+    : ['Recebido', 'Em preparo', 'Saiu para entrega', 'Entregue'];
   const statusNormalizado = pedido.status === 'Pedido recebido'
     ? 'Recebido'
-    : pedido.status ?? 'Em preparo';
-  const indiceStatus = Math.max(0, fluxo.indexOf(statusNormalizado));
+    : pedido.status ?? 'Recebido';
+  const pedidoCancelado = statusNormalizado === 'Cancelado';
+  const indiceStatus = fluxo.indexOf(statusNormalizado);
 
   function classeEtapa(indice) {
     if (indice < indiceStatus) {
@@ -97,7 +54,19 @@ function PedidoFinalizado() {
   );
 
 
-  const total = pedido.total ?? subtotal + pedido.taxaEntrega;
+  const total = Number(pedido.total);
+  const pagamentoConfirmado = pedido.pagamentoStatus === 'Pago';
+
+  async function copiarPix() {
+    const conteudo = pedido.pixCopiaCola || pedido.pixChave;
+    try {
+      await navigator.clipboard.writeText(conteudo);
+      setPixCopiado(true);
+      window.setTimeout(() => setPixCopiado(false), 2500);
+    } catch {
+      setPixCopiado(false);
+    }
+  }
 
 
   return (
@@ -115,11 +84,13 @@ function PedidoFinalizado() {
             to="/"
             className={styles.logo}
           >
-            Logo
+            {configuracao.logo
+              ? <img src={configuracao.logo} alt={configuracao.nomeLoja || 'Logo da loja'} decoding="async" />
+              : (configuracao.nomeLoja || 'Cardápio online')}
           </Link>
 
 
-          <nav className={styles.menu}>
+          <nav className={styles.menu} aria-label="Navegação principal">
 
             <Link to="/">
               Início
@@ -152,7 +123,7 @@ function PedidoFinalizado() {
           CONTEÚDO
       ========================= */}
 
-      <main className={styles.conteudoPagina}>
+      <main id="conteudo-principal" className={styles.conteudoPagina}>
 
 
         {/* =========================
@@ -183,18 +154,18 @@ function PedidoFinalizado() {
           <div className={styles.textoConfirmacao}>
 
             <span>
-              PEDIDO REALIZADO COM SUCESSO
+              {pedidoCancelado ? 'PEDIDO CANCELADO' : 'PEDIDO REALIZADO COM SUCESSO'}
             </span>
 
             <h1>
               Pedido
-              <strong> confirmado!</strong>
+              <strong>{pedidoCancelado ? ' cancelado.' : ' confirmado!'}</strong>
             </h1>
 
             <p>
-              Obrigado pela preferência! Seu pedido
-              foi recebido e já estamos preparando tudo
-              com muito carinho.
+              {pedidoCancelado
+                ? 'Este pedido foi cancelado. Entre em contato com a hamburgueria se precisar de ajuda.'
+                : 'Obrigado pela preferência! Seu pedido foi recebido e já estamos preparando tudo com muito carinho.'}
             </p>
 
           </div>
@@ -283,7 +254,7 @@ function PedidoFinalizado() {
 
             <div>
               <span>
-                Previsão de entrega
+                {retirada ? 'Previsão de retirada' : 'Previsão de entrega'}
               </span>
 
               <strong>
@@ -338,8 +309,16 @@ function PedidoFinalizado() {
               </strong>
 
               <p>
-                Pagamento selecionado
+                Status: {pedido.pagamentoStatus}
               </p>
+
+              {pedido.pagamento === 'Dinheiro' && (
+                <p>{pedido.semTroco === true
+                  ? 'Não precisa de troco'
+                  : pedido.trocoPara != null
+                    ? `Troco para R$ ${Number(pedido.trocoPara).toFixed(2).replace('.', ',')}`
+                    : 'Troco não informado'}</p>
+              )}
             </div>
 
           </div>
@@ -376,21 +355,28 @@ function PedidoFinalizado() {
 
             <div>
               <span>
-                Endereço de entrega
+                {retirada ? 'Local de retirada' : 'Endereço de entrega'}
               </span>
 
               <strong className={styles.endereco}>
-                {pedido.endereco}
+                {retirada ? (configuracao.endereco || 'Confirme o endereço com a loja') : pedido.endereco}
               </strong>
 
               <p>
-                Entrega no endereço informado
+                {retirada ? 'Retire diretamente no balcão' : 'Entrega no endereço informado'}
               </p>
             </div>
 
           </div>
 
         </section>
+
+        {pedido.pagamento === 'Pix' && pedido.pixChave && (
+          <section className={styles.dadosPix}>
+            {pedido.pixCopiaCola && <div className={styles.qrPix}><QRCodeSVG value={pedido.pixCopiaCola} size={176} level="M" includeMargin aria-label="QR Code Pix do pedido" /></div>}
+            <div><strong>Dados do Pix</strong><span>Beneficiário: {pedido.pixBeneficiario}</span><code>{pedido.pixCopiaCola || pedido.pixChave}</code><button type="button" onClick={copiarPix}>{pixCopiado ? 'Pix copiado!' : pedido.pixCopiaCola ? 'Copiar Pix copia e cola' : 'Copiar chave Pix'}</button><p>{pagamentoConfirmado ? 'Pagamento confirmado pela hamburgueria.' : 'O pagamento ainda precisa ser confirmado pela hamburgueria.'}</p></div>
+          </section>
+        )}
 
 
         {/* =========================
@@ -491,7 +477,7 @@ function PedidoFinalizado() {
             </div>
 
             <strong>
-              Saiu para entrega
+              {retirada ? 'Pronto para retirada' : 'Saiu para entrega'}
             </strong>
 
             <span>
@@ -522,7 +508,7 @@ function PedidoFinalizado() {
             </div>
 
             <strong>
-              Entregue
+              {retirada ? 'Retirado' : 'Entregue'}
             </strong>
 
             <span>
@@ -562,6 +548,9 @@ function PedidoFinalizado() {
                   <img
                     src={item.imagem}
                     alt={item.nome}
+                    onError={usarPlaceholderProduto}
+                    loading="lazy"
+                    decoding="async"
                   />
 
 
@@ -626,7 +615,7 @@ function PedidoFinalizado() {
             <div className={styles.linhaResumo}>
 
               <span>
-                Taxa de entrega
+                {retirada ? 'Taxa de retirada' : 'Taxa de entrega'}
               </span>
 
               <strong>
@@ -641,7 +630,7 @@ function PedidoFinalizado() {
             <div className={styles.totalResumo}>
 
               <span>
-                Total pago
+                {pagamentoConfirmado ? 'Total pago' : 'Total do pedido'}
               </span>
 
               <strong>

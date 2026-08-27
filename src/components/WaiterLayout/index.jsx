@@ -5,11 +5,11 @@ import { useApp } from '../../context/appContext';
 import styles from './index.module.css';
 
 function WaiterLayout({ titulo, subtitulo, children }) {
-  const { garcomSessao, sairGarcom } = useApp();
+  const { garcomSessao, sairGarcom, configuracao } = useApp();
   const navigate = useNavigate();
 
-  function sair() {
-    sairGarcom();
+  async function sair() {
+    await sairGarcom();
     navigate('/garcom/acesso');
   }
 
@@ -18,9 +18,9 @@ function WaiterLayout({ titulo, subtitulo, children }) {
       <header className={styles.header}>
         <button type="button" className={styles.logo} onClick={() => navigate('/garcom/mesas')}>
           <span><UtensilsCrossed size={22} /></span>
-          <div><strong>Logo</strong><small>GARÇOM</small></div>
+          <div><strong>{configuracao.nomeLoja || 'Atendimento'}</strong><small>GARÇOM</small></div>
         </button>
-        <nav>
+        <nav aria-label="Navegação do atendimento">
           <NavLink to="/garcom/mesas"><Store size={17} /> Mesas</NavLink>
           <span><ReceiptText size={17} /> Comandas</span>
         </nav>
@@ -30,7 +30,7 @@ function WaiterLayout({ titulo, subtitulo, children }) {
           <button type="button" aria-label="Sair" onClick={sair}><LogOut size={19} /></button>
         </div>
       </header>
-      <main className={styles.main}>
+      <main id="conteudo-principal" className={styles.main}>
         <div className={styles.titulo}><h1>{titulo}</h1><p>{subtitulo}</p></div>
         {children}
       </main>

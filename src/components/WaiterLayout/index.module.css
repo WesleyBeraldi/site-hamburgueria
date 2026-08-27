@@ -15,7 +15,7 @@
 .perfil strong,
 .perfil small { display: block; }
 .perfil strong { font-size: 12px; }
-.perfil small { margin-top: 3px; color: #777; font-size: 10px; }
+.perfil small { margin-top: 3px; color: #929292; font-size: 11px; }
 .perfil button { display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid #303030; border-radius: 10px; background: #151515; color: #999; cursor: pointer; }
 .perfil button:hover { border-color: #ffc107; color: #ffc107; }
 .main { max-width: 1180px; margin: 0 auto; padding: 34px 18px 54px; }
@@ -27,5 +27,7 @@
   .header nav,
   .perfil div,
   .logo div { display: none; }
+  .logo,
+  .perfil button { min-width: 44px; min-height: 44px; }
   .main { padding-top: 24px; }
 }

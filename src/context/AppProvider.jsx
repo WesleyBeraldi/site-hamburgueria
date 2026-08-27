@@ -1,46 +1,59 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import {
-  adicionaisIniciais,
-  comandasIniciais,
-  configuracaoInicial,
-  funcionariosIniciais,
-  mesasIniciais,
-  pedidosIniciais,
-  produtosIniciais,
-  promocoesIniciais
-} from '../data/initialData';
+import { configuracaoInicial } from '../data/initialData';
 import {
   acompanharPedidoApi,
+  adicionarItemComandaApi,
+  adicionarItemComandaAdminApi,
   alterarStatusAdicionalApi,
+  alterarStatusAdministradorApi,
+  alterarStatusCategoriaApi,
+  alterarStatusFuncionarioApi,
   alterarStatusProdutoApi,
   atualizarAdicionalApi,
-  atualizarConfiguracaoApi,
+  atualizarCategoriaApi,
+  atualizarFuncionarioApi,
+  atualizarItemComandaAdminApi,
   atualizarProdutoApi,
+  atualizarPromocaoApi,
   atualizarStatusPedidoApi,
-  buscarCatalogo,
+  abrirComandaApi,
+  buscarDadosAdmin,
+  buscarDadosGarcom,
+  buscarDadosPublicos,
+  confirmarPagamentoPedidoApi,
   criarAdicionalApi,
-  criarPedidoApi,
+  criarAdministradorApi,
+  criarCategoriaApi,
+  criarFuncionarioApi,
+  criarMesaAdminApi,
+  criarPedidoDeliveryApi,
   criarProdutoApi,
+  criarPromocaoApi,
   ErroApi,
+  enviarComandaApi,
+  estornarPagamentoPedidoApi,
   excluirAdicionalApi,
   excluirProdutoApi,
-  listarPedidosAdminApi,
+  excluirPromocaoApi,
+  fecharComandaApi,
+  finalizarComandaAdminApi,
   loginAdmin,
+  loginGarcom,
   logoutAdmin,
-  validarSessaoAdmin
+  logoutGarcom,
+  removerItemComandaApi,
+  removerItemComandaAdminApi,
+  salvarConfiguracaoApi,
+  solicitarContaApi,
+  validarSessaoAdmin,
+  validarCarrinhoApi,
+  validarSessaoGarcom,
+  alterarSenhaAdministradorApi
 } from '../services/api';
 import { AppContext } from './appContext';
 
 const CHAVES = {
-  produtos: 'hamburgueria_produtos',
-  adicionais: 'hamburgueria_adicionais',
-  promocoes: 'hamburgueria_promocoes',
-  funcionarios: 'hamburgueria_funcionarios',
-  mesas: 'hamburgueria_mesas',
-  pedidos: 'hamburgueria_pedidos',
-  comandas: 'hamburgueria_comandas',
-  configuracao: 'hamburgueria_configuracao',
   carrinho: 'hamburgueria_carrinho',
   pedidoAtual: 'hamburgueria_pedido_atual',
   admin: 'hamburgueria_admin_sessao',
@@ -65,9 +78,14 @@ function lerSessao(chave) {
   }
 }
 
-function lerSessaoAdmin() {
-  const sessao = lerSessao(CHAVES.admin);
+function lerSessaoComToken(chave) {
+  const sessao = lerSessao(chave);
   return sessao?.token ? sessao : null;
+}
+
+function lerPedidoAtual() {
+  const pedido = lerSessao(CHAVES.pedidoAtual);
+  return pedido?.id && pedido?.tokenAcompanhamento ? pedido : null;
 }
 
 function numeroPreco(valor) {
@@ -75,34 +93,24 @@ function numeroPreco(valor) {
   return Number(String(valor).replace(',', '.')) || 0;
 }
 
-function criarToken(nome) {
-  const base = nome
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
-
-  return `${base}-${crypto.randomUUID().slice(0, 8)}`;
-}
-
-function agoraFormatado() {
-  return new Intl.DateTimeFormat('pt-BR', {
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(new Date());
-}
-
 function normalizarProdutos(lista) {
-  const idsPadrao = adicionaisIniciais.map((adicional) => adicional.id);
+  return (lista ?? []).map((produto) => ({
+    ...produto,
+    imagem: produto.imagem || '/produto-placeholder.svg',
+    adicionaisIds: produto.adicionaisIds ?? []
+  }));
+}
 
-  return lista.map((produto) => {
-    const produtoInicial = produtosIniciais.find((item) => item.id === produto.id);
-
+function normalizarPromocoes(lista, produtos) {
+  return (lista ?? []).map((promocao) => {
+    const produto = produtos.find((item) => item.id === promocao.produtoId);
     return {
-      ...produto,
-      imagem: produto.imagem || produtoInicial?.imagem || produtosIniciais[0].imagem,
-      adicionaisIds: produto.adicionaisIds ?? produtoInicial?.adicionaisIds ?? idsPadrao
+      ...promocao,
+      adicionaisIds: produto?.adicionaisIds ?? [],
+      imagem: promocao.imagem
+        || produto?.imagem
+        || produtos.find((item) => item.nome === promocao.nome)?.imagem
+        || '/produto-placeholder.svg'
     };
   });
 }
@@ -120,40 +128,156 @@ function normalizarPedidosDelivery(lista, produtos) {
 }
 
 export function AppProvider({ children }) {
-  const [produtos, setProdutos] = useState(() => normalizarProdutos(lerLocal(CHAVES.produtos, produtosIniciais)));
-  const [adicionais, setAdicionais] = useState(() => lerLocal(CHAVES.adicionais, adicionaisIniciais));
-  const [promocoes, setPromocoes] = useState(() => lerLocal(CHAVES.promocoes, promocoesIniciais));
-  const [funcionarios, setFuncionarios] = useState(() => lerLocal(CHAVES.funcionarios, funcionariosIniciais));
-  const [mesas, setMesas] = useState(() => lerLocal(CHAVES.mesas, mesasIniciais));
-  const [pedidos, setPedidos] = useState(() => lerLocal(CHAVES.pedidos, pedidosIniciais));
-  const [comandas, setComandas] = useState(() => lerLocal(CHAVES.comandas, comandasIniciais));
-  const [configuracao, setConfiguracao] = useState(() => lerLocal(CHAVES.configuracao, configuracaoInicial));
-  const [carrinho, setCarrinho] = useState(() => lerLocal(CHAVES.carrinho, []));
-  const [pedidoAtual, setPedidoAtual] = useState(() => lerLocal(CHAVES.pedidoAtual, null));
-  const [adminSessao, setAdminSessao] = useState(lerSessaoAdmin);
-  const [garcomSessao, setGarcomSessao] = useState(() => lerSessao(CHAVES.garcom));
+  const [categorias, setCategorias] = useState([]);
+  const [produtos, setProdutos] = useState([]);
+  const [adicionais, setAdicionais] = useState([]);
+  const [promocoes, setPromocoes] = useState([]);
+  const [funcionarios, setFuncionarios] = useState([]);
+  const [mesas, setMesas] = useState([]);
+  const [pedidos, setPedidos] = useState([]);
+  const [comandas, setComandas] = useState([]);
+  const [administradores, setAdministradores] = useState([]);
+  const [auditoria, setAuditoria] = useState([]);
+  const [configuracao, setConfiguracaoEstado] = useState(configuracaoInicial);
+  const [carrinho, setCarrinho] = useState(() => {
+    const salvo = lerLocal(CHAVES.carrinho, []);
+    return Array.isArray(salvo) ? salvo : [];
+  });
+  const [pedidoAtual, setPedidoAtual] = useState(lerPedidoAtual);
+  const [pedidoAtualCarregando, setPedidoAtualCarregando] = useState(
+    () => Boolean(lerPedidoAtual())
+  );
+  const pedidoAtualValidado = useRef(false);
+  const [adminSessao, setAdminSessao] = useState(() => lerSessaoComToken(CHAVES.admin));
+  const [garcomSessao, setGarcomSessao] = useState(() => lerSessaoComToken(CHAVES.garcom));
   const [catalogoCarregando, setCatalogoCarregando] = useState(true);
-  const [sessaoAdminCarregando, setSessaoAdminCarregando] = useState(() => Boolean(lerSessaoAdmin()));
+  const [sessaoAdminCarregando, setSessaoAdminCarregando] = useState(() => Boolean(lerSessaoComToken(CHAVES.admin)));
+  const [sessaoGarcomCarregando, setSessaoGarcomCarregando] = useState(() => Boolean(lerSessaoComToken(CHAVES.garcom)));
   const [erroApi, setErroApi] = useState('');
+  const [avisosCarrinho, setAvisosCarrinho] = useState([]);
+  const [alertaNovoPedido, setAlertaNovoPedido] = useState(null);
+  const [pedidosNovos, setPedidosNovos] = useState([]);
+  const pedidosConhecidosRef = useRef(new Set());
+  const pedidosInicializadosRef = useRef(false);
+  const audioLiberadoRef = useRef(false);
 
-  useEffect(() => localStorage.setItem(CHAVES.promocoes, JSON.stringify(promocoes)), [promocoes]);
-  useEffect(() => localStorage.setItem(CHAVES.funcionarios, JSON.stringify(funcionarios)), [funcionarios]);
-  useEffect(() => localStorage.setItem(CHAVES.mesas, JSON.stringify(mesas)), [mesas]);
-  useEffect(() => localStorage.setItem(CHAVES.pedidos, JSON.stringify(pedidos)), [pedidos]);
-  useEffect(() => localStorage.setItem(CHAVES.comandas, JSON.stringify(comandas)), [comandas]);
-  useEffect(() => localStorage.setItem(CHAVES.configuracao, JSON.stringify(configuracao)), [configuracao]);
   useEffect(() => localStorage.setItem(CHAVES.carrinho, JSON.stringify(carrinho)), [carrinho]);
-  useEffect(() => localStorage.setItem(CHAVES.pedidoAtual, JSON.stringify(pedidoAtual)), [pedidoAtual]);
+  useEffect(() => {
+    const nome = configuracao.nomeLoja?.trim();
+    const titulo = nome ? `${nome} | Cardápio e pedidos` : 'Cardápio e pedidos online';
+    const descricao = nome
+      ? `Consulte o cardápio e faça seu pedido online na ${nome}.`
+      : 'Cardápio e pedidos online para entrega ou retirada.';
+    document.title = titulo;
+    const metaDescricao = document.querySelector('meta[name="description"]');
+    if (metaDescricao) metaDescricao.setAttribute('content', descricao);
+    const metas = {
+      'meta[property="og:title"]': titulo,
+      'meta[property="og:description"]': descricao,
+      'meta[name="twitter:title"]': titulo,
+      'meta[name="twitter:description"]': descricao
+    };
+    Object.entries(metas).forEach(([seletor, conteudo]) => document.querySelector(seletor)?.setAttribute('content', conteudo));
+    const imagemSocial = document.querySelector('meta[property="og:image"]');
+    if (imagemSocial) imagemSocial.setAttribute('content', configuracao.logo ? new URL(configuracao.logo, window.location.origin).href : '');
+    const urlSocial = document.querySelector('meta[property="og:url"]');
+    if (urlSocial) urlSocial.setAttribute('content', import.meta.env.VITE_PUBLIC_URL || '');
+  }, [configuracao.logo, configuracao.nomeLoja]);
+
+  useEffect(() => {
+    const liberarAudio = () => { audioLiberadoRef.current = true; };
+    window.addEventListener('pointerdown', liberarAudio, { once: true });
+    window.addEventListener('keydown', liberarAudio, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', liberarAudio);
+      window.removeEventListener('keydown', liberarAudio);
+    };
+  }, []);
+  useEffect(() => {
+    if (pedidoAtual) sessionStorage.setItem(CHAVES.pedidoAtual, JSON.stringify(pedidoAtual));
+    else sessionStorage.removeItem(CHAVES.pedidoAtual);
+  }, [pedidoAtual]);
+
+  const tocarSomNovoPedido = useCallback(() => {
+    if (!audioLiberadoRef.current) return;
+    try {
+      const AudioContexto = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContexto) return;
+      const contexto = new AudioContexto();
+      const oscilador = contexto.createOscillator();
+      const ganho = contexto.createGain();
+      oscilador.type = 'sine';
+      oscilador.frequency.setValueAtTime(880, contexto.currentTime);
+      oscilador.frequency.setValueAtTime(1046, contexto.currentTime + 0.12);
+      ganho.gain.setValueAtTime(0.0001, contexto.currentTime);
+      ganho.gain.exponentialRampToValueAtTime(0.16, contexto.currentTime + 0.02);
+      ganho.gain.exponentialRampToValueAtTime(0.0001, contexto.currentTime + 0.32);
+      oscilador.connect(ganho);
+      ganho.connect(contexto.destination);
+      oscilador.start();
+      oscilador.stop(contexto.currentTime + 0.34);
+      oscilador.addEventListener('ended', () => contexto.close().catch(() => {}));
+    } catch {
+      // O alerta visual permanece disponível quando o navegador bloquear áudio.
+    }
+  }, []);
+
+  const aplicarDados = useCallback((dados) => {
+    const produtosNormalizados = dados.produtos ? normalizarProdutos(dados.produtos) : null;
+    if (dados.categorias) setCategorias(dados.categorias);
+    if (produtosNormalizados) setProdutos(produtosNormalizados);
+    if (dados.adicionais) setAdicionais(dados.adicionais);
+    if (dados.promocoes) {
+      setPromocoes(normalizarPromocoes(dados.promocoes, produtosNormalizados ?? []));
+    }
+    if (dados.funcionarios) setFuncionarios(dados.funcionarios);
+    if (dados.mesas) setMesas(dados.mesas);
+    if (dados.pedidos) {
+      const idsRecebidos = new Set(dados.pedidos.map((pedido) => pedido.id));
+      if (pedidosInicializadosRef.current) {
+        const novos = dados.pedidos.filter((pedido) => !pedidosConhecidosRef.current.has(pedido.id));
+        if (novos.length > 0) {
+          setPedidosNovos(novos.map((pedido) => pedido.id));
+          setAlertaNovoPedido({ quantidade: novos.length, pedido: novos[0] });
+          tocarSomNovoPedido();
+          window.setTimeout(() => setPedidosNovos([]), 12000);
+        }
+      } else {
+        pedidosInicializadosRef.current = true;
+      }
+      pedidosConhecidosRef.current = idsRecebidos;
+      setPedidos(dados.pedidos);
+    }
+    if (dados.comandas) setComandas(dados.comandas);
+    if (dados.administradores) setAdministradores(dados.administradores);
+    if (dados.auditoria) setAuditoria(dados.auditoria);
+    if (dados.configuracao) setConfiguracaoEstado(dados.configuracao);
+  }, [tocarSomNovoPedido]);
+
+  const recarregarPublico = useCallback(async () => {
+    const dados = await buscarDadosPublicos();
+    aplicarDados(dados);
+    return dados;
+  }, [aplicarDados]);
+
+  const recarregarAdmin = useCallback(async () => {
+    const dados = await buscarDadosAdmin();
+    aplicarDados(dados);
+    return dados;
+  }, [aplicarDados]);
+
+  const recarregarGarcom = useCallback(async () => {
+    const dados = await buscarDadosGarcom();
+    aplicarDados(dados);
+    return dados;
+  }, [aplicarDados]);
 
   useEffect(() => {
     let ativo = true;
-
-    buscarCatalogo()
-      .then((catalogo) => {
+    buscarDadosPublicos()
+      .then((dados) => {
         if (!ativo) return;
-        setProdutos(normalizarProdutos(catalogo.produtos));
-        setAdicionais(catalogo.adicionais);
-        setConfiguracao(catalogo.configuracao ?? configuracaoInicial);
+        aplicarDados(dados);
         setErroApi('');
       })
       .catch((erro) => {
@@ -162,31 +286,20 @@ export function AppProvider({ children }) {
       .finally(() => {
         if (ativo) setCatalogoCarregando(false);
       });
-
-    return () => {
-      ativo = false;
-    };
-  }, []);
+    return () => { ativo = false; };
+  }, [aplicarDados]);
 
   useEffect(() => {
-    if (!adminSessao?.token) return;
-
+    if (!adminSessao?.token) return undefined;
     let ativo = true;
     const token = adminSessao.token;
-    validarSessaoAdmin()
-      .then(async ({ admin }) => {
+    Promise.all([validarSessaoAdmin(), buscarDadosAdmin()])
+      .then(([{ admin }, dados]) => {
         if (!ativo) return;
         const sessao = { ...admin, token };
         sessionStorage.setItem(CHAVES.admin, JSON.stringify(sessao));
         setAdminSessao(sessao);
-        try {
-          const resposta = await listarPedidosAdminApi();
-          if (!ativo) return;
-          const delivery = normalizarPedidosDelivery(resposta.pedidos, produtos);
-          setPedidos((atuais) => [...delivery, ...atuais.filter((pedido) => pedido.origem !== 'Delivery')]);
-        } catch (erro) {
-          if (ativo) setErroApi(erro.message);
-        }
+        aplicarDados(dados);
       })
       .catch(() => {
         if (!ativo) return;
@@ -196,19 +309,78 @@ export function AppProvider({ children }) {
       .finally(() => {
         if (ativo) setSessaoAdminCarregando(false);
       });
+    return () => { ativo = false; };
+  }, [adminSessao?.token, aplicarDados]);
 
+  useEffect(() => {
+    if (!garcomSessao?.token) return undefined;
+    let ativo = true;
+    const token = garcomSessao.token;
+    Promise.all([validarSessaoGarcom(), buscarDadosGarcom()])
+      .then(([{ garcom }, dados]) => {
+        if (!ativo) return;
+        const sessao = { ...garcom, token };
+        sessionStorage.setItem(CHAVES.garcom, JSON.stringify(sessao));
+        setGarcomSessao(sessao);
+        aplicarDados(dados);
+      })
+      .catch(() => {
+        if (!ativo) return;
+        sessionStorage.removeItem(CHAVES.garcom);
+        setGarcomSessao(null);
+      })
+      .finally(() => {
+        if (ativo) setSessaoGarcomCarregando(false);
+      });
+    return () => { ativo = false; };
+  }, [garcomSessao?.token, aplicarDados]);
+
+  useEffect(() => {
+    if (!adminSessao?.token && !garcomSessao?.token) return undefined;
+    const atualizar = () => {
+      const operacao = adminSessao?.token ? recarregarAdmin() : recarregarGarcom();
+      operacao.catch(() => {});
+    };
+    const intervalo = setInterval(atualizar, 15000);
+    return () => clearInterval(intervalo);
+  }, [adminSessao?.token, garcomSessao?.token, recarregarAdmin, recarregarGarcom]);
+
+  const pedidoAtualId = pedidoAtual?.id;
+  const pedidoAtualToken = pedidoAtual?.tokenAcompanhamento;
+
+  useEffect(() => {
+    if (!pedidoAtualId || !pedidoAtualToken) return undefined;
+    let ativo = true;
+    let validado = pedidoAtualValidado.current;
+    const atualizar = () => acompanharPedidoApi(pedidoAtualId, pedidoAtualToken)
+      .then(({ pedido }) => {
+        if (ativo) {
+          validado = true;
+          pedidoAtualValidado.current = true;
+          setPedidoAtual(pedido);
+        }
+      })
+      .catch((erro) => {
+        if (ativo && (!validado || (erro instanceof ErroApi && erro.status === 404))) {
+          pedidoAtualValidado.current = false;
+          setPedidoAtual(null);
+        }
+      })
+      .finally(() => {
+        if (ativo) setPedidoAtualCarregando(false);
+      });
+    atualizar();
+    const intervalo = setInterval(atualizar, 10000);
     return () => {
       ativo = false;
+      clearInterval(intervalo);
     };
-  }, [adminSessao?.token, produtos]);
+  }, [pedidoAtualId, pedidoAtualToken]);
 
   async function recarregarCatalogo() {
     setCatalogoCarregando(true);
     try {
-      const catalogo = await buscarCatalogo();
-      setProdutos(normalizarProdutos(catalogo.produtos));
-      setAdicionais(catalogo.adicionais);
-      setConfiguracao(catalogo.configuracao ?? configuracaoInicial);
+      await recarregarPublico();
       setErroApi('');
     } catch (erro) {
       setErroApi(erro.message);
@@ -224,13 +396,7 @@ export function AppProvider({ children }) {
       const sessao = { ...admin, token };
       sessionStorage.setItem(CHAVES.admin, JSON.stringify(sessao));
       setAdminSessao(sessao);
-      try {
-        const resposta = await listarPedidosAdminApi();
-        const delivery = normalizarPedidosDelivery(resposta.pedidos, produtos);
-        setPedidos((atuais) => [...delivery, ...atuais.filter((pedido) => pedido.origem !== 'Delivery')]);
-      } catch (erro) {
-        setErroApi(erro.message);
-      }
+      await recarregarAdmin();
       return true;
     } catch (erro) {
       if (erro instanceof ErroApi && erro.status === 401) return false;
@@ -238,48 +404,94 @@ export function AppProvider({ children }) {
     }
   }
 
-  function sairAdmin() {
-    logoutAdmin().catch(() => {});
+  async function sairAdmin() {
+    await logoutAdmin().catch(() => {});
     sessionStorage.removeItem(CHAVES.admin);
     setAdminSessao(null);
+    setSessaoAdminCarregando(false);
+    setPedidos([]);
+    setComandas([]);
+    setMesas([]);
+    setFuncionarios([]);
+    setAdministradores([]);
+    setAuditoria([]);
+    setAlertaNovoPedido(null);
+    setPedidosNovos([]);
+    pedidosConhecidosRef.current = new Set();
+    pedidosInicializadosRef.current = false;
+    await recarregarPublico().catch(() => {});
   }
 
-  function entrarGarcom(token, pin) {
-    const funcionario = funcionarios.find(
-      (item) => item.token === token && item.pin === pin && item.status === 'Ativo'
-    );
-
-    if (!funcionario) return false;
-
-    const sessao = {
-      id: funcionario.id,
-      nome: funcionario.nome,
-      cargo: funcionario.cargo,
-      token: funcionario.token
-    };
-
-    sessionStorage.setItem(CHAVES.garcom, JSON.stringify(sessao));
-    setGarcomSessao(sessao);
-    return true;
+  async function entrarGarcom(tokenAcesso, pin) {
+    try {
+      const { garcom, token } = await loginGarcom(tokenAcesso, pin);
+      const sessao = { ...garcom, token };
+      sessionStorage.setItem(CHAVES.garcom, JSON.stringify(sessao));
+      setGarcomSessao(sessao);
+      await recarregarGarcom();
+      return true;
+    } catch (erro) {
+      if (erro instanceof ErroApi && erro.status === 401) return false;
+      throw erro;
+    }
   }
 
-  function sairGarcom() {
+  async function sairGarcom() {
+    await logoutGarcom().catch(() => {});
     sessionStorage.removeItem(CHAVES.garcom);
     setGarcomSessao(null);
+    setSessaoGarcomCarregando(false);
+    setMesas([]);
+    setComandas([]);
+    await recarregarPublico().catch(() => {});
   }
 
   async function salvarProduto(dados) {
-    if (dados.id) {
-      const { produto } = await atualizarProdutoApi(dados.id, dados);
-      const normalizado = normalizarProdutos([produto])[0];
-      setProdutos((atuais) => atuais.map((item) => item.id === normalizado.id ? normalizado : item));
-      return normalizado.id;
-    }
-
-    const { produto } = await criarProdutoApi(dados);
-    const normalizado = normalizarProdutos([produto])[0];
-    setProdutos((atuais) => [...atuais, normalizado]);
+    const resposta = dados.id
+      ? await atualizarProdutoApi(dados.id, dados)
+      : await criarProdutoApi(dados);
+    const normalizado = normalizarProdutos([resposta.produto])[0];
+    setProdutos((atuais) => dados.id
+      ? atuais.map((item) => item.id === normalizado.id ? normalizado : item)
+      : [...atuais, normalizado]);
     return normalizado.id;
+  }
+
+  async function salvarCategoria(dados) {
+    const resposta = dados.id
+      ? await atualizarCategoriaApi(dados.id, dados)
+      : await criarCategoriaApi(dados);
+    setCategorias((atuais) => dados.id
+      ? atuais.map((item) => item.id === resposta.categoria.id ? resposta.categoria : item)
+      : [...atuais, resposta.categoria].sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome)));
+    return resposta.categoria.id;
+  }
+
+  async function alternarCategoria(id) {
+    const atual = categorias.find((categoria) => categoria.id === id);
+    if (!atual) return;
+    const { categoria } = await alterarStatusCategoriaApi(id, !atual.ativo);
+    setCategorias((atuais) => atuais.map((item) => item.id === id ? categoria : item));
+  }
+
+  async function criarAdministrador(dados) {
+    const { administrador } = await criarAdministradorApi(dados);
+    setAdministradores((atuais) => [...atuais, administrador].sort((a, b) => a.nome.localeCompare(b.nome)));
+    await recarregarAdmin();
+    return administrador.id;
+  }
+
+  async function alternarAdministrador(id) {
+    const atual = administradores.find((administrador) => administrador.id === id);
+    if (!atual) return;
+    const { administrador } = await alterarStatusAdministradorApi(id, !atual.ativo);
+    setAdministradores((atuais) => atuais.map((item) => item.id === id ? administrador : item));
+    await recarregarAdmin();
+  }
+
+  async function alterarSenhaAdministrador(dados) {
+    await alterarSenhaAdministradorApi(dados);
+    await recarregarAdmin();
   }
 
   async function removerProduto(id) {
@@ -296,15 +508,13 @@ export function AppProvider({ children }) {
   }
 
   async function salvarAdicional(dados) {
-    if (dados.id) {
-      const { adicional } = await atualizarAdicionalApi(dados.id, dados);
-      setAdicionais((atuais) => atuais.map((item) => item.id === adicional.id ? adicional : item));
-      return adicional.id;
-    }
-
-    const { adicional } = await criarAdicionalApi(dados);
-    setAdicionais((atuais) => [...atuais, adicional]);
-    return adicional.id;
+    const resposta = dados.id
+      ? await atualizarAdicionalApi(dados.id, dados)
+      : await criarAdicionalApi(dados);
+    setAdicionais((atuais) => dados.id
+      ? atuais.map((item) => item.id === resposta.adicional.id ? resposta.adicional : item)
+      : [...atuais, resposta.adicional]);
+    return resposta.adicional.id;
   }
 
   async function removerAdicional(id) {
@@ -323,209 +533,182 @@ export function AppProvider({ children }) {
     setAdicionais((atuais) => atuais.map((item) => item.id === id ? adicional : item));
   }
 
-  function salvarPromocao(dados) {
-    if (dados.id) {
-      setPromocoes((atuais) => atuais.map((promocao) => promocao.id === dados.id ? { ...promocao, ...dados } : promocao));
-      return;
-    }
-
-    setPromocoes((atuais) => [...atuais, {
-      ...dados,
-      id: Date.now(),
-      ativo: true,
-      imagem: produtosIniciais[0].imagem
-    }]);
+  async function salvarPromocao(dados) {
+    const resposta = dados.id
+      ? await atualizarPromocaoApi(dados.id, dados)
+      : await criarPromocaoApi(dados);
+    const normalizada = normalizarPromocoes([resposta.promocao], produtos)[0];
+    setPromocoes((atuais) => dados.id
+      ? atuais.map((item) => item.id === normalizada.id ? normalizada : item)
+      : [...atuais, normalizada]);
+    return normalizada.id;
   }
 
-  function removerPromocao(id) {
+  async function removerPromocao(id) {
+    await excluirPromocaoApi(id);
     setPromocoes((atuais) => atuais.filter((promocao) => promocao.id !== id));
   }
 
-  function salvarFuncionario(dados) {
-    if (dados.id) {
-      setFuncionarios((atuais) => atuais.map((funcionario) => funcionario.id === dados.id ? { ...funcionario, ...dados } : funcionario));
-      return dados.id;
-    }
-
-    const id = `func-${Date.now()}`;
-    setFuncionarios((atuais) => [...atuais, {
-      ...dados,
-      id,
-      token: criarToken(dados.nome),
-      status: 'Ativo',
-      vendas: 0,
-      comandas: 0
-    }]);
-    return id;
+  async function salvarFuncionario(dados) {
+    const resposta = dados.id
+      ? await atualizarFuncionarioApi(dados.id, dados)
+      : await criarFuncionarioApi(dados);
+    setFuncionarios((atuais) => dados.id
+      ? atuais.map((item) => item.id === resposta.funcionario.id ? resposta.funcionario : item)
+      : [...atuais, resposta.funcionario]);
+    return resposta.funcionario.id;
   }
 
-  function alternarFuncionario(id) {
-    setFuncionarios((atuais) => atuais.map((funcionario) => funcionario.id === id
-      ? { ...funcionario, status: funcionario.status === 'Ativo' ? 'Inativo' : 'Ativo' }
-      : funcionario));
+  async function alternarFuncionario(id) {
+    const atual = funcionarios.find((funcionario) => funcionario.id === id);
+    if (!atual) return;
+    const { funcionario } = await alterarStatusFuncionarioApi(id, atual.status !== 'Ativo');
+    setFuncionarios((atuais) => atuais.map((item) => item.id === id ? funcionario : item));
   }
 
   async function atualizarStatusPedido(id, status) {
-    const atual = pedidos.find((pedido) => pedido.id === id);
-    if (atual?.origem !== 'Delivery') {
-      setPedidos((lista) => lista.map((pedido) => pedido.id === id ? { ...pedido, status } : pedido));
-      setPedidoAtual((pedido) => pedido?.id === id ? { ...pedido, status } : pedido);
-      return atual ? { ...atual, status } : null;
-    }
+    const { pedido } = await atualizarStatusPedidoApi(id, status);
+    setPedidos((atuais) => atuais.map((item) => item.id === id ? pedido : item));
+    setPedidoAtual((atual) => atual?.id === id ? { ...pedido, tokenAcompanhamento: atual.tokenAcompanhamento } : atual);
+  }
 
-    const resposta = await atualizarStatusPedidoApi(id, status);
-    const pedidoAtualizado = normalizarPedidosDelivery([resposta.pedido], produtos)[0];
-    setPedidos((lista) => lista.map((pedido) => pedido.id === id ? pedidoAtualizado : pedido));
-    setPedidoAtual((pedido) => pedido?.id === id
-      ? { ...pedidoAtualizado, tokenAcompanhamento: pedido.tokenAcompanhamento }
-      : pedido);
-    return pedidoAtualizado;
+  async function confirmarPagamentoPedido(id) {
+    const { pedido } = await confirmarPagamentoPedidoApi(id);
+    setPedidos((atuais) => atuais.map((item) => item.id === id ? pedido : item));
+    await recarregarAdmin();
+    return pedido;
+  }
+
+  async function estornarPagamentoPedido(id) {
+    const { pedido } = await estornarPagamentoPedidoApi(id);
+    setPedidos((atuais) => atuais.map((item) => item.id === id ? pedido : item));
+    await recarregarAdmin();
+    return pedido;
+  }
+
+  function itensCarrinhoParaApi(lista) {
+    return lista.map((item) => ({
+      carrinhoId: item.carrinhoId,
+      produtoId: item.produtoId ?? item.id,
+      promocaoId: item.promocaoId ?? null,
+      quantidade: item.quantidade,
+      adicionais: (item.adicionais ?? []).map((adicional) => adicional.id),
+      observacao: item.observacao || undefined,
+      precoFinal: item.precoFinal ?? numeroPreco(item.preco),
+      nome: item.nome
+    }));
+  }
+
+  async function revalidarCarrinho() {
+    if (carrinho.length === 0) {
+      setAvisosCarrinho([]);
+      return { itens: [], alteracoes: [] };
+    }
+    const resultado = await validarCarrinhoApi(itensCarrinhoParaApi(carrinho));
+    const normalizados = normalizarProdutos(resultado.itens);
+    setCarrinho(normalizados);
+    setAvisosCarrinho(resultado.alteracoes ?? []);
+    return { ...resultado, itens: normalizados };
   }
 
   async function criarPedidoDelivery(dados) {
-    const resposta = await criarPedidoApi({
-      ...dados,
-      itens: carrinho.map((item) => ({
-        produtoId: item.produtoId ?? item.id,
-        quantidade: item.quantidade,
-        adicionaisIds: (item.adicionais ?? []).map((adicional) => adicional.id),
-        observacao: item.observacao ?? ''
-      }))
-    });
-    const pedido = {
-      ...normalizarPedidosDelivery([resposta.pedido], produtos)[0],
-      tokenAcompanhamento: resposta.tokenAcompanhamento
-    };
-    setPedidos((atuais) => [pedido, ...atuais.filter((item) => item.id !== pedido.id)]);
-    setPedidoAtual(pedido);
-    setCarrinho([]);
-    return pedido;
-  }
-
-  const acompanharPedido = useCallback(async (codigo, token) => {
-    const resposta = await acompanharPedidoApi(codigo, token);
-    const pedido = {
-      ...normalizarPedidosDelivery([resposta.pedido], produtos)[0],
-      tokenAcompanhamento: token
-    };
-    setPedidoAtual(pedido);
-    setPedidos((atuais) => atuais.map((item) => item.id === pedido.id ? pedido : item));
-    return pedido;
-  }, [produtos]);
-
-  async function salvarConfiguracao(dados) {
-    const resposta = await atualizarConfiguracaoApi(dados);
-    setConfiguracao(resposta.configuracao);
-    return resposta.configuracao;
-  }
-
-  function abrirComanda(mesaId) {
-    const existente = comandas.find((comanda) => comanda.mesaId === mesaId && comanda.status !== 'Encerrada');
-    if (existente) return existente;
-
-    const nova = {
-      id: `comanda-${Date.now()}`,
-      mesaId,
-      funcionarioId: garcomSessao.id,
-      garcom: garcomSessao.nome,
-      status: 'Aberta',
-      abertaEm: agoraFormatado(),
-      itens: []
-    };
-
-    setComandas((atuais) => [...atuais, nova]);
-    setMesas((atuais) => atuais.map((mesa) => mesa.id === mesaId ? { ...mesa, status: 'Ocupada' } : mesa));
-    return nova;
-  }
-
-  function adicionarItemComanda(comandaId, produto, quantidade, adicionais, observacao) {
-    const preco = numeroPreco(produto.preco) + adicionais.reduce((total, adicional) => total + adicional.preco, 0);
-    const item = {
-      ...produto,
-      linhaId: `${produto.id}-${Date.now()}`,
-      preco,
-      quantidade,
-      adicionais,
-      observacao
-    };
-
-    setComandas((atuais) => atuais.map((comanda) => comanda.id === comandaId
-      ? { ...comanda, itens: [...comanda.itens, item] }
-      : comanda));
-  }
-
-  function removerItemComanda(comandaId, linhaId) {
-    setComandas((atuais) => atuais.map((comanda) => comanda.id === comandaId
-      ? { ...comanda, itens: comanda.itens.filter((item) => (item.linhaId ?? item.id) !== linhaId) }
-      : comanda));
-  }
-
-  function enviarComanda(comandaId) {
-    const comanda = comandas.find((item) => item.id === comandaId);
-    if (!comanda || comanda.itens.length === 0) return false;
-
-    const total = comanda.itens.reduce((soma, item) => soma + numeroPreco(item.preco) * item.quantidade, 0);
-    const existente = pedidos.find((pedido) => pedido.comandaId === comandaId);
-    const mesa = mesas.find((item) => item.id === comanda.mesaId);
-
-    setComandas((atuais) => atuais.map((item) => item.id === comandaId ? { ...item, status: 'Na cozinha' } : item));
-
-    if (existente) {
-      setPedidos((atuais) => atuais.map((pedido) => pedido.comandaId === comandaId
-        ? { ...pedido, itens: comanda.itens, total, status: 'Em preparo' }
-        : pedido));
-    } else {
-      setPedidos((atuais) => [{
-        id: `#PED${1100 + atuais.length + 1}`,
-        comandaId,
-        cliente: `Mesa ${mesa.numero}`,
-        telefone: 'Atendimento presencial',
-        origem: `Mesa ${mesa.numero}`,
-        mesaId: mesa.id,
-        garcom: comanda.garcom,
-        status: 'Recebido',
-        pagamento: 'A definir',
-        horario: agoraFormatado(),
-        criadoEm: new Date().toISOString(),
-        itens: comanda.itens,
-        taxaEntrega: 0,
-        total,
-        observacao: ''
-      }, ...atuais]);
+    const validacao = await validarCarrinhoApi(itensCarrinhoParaApi(carrinho));
+    const itensAtuais = normalizarProdutos(validacao.itens);
+    setCarrinho(itensAtuais);
+    setAvisosCarrinho(validacao.alteracoes ?? []);
+    if (validacao.alteracoes?.length) {
+      throw new ErroApi('Seu carrinho foi atualizado. Revise as alterações antes de finalizar o pedido.', 409);
     }
+    const itens = itensAtuais.map((item) => ({
+      produtoId: item.produtoId ?? item.id,
+      promocaoId: item.promocaoId ?? null,
+      quantidade: item.quantidade,
+      adicionais: (item.adicionais ?? []).map((adicional) => adicional.id),
+      observacao: item.observacao || undefined
+    }));
+    const { pedido } = await criarPedidoDeliveryApi(dados, itens);
+    pedidoAtualValidado.current = true;
+    setPedidoAtual(pedido);
+    setPedidoAtualCarregando(false);
+    setCarrinho([]);
+    setAvisosCarrinho([]);
+    return pedido;
+  }
 
+  async function abrirComanda(mesaId) {
+    const { comanda } = await abrirComandaApi(mesaId);
+    await recarregarGarcom();
+    return comanda;
+  }
+
+  async function criarMesaAdmin(numero) {
+    await criarMesaAdminApi(numero);
+    await recarregarAdmin();
+  }
+
+  async function adicionarItemComandaAdmin(comandaId, produtoId) {
+    await adicionarItemComandaAdminApi(comandaId, {
+      produtoId,
+      quantidade: 1,
+      adicionais: []
+    });
+    await recarregarAdmin();
+  }
+
+  async function atualizarItemComandaAdmin(comandaId, itemId, quantidade) {
+    await atualizarItemComandaAdminApi(comandaId, itemId, quantidade);
+    await recarregarAdmin();
+  }
+
+  async function removerItemComandaAdmin(comandaId, itemId) {
+    await removerItemComandaAdminApi(comandaId, itemId);
+    await recarregarAdmin();
+  }
+
+  async function finalizarComandaAdmin(comandaId, pagamento) {
+    await finalizarComandaAdminApi(comandaId, pagamento);
+    await recarregarAdmin();
+  }
+
+  async function adicionarItemComanda(comandaId, produto, quantidade, extras, observacao) {
+    await adicionarItemComandaApi(comandaId, {
+      produtoId: produto.id,
+      quantidade,
+      adicionais: extras.map((extra) => extra.id),
+      observacao
+    });
+    await recarregarGarcom();
+  }
+
+  async function removerItemComanda(comandaId, linhaId) {
+    await removerItemComandaApi(comandaId, linhaId);
+    await recarregarGarcom();
+  }
+
+  async function enviarComanda(comandaId) {
+    await enviarComandaApi(comandaId);
+    await recarregarGarcom();
     return true;
   }
 
-  function solicitarConta(comandaId) {
-    setComandas((atuais) => atuais.map((item) => item.id === comandaId ? { ...item, status: 'Conta solicitada' } : item));
+  async function solicitarConta(comandaId) {
+    await solicitarContaApi(comandaId);
+    await recarregarGarcom();
   }
 
-  function fecharComanda(comandaId, pagamento) {
-    const comanda = comandas.find((item) => item.id === comandaId);
-    if (!comanda) return;
-
-    setComandas((atuais) => atuais.map((item) => item.id === comandaId ? { ...item, status: 'Encerrada', pagamento } : item));
-    setMesas((atuais) => atuais.map((mesa) => mesa.id === comanda.mesaId ? { ...mesa, status: 'Livre' } : mesa));
-    setPedidos((atuais) => atuais.map((pedido) => pedido.comandaId === comandaId
-      ? { ...pedido, status: 'Entregue na mesa', pagamento }
-      : pedido));
-    setFuncionarios((atuais) => atuais.map((funcionario) => funcionario.id === comanda.funcionarioId
-      ? { ...funcionario, comandas: funcionario.comandas + 1, vendas: funcionario.vendas + 1 }
-      : funcionario));
+  async function fecharComanda(comandaId, pagamento) {
+    await fecharComandaApi(comandaId, pagamento);
+    await recarregarGarcom();
   }
 
-  function restaurarDemonstracao() {
-    setPromocoes(promocoesIniciais);
-    setFuncionarios(funcionariosIniciais);
-    setMesas(mesasIniciais);
-    setPedidos(pedidosIniciais);
-    setComandas(comandasIniciais);
-    setCarrinho([]);
-    setPedidoAtual(null);
+  async function setConfiguracao(dados) {
+    const { configuracao: salva } = await salvarConfiguracaoApi(dados);
+    setConfiguracaoEstado(salva);
+    return salva;
   }
 
   const valor = {
+    categorias,
     produtos,
     adicionais,
     promocoes,
@@ -533,14 +716,21 @@ export function AppProvider({ children }) {
     mesas,
     pedidos,
     comandas,
+    administradores,
+    auditoria,
     configuracao,
     carrinho,
     pedidoAtual,
+    pedidoAtualCarregando,
     adminSessao,
     garcomSessao,
     catalogoCarregando,
     sessaoAdminCarregando,
+    sessaoGarcomCarregando,
     erroApi,
+    avisosCarrinho,
+    alertaNovoPedido,
+    pedidosNovos,
     setCarrinho,
     salvarConfiguracao,
     entrarAdmin,
@@ -548,6 +738,8 @@ export function AppProvider({ children }) {
     entrarGarcom,
     sairGarcom,
     salvarProduto,
+    salvarCategoria,
+    alternarCategoria,
     removerProduto,
     alternarProduto,
     salvarAdicional,
@@ -558,15 +750,25 @@ export function AppProvider({ children }) {
     salvarFuncionario,
     alternarFuncionario,
     atualizarStatusPedido,
+    confirmarPagamentoPedido,
+    estornarPagamentoPedido,
     criarPedidoDelivery,
-    acompanharPedido,
+    revalidarCarrinho,
+    criarAdministrador,
+    alternarAdministrador,
+    alterarSenhaAdministrador,
+    dispensarAlertaNovoPedido: () => setAlertaNovoPedido(null),
+    criarMesaAdmin,
     abrirComanda,
     adicionarItemComanda,
     removerItemComanda,
     enviarComanda,
     solicitarConta,
     fecharComanda,
-    restaurarDemonstracao,
+    adicionarItemComandaAdmin,
+    atualizarItemComandaAdmin,
+    removerItemComandaAdmin,
+    finalizarComandaAdmin,
     recarregarCatalogo,
     numeroPreco
   };
@@ -575,7 +777,7 @@ export function AppProvider({ children }) {
     return (
       <div className="carregamentoAplicacao" role="status">
         <span />
-        <strong>Carregando cardápio...</strong>
+        <strong>Conectando ao cardápio...</strong>
       </div>
     );
   }

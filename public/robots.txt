@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+# O sitemap absoluto é incluído no build quando PUBLIC_SITE_URL estiver definido.

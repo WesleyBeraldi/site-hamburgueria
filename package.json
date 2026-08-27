@@ -7,17 +7,23 @@
     "dev": "node --env-file-if-exists=.env server/dev.js",
     "dev:web": "vite",
     "dev:api": "node --env-file-if-exists=.env server/index.js",
-    "build": "vite build",
+    "build": "vite build && node --env-file-if-exists=.env scripts/generate-seo-files.js",
+    "db:check": "node --env-file-if-exists=.env server/db/check.js",
+    "db:migrate": "node --env-file-if-exists=.env server/db/migrate.js",
+    "db:prepare": "node --env-file-if-exists=.env server/db/prepare.js",
+    "criar-admin-inicial": "node --env-file-if-exists=.env server/db/create-initial-admin.js",
+    "seo:generate": "node --env-file-if-exists=.env scripts/generate-seo-files.js",
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "node --env-file-if-exists=.env server/index.js",
-    "test": "node --test server/api.test.js"
+    "test": "node --env-file-if-exists=.env --test server/api.test.js"
   },
   "engines": {
     "node": ">=22.13.0"
   },
   "dependencies": {
     "lucide-react": "^1.31.0",
+    "mysql2": "^3.23.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2"

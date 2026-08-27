@@ -92,7 +92,7 @@ function AdicionaisAdmin() {
           <div className={styles.topoCard}>
             <div><h2>Catálogo de adicionais</h2><p>{adicionais.length} opções cadastradas</p></div>
           </div>
-          <label className={styles.busca}><Search size={17} /><input value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar adicional..." /></label>
+          <label className={styles.busca}><Search size={17} /><input aria-label="Buscar adicionais" value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Buscar adicional..." /></label>
           <div className={styles.listaAdicionaisAdmin}>
             {filtrados.map((adicional) => (
               <article className={styles.adicionalLinha} key={adicional.id}>
@@ -118,7 +118,7 @@ function AdicionaisAdmin() {
           <form className={styles.formulario} onSubmit={enviar}>
             <div className={styles.campo}><label htmlFor="nomeAdicional">Nome</label><input id="nomeAdicional" value={dados.nome} onChange={(event) => alterar('nome', event.target.value)} placeholder="Ex: Bacon extra" /></div>
             <div className={styles.campo}><label htmlFor="precoAdicional">Preço</label><input id="precoAdicional" inputMode="decimal" value={dados.preco} onChange={(event) => alterar('preco', event.target.value)} placeholder="5,00" /></div>
-            {erro && <div className={styles.erro}>{erro}</div>}
+            {erro && <div className={styles.erro} role="alert">{erro}</div>}
             <div className={styles.rodapeFormulario}>
               {dados.id && <button type="button" className={styles.botaoSecundario} onClick={cancelar}><X size={16} /> Cancelar</button>}
               <button type="submit" className={styles.botaoPrimario} disabled={processando}>{dados.id ? <Save size={17} /> : <Plus size={17} />} {processando ? 'Salvando...' : dados.id ? 'Salvar alteração' : 'Adicionar extra'}</button>

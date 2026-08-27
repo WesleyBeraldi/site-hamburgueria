@@ -1,273 +1,586 @@
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { readdir, readFile } from 'node:fs/promises';
+import { createHash, randomInt, randomUUID } from 'node:crypto';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { criarHashSenha, verificarSenha } from './security.js';
-import { adicionaisSeed, categoriasSeed, produtosSeed } from './seed.js';
+import mysql from 'mysql2/promise';
 
-const SCHEMA = `
-  PRAGMA foreign_keys = ON;
+import { criarHashSenha } from './security.js';
+import {
+  adicionaisSeed,
+  categoriasSeed,
+  comandasSeed,
+  configuracaoSeed,
+  funcionariosSeed,
+  mesasSeed,
+  pedidosSeed,
+  produtosSeed,
+  promocoesSeed
+} from './seed.js';
 
-  CREATE TABLE IF NOT EXISTS metadados (
-    chave TEXT PRIMARY KEY,
-    valor TEXT NOT NULL
-  );
+const pastaServidor = dirname(fileURLToPath(import.meta.url));
+const pastaProjeto = resolve(pastaServidor, '..');
+const pastaMigracoes = resolve(pastaProjeto, 'database/migrations');
+const padraoMigration = /^\d{3}_[a-z0-9_-]+\.sql$/;
+const caminhosEstrutura = [
+  resolve(pastaProjeto, 'database/estrutura/001_criar_tabelas.sql'),
+  resolve(pastaProjeto, 'database/estrutura/003_criar_indices.sql'),
+  resolve(pastaProjeto, 'database/estrutura/002_criar_relacionamentos.sql')
+];
 
-  CREATE TABLE IF NOT EXISTS administradores (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    usuario TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    nome TEXT NOT NULL,
-    senha_hash TEXT NOT NULL,
-    ativo INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1)),
-    criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    atualizado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
+function validarNomeBanco(nome) {
+  if (!/^[a-zA-Z0-9_]+$/.test(nome)) {
+    throw new Error('DB_NAME deve conter apenas letras, números e sublinhado.');
+  }
+  return nome;
+}
 
-  CREATE TABLE IF NOT EXISTS sessoes_admin (
-    token_hash TEXT PRIMARY KEY,
-    administrador_id INTEGER NOT NULL,
-    expira_em TEXT NOT NULL,
-    criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (administrador_id) REFERENCES administradores(id) ON DELETE CASCADE
-  );
+function dataMySql(valor = new Date()) {
+  return valor.toISOString().slice(0, 23).replace('T', ' ');
+}
 
-  CREATE TABLE IF NOT EXISTS categorias (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nome TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    ordem INTEGER NOT NULL DEFAULT 0,
-    ativo INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1))
-  );
+function separarInstrucoesSql(conteudo) {
+  return conteudo
+    .split(/;\s*(?:\r?\n|$)/)
+    .map((instrucao) => instrucao.trim())
+    .filter(Boolean);
+}
 
-  CREATE TABLE IF NOT EXISTS adicionais (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nome TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    preco_centavos INTEGER NOT NULL CHECK (preco_centavos >= 0),
-    ativo INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1)),
-    criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    atualizado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
+async function aplicarEstruturaInicial(banco) {
+  for (const caminho of caminhosEstrutura) {
+    const conteudo = await readFile(caminho, 'utf8');
+    for (const instrucao of separarInstrucoesSql(conteudo)) await banco.query(instrucao);
+  }
+}
 
-  CREATE TABLE IF NOT EXISTS produtos (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    categoria_id INTEGER NOT NULL,
-    nome TEXT NOT NULL,
-    descricao TEXT NOT NULL,
-    preco_centavos INTEGER NOT NULL CHECK (preco_centavos >= 0),
-    imagem_url TEXT,
-    destaque TEXT,
-    ativo INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1)),
-    criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    atualizado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (categoria_id) REFERENCES categorias(id)
-  );
+async function registrarBaselineMigracoes(banco) {
+  const arquivos = (await readdir(pastaMigracoes))
+    .filter((arquivo) => padraoMigration.test(arquivo))
+    .sort((a, b) => a.localeCompare(b));
 
-  CREATE TABLE IF NOT EXISTS produto_adicionais (
-    produto_id INTEGER NOT NULL,
-    adicional_id INTEGER NOT NULL,
-    PRIMARY KEY (produto_id, adicional_id),
-    FOREIGN KEY (produto_id) REFERENCES produtos(id) ON DELETE CASCADE,
-    FOREIGN KEY (adicional_id) REFERENCES adicionais(id) ON DELETE CASCADE
-  );
+  for (const arquivo of arquivos) {
+    const conteudo = await readFile(resolve(pastaMigracoes, arquivo), 'utf8');
+    const checksum = createHash('sha256').update(conteudo).digest('hex');
+    await banco.execute(
+      'INSERT INTO schema_migrations (versao, checksum) VALUES (?, ?)',
+      [arquivo, checksum]
+    );
+  }
+}
 
-  CREATE TABLE IF NOT EXISTS configuracoes (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    nome_loja TEXT NOT NULL,
-    telefone TEXT NOT NULL,
-    email TEXT NOT NULL,
-    endereco TEXT NOT NULL,
-    taxa_entrega_centavos INTEGER NOT NULL CHECK (taxa_entrega_centavos >= 0),
-    tempo_entrega TEXT NOT NULL,
-    pedido_minimo_centavos INTEGER NOT NULL CHECK (pedido_minimo_centavos >= 0),
-    loja_aberta INTEGER NOT NULL DEFAULT 1 CHECK (loja_aberta IN (0, 1)),
-    atualizado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
+async function carregarSsl(configuracaoMySql) {
+  if (!configuracaoMySql.ssl) return undefined;
+  const caInformada = String(configuracaoMySql.sslCa ?? '').trim();
+  let ca;
+  if (caInformada) {
+    ca = caInformada.includes('-----BEGIN CERTIFICATE-----')
+      ? caInformada.replaceAll('\\n', '\n')
+      : await readFile(resolve(pastaProjeto, caInformada), 'utf8');
+  }
+  return {
+    rejectUnauthorized: true,
+    ...(ca ? { ca } : {})
+  };
+}
 
-  CREATE TABLE IF NOT EXISTS pedidos (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    codigo TEXT UNIQUE,
-    token_acompanhamento_hash TEXT NOT NULL UNIQUE,
-    origem TEXT NOT NULL DEFAULT 'Delivery',
-    status TEXT NOT NULL DEFAULT 'Recebido',
-    cliente TEXT NOT NULL,
-    telefone TEXT NOT NULL,
-    email TEXT NOT NULL,
-    rua TEXT NOT NULL,
-    numero TEXT NOT NULL,
-    bairro TEXT NOT NULL,
-    complemento TEXT,
-    referencia TEXT,
-    observacao TEXT,
-    pagamento TEXT NOT NULL,
-    subtotal_centavos INTEGER NOT NULL CHECK (subtotal_centavos >= 0),
-    taxa_entrega_centavos INTEGER NOT NULL CHECK (taxa_entrega_centavos >= 0),
-    total_centavos INTEGER NOT NULL CHECK (total_centavos >= 0),
-    previsao TEXT NOT NULL,
-    criado_em TEXT NOT NULL,
-    atualizado_em TEXT NOT NULL
-  );
+async function configuracaoBaseMySql(configuracaoMySql) {
+  return {
+    host: configuracaoMySql.host,
+    port: configuracaoMySql.port,
+    user: configuracaoMySql.user,
+    password: configuracaoMySql.password,
+    charset: 'utf8mb4',
+    timezone: 'Z',
+    decimalNumbers: true,
+    ...(configuracaoMySql.ssl ? { ssl: await carregarSsl(configuracaoMySql) } : {})
+  };
+}
 
-  CREATE TABLE IF NOT EXISTS pedido_itens (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pedido_id INTEGER NOT NULL,
-    produto_id INTEGER,
-    nome_snapshot TEXT NOT NULL,
-    descricao_snapshot TEXT NOT NULL,
-    preco_unitario_centavos INTEGER NOT NULL CHECK (preco_unitario_centavos >= 0),
-    imagem_url_snapshot TEXT,
-    quantidade INTEGER NOT NULL CHECK (quantidade > 0),
-    observacao TEXT,
-    FOREIGN KEY (pedido_id) REFERENCES pedidos(id) ON DELETE CASCADE,
-    FOREIGN KEY (produto_id) REFERENCES produtos(id) ON DELETE SET NULL
-  );
+async function revogarCredenciaisDemonstracaoLegadas(banco, idEstabelecimento) {
+  const hashesTokensLegados = [
+    'eae37569f974549b25e5d60627f12fbef1dafe4f79a950eff455a62b38c7b9c1',
+    '816711d2b11be214316287916c7a1f3bd61ca9be413755f8dbb1d51bfac9fb36'
+  ];
+  const marcadores = hashesTokensLegados.map(() => '?').join(', ');
+  const [funcionarios] = await banco.execute(`
+    SELECT id FROM funcionarios
+    WHERE id_estabelecimento = ? AND SHA2(token_acesso, 256) IN (${marcadores})
+  `, [idEstabelecimento, ...hashesTokensLegados]);
+  if (funcionarios.length === 0) return;
 
-  CREATE TABLE IF NOT EXISTS pedido_item_adicionais (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pedido_item_id INTEGER NOT NULL,
-    adicional_id INTEGER,
-    nome_snapshot TEXT NOT NULL,
-    preco_centavos INTEGER NOT NULL CHECK (preco_centavos >= 0),
-    FOREIGN KEY (pedido_item_id) REFERENCES pedido_itens(id) ON DELETE CASCADE,
-    FOREIGN KEY (adicional_id) REFERENCES adicionais(id) ON DELETE SET NULL
-  );
+  await executarTransacao(banco, async (conexao) => {
+    for (const funcionario of funcionarios) {
+      const pinAleatorio = String(randomInt(100000, 1000000));
+      const tokenAleatorio = `garcom-${randomUUID().replaceAll('-', '')}`;
+      await conexao.execute(`
+        UPDATE funcionarios
+        SET pin_hash = ?, token_acesso = ?, ativo = 0
+        WHERE id = ? AND id_estabelecimento = ?
+      `, [criarHashSenha(pinAleatorio), tokenAleatorio, funcionario.id, idEstabelecimento]);
+      await conexao.execute(`
+        DELETE FROM sessoes_garcom
+        WHERE funcionario_id = ? AND id_estabelecimento = ?
+      `, [funcionario.id, idEstabelecimento]);
+    }
+  });
+}
 
-  CREATE INDEX IF NOT EXISTS idx_produtos_categoria ON produtos(categoria_id);
-  CREATE INDEX IF NOT EXISTS idx_produto_adicionais_adicional ON produto_adicionais(adicional_id);
-  CREATE INDEX IF NOT EXISTS idx_sessoes_admin_expiracao ON sessoes_admin(expira_em);
-  CREATE INDEX IF NOT EXISTS idx_pedidos_criado_em ON pedidos(criado_em DESC);
-  CREATE INDEX IF NOT EXISTS idx_pedidos_status ON pedidos(status);
-  CREATE INDEX IF NOT EXISTS idx_pedido_itens_pedido ON pedido_itens(pedido_id);
-  CREATE INDEX IF NOT EXISTS idx_pedido_adicionais_item ON pedido_item_adicionais(pedido_item_id);
-`;
-
-function executarTransacao(banco, operacao) {
-  banco.exec('BEGIN IMMEDIATE');
+export async function executarTransacao(banco, operacao) {
+  const conexao = await banco.getConnection();
   try {
-    const resultado = operacao();
-    banco.exec('COMMIT');
+    await conexao.beginTransaction();
+    const resultado = await operacao(conexao);
+    await conexao.commit();
     return resultado;
   } catch (erro) {
-    banco.exec('ROLLBACK');
+    await conexao.rollback();
+    throw erro;
+  } finally {
+    conexao.release();
+  }
+}
+
+export async function criarEstabelecimentoInicial(
+  banco,
+  { slug = 'estabelecimento-padrao', nomeFantasia = 'Estabelecimento padrão' } = {}
+) {
+  const slugNormalizado = String(slug).trim().toLowerCase();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slugNormalizado)) {
+    throw new Error('O slug do estabelecimento inicial é inválido.');
+  }
+  await banco.execute(`
+    INSERT INTO estabelecimentos
+      (nome_fantasia, slug, status, plano, status_assinatura)
+    SELECT ?, ?, 'ativo', 'basico', 'ativa'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM estabelecimentos WHERE slug = ?
+    )
+  `, [nomeFantasia || 'Estabelecimento padrão', slugNormalizado, slugNormalizado]);
+  const [linhas] = await banco.execute(`
+    SELECT id_estabelecimento
+    FROM estabelecimentos
+    WHERE slug = ?
+    LIMIT 1
+  `, [slugNormalizado]);
+  const idEstabelecimento = Number(linhas[0]?.id_estabelecimento);
+  if (!idEstabelecimento) throw new Error('Não foi possível criar o estabelecimento inicial.');
+  await banco.execute(`
+    INSERT INTO configuracoes_estabelecimento (id_estabelecimento)
+    VALUES (?)
+    ON DUPLICATE KEY UPDATE id_estabelecimento = VALUES(id_estabelecimento)
+  `, [idEstabelecimento]);
+  return idEstabelecimento;
+}
+
+export async function criarAdministradorInicial(banco, administrador, idEstabelecimento) {
+  const idTenant = Number(idEstabelecimento) || await criarEstabelecimentoInicial(banco);
+  const [linhas] = await banco.execute(`
+    SELECT id FROM administradores
+    WHERE id_estabelecimento = ?
+    ORDER BY id LIMIT 1
+  `, [idTenant]);
+  const existente = linhas[0];
+  if (!existente) {
+    await banco.execute(`
+      INSERT INTO administradores (id_estabelecimento, usuario, email, nome, senha_hash)
+      VALUES (?, ?, ?, ?, ?)
+    `, [idTenant, administrador.usuario, administrador.email, administrador.nome, criarHashSenha(administrador.senha)]);
+    return;
+  }
+
+  if (!administrador.sincronizarCredenciais) return;
+  await executarTransacao(banco, async (conexao) => {
+    await conexao.execute(`
+      UPDATE administradores
+      SET usuario = ?, email = ?, nome = ?, senha_hash = ?
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [
+      administrador.usuario,
+      administrador.email,
+      administrador.nome,
+      criarHashSenha(administrador.senha),
+      existente.id,
+      idTenant
+    ]);
+    await conexao.execute(`
+      DELETE FROM sessoes_admin
+      WHERE administrador_id = ? AND id_estabelecimento = ?
+    `, [existente.id, idTenant]);
+  });
+}
+
+async function metadadoExiste(banco, chave) {
+  const [linhas] = await banco.execute('SELECT 1 FROM metadados WHERE chave = ? LIMIT 1', [chave]);
+  return linhas.length > 0;
+}
+
+async function marcarMetadado(conexao, chave) {
+  await conexao.execute(`
+    INSERT INTO metadados (chave, valor) VALUES (?, '1')
+    ON DUPLICATE KEY UPDATE valor = VALUES(valor)
+  `, [chave]);
+}
+
+async function criarCatalogoInicial(banco, idEstabelecimento, incluirDadosDemonstracao) {
+  if (await metadadoExiste(banco, 'catalogo_inicial_criado')) return;
+
+  const [[{ total }]] = await banco.execute(`
+    SELECT COUNT(*) AS total FROM produtos WHERE id_estabelecimento = ?
+  `, [idEstabelecimento]);
+  if (Number(total) > 0) {
+    await banco.execute("INSERT INTO metadados (chave, valor) VALUES ('catalogo_inicial_criado', '1')");
+    return;
+  }
+
+  await executarTransacao(banco, async (conexao) => {
+    for (const categoria of categoriasSeed) {
+      await conexao.execute(`
+        INSERT INTO categorias (id_estabelecimento, id, nome, ordem, ativo)
+        VALUES (?, ?, ?, ?, 1)
+      `, [idEstabelecimento, categoria.id, categoria.nome, categoria.ordem]);
+    }
+    if (incluirDadosDemonstracao) {
+      for (const adicional of adicionaisSeed) {
+        await conexao.execute(`
+          INSERT INTO adicionais (id_estabelecimento, id, nome, preco_centavos, ativo)
+          VALUES (?, ?, ?, ?, 1)
+        `, [idEstabelecimento, adicional.id, adicional.nome, adicional.precoCentavos]);
+      }
+      for (const produto of produtosSeed) {
+        await conexao.execute(`
+          INSERT INTO produtos
+            (id_estabelecimento, id, categoria_id, nome, descricao,
+             preco_centavos, imagem_url, destaque, ativo)
+          VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 1)
+        `, [
+          idEstabelecimento,
+          produto.id,
+          produto.categoriaId,
+          produto.nome,
+          produto.descricao,
+          produto.precoCentavos,
+          produto.destaque ?? null
+        ]);
+        for (const adicionalId of produto.adicionaisIds) {
+          await conexao.execute(`
+            INSERT INTO produto_adicionais (id_estabelecimento, produto_id, adicional_id)
+            VALUES (?, ?, ?)
+          `, [idEstabelecimento, produto.id, adicionalId]);
+        }
+      }
+    }
+    await marcarMetadado(conexao, 'catalogo_inicial_criado');
+  });
+}
+
+async function inserirItemComanda(conexao, idEstabelecimento, comandaId, item) {
+  const [resultado] = await conexao.execute(`
+    INSERT INTO comanda_itens
+      (id_estabelecimento, comanda_id, produto_id, nome_produto,
+       preco_unitario_centavos, quantidade, observacao)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `, [idEstabelecimento, comandaId, item.produtoId, item.nome, item.precoCentavos, item.quantidade, item.observacao ?? null]);
+  for (const adicional of item.adicionais ?? []) {
+    await conexao.execute(`
+      INSERT INTO comanda_item_adicionais
+        (id_estabelecimento, comanda_item_id, adicional_id, nome_adicional, preco_centavos)
+      VALUES (?, ?, ?, ?, ?)
+    `, [idEstabelecimento, resultado.insertId, adicional.id, adicional.nome, adicional.precoCentavos]);
+  }
+}
+
+async function inserirItemPedido(conexao, idEstabelecimento, pedidoId, item) {
+  const [produtoLinhas] = await conexao.execute(`
+    SELECT descricao, imagem_url FROM produtos
+    WHERE id = ? AND id_estabelecimento = ?
+  `, [item.produtoId, idEstabelecimento]);
+  const produto = produtoLinhas[0];
+  const [resultado] = await conexao.execute(`
+    INSERT INTO pedido_itens
+      (id_estabelecimento, pedido_id, produto_id, nome_produto, descricao_produto, imagem_url,
+       preco_unitario_centavos, quantidade, observacao)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, [
+    idEstabelecimento,
+    pedidoId,
+    item.produtoId,
+    item.nome,
+    produto?.descricao ?? '',
+    produto?.imagem_url ?? null,
+    item.precoCentavos,
+    item.quantidade,
+    item.observacao ?? null
+  ]);
+  for (const adicional of item.adicionais ?? []) {
+    await conexao.execute(`
+      INSERT INTO pedido_item_adicionais
+        (id_estabelecimento, pedido_item_id, adicional_id, nome_adicional, preco_centavos)
+      VALUES (?, ?, ?, ?, ?)
+    `, [idEstabelecimento, resultado.insertId, adicional.id, adicional.nome, adicional.precoCentavos]);
+  }
+}
+
+async function criarOperacaoInicial(
+  banco,
+  idEstabelecimento,
+  incluirDadosDemonstracao,
+  pinFuncionarioDemonstracao
+) {
+  if (await metadadoExiste(banco, 'operacao_inicial_criada')) return;
+
+  const [[{ total }]] = await banco.execute(`
+    SELECT COUNT(*) AS total
+    FROM funcionarios
+    WHERE id_estabelecimento = ?
+  `, [idEstabelecimento]);
+  if (Number(total) > 0) {
+    await banco.execute("INSERT INTO metadados (chave, valor) VALUES ('operacao_inicial_criada', '1')");
+    return;
+  }
+
+  await executarTransacao(banco, async (conexao) => {
+    for (const mesa of mesasSeed) {
+      await conexao.execute(`
+        INSERT INTO mesas (id_estabelecimento, id, numero, lugares, ativo)
+        VALUES (?, ?, ?, ?, 1)
+      `, [idEstabelecimento, mesa.id, mesa.numero, mesa.lugares]);
+    }
+
+    if (incluirDadosDemonstracao) {
+      for (const promocao of promocoesSeed) {
+        await conexao.execute(`
+          INSERT INTO promocoes
+            (id_estabelecimento, id, produto_id, nome, categoria, descricao, preco_anterior_centavos,
+             preco_centavos, destaque, tipo, ativo)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        `, [
+          idEstabelecimento,
+          promocao.id,
+          promocao.produtoId,
+          promocao.nome,
+          promocao.categoria,
+          promocao.descricao,
+          promocao.precoAnteriorCentavos,
+          promocao.precoCentavos,
+          promocao.destaque,
+          promocao.tipo
+        ]);
+      }
+
+      for (const funcionario of funcionariosSeed) {
+        const pin = pinFuncionarioDemonstracao || String(randomInt(100000, 1000000));
+        const token = `garcom-${randomUUID().replaceAll('-', '')}`;
+        await conexao.execute(`
+          INSERT INTO funcionarios
+            (id_estabelecimento, id, nome, cargo, pin_hash, token_acesso, ativo)
+          VALUES (?, ?, ?, ?, ?, ?, 1)
+        `, [idEstabelecimento, funcionario.id, funcionario.nome, funcionario.cargo, criarHashSenha(pin), token]);
+      }
+
+      for (const comanda of comandasSeed) {
+        await conexao.execute(`
+          INSERT INTO comandas
+            (id_estabelecimento, id, mesa_id, funcionario_id, status, aberta_em)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `, [
+          idEstabelecimento,
+          comanda.id,
+          comanda.mesaId,
+          comanda.funcionarioId,
+          comanda.status,
+          dataMySql(new Date(comanda.abertaEm))
+        ]);
+        for (const item of comanda.itens) {
+          await inserirItemComanda(conexao, idEstabelecimento, comanda.id, item);
+        }
+      }
+
+      for (const pedido of pedidosSeed) {
+        await conexao.execute(`
+          INSERT INTO pedidos
+            (id_estabelecimento, id, origem, cliente, telefone, email, status, pagamento, rua, numero,
+             bairro, complemento, referencia, taxa_entrega_centavos,
+             total_centavos, comanda_id, mesa_id, funcionario_id, criado_em)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          idEstabelecimento,
+          pedido.id,
+          pedido.origem,
+          pedido.cliente,
+          pedido.telefone,
+          pedido.email ?? null,
+          pedido.status,
+          pedido.pagamento,
+          pedido.rua ?? null,
+          pedido.numero ?? null,
+          pedido.bairro ?? null,
+          pedido.complemento ?? null,
+          pedido.referencia ?? null,
+          pedido.taxaEntregaCentavos,
+          pedido.totalCentavos,
+          pedido.comandaId ?? null,
+          pedido.mesaId ?? null,
+          pedido.funcionarioId ?? null,
+          dataMySql(new Date(pedido.criadoEm))
+        ]);
+        for (const item of pedido.itens) {
+          await inserirItemPedido(conexao, idEstabelecimento, pedido.id, item);
+        }
+        await conexao.execute(`
+          INSERT INTO pagamentos
+            (id_estabelecimento, pedido_id, comanda_id, forma, status, valor_centavos, pago_em)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `, [
+          idEstabelecimento,
+          pedido.id,
+          pedido.comandaId ?? null,
+          pedido.pagamento,
+          pedido.origem === 'mesa'
+            ? 'Pago'
+            : pedido.pagamento === 'Pix' ? 'Aguardando pagamento' : 'Pagamento na entrega',
+          pedido.totalCentavos,
+          pedido.origem === 'mesa' ? dataMySql(new Date(pedido.criadoEm)) : null
+        ]);
+      }
+    }
+
+    const configuracaoInicial = incluirDadosDemonstracao
+      ? configuracaoSeed
+      : {
+          nomeLoja: '',
+          telefone: '',
+          email: '',
+          endereco: '',
+          taxaEntregaCentavos: 0,
+          tempoEntrega: '',
+          pedidoMinimoCentavos: 0,
+          lojaAberta: false
+        };
+    await conexao.execute(`
+      UPDATE estabelecimentos
+      SET nome_fantasia = ?
+      WHERE id_estabelecimento = ?
+    `, [configuracaoInicial.nomeLoja || 'Estabelecimento padrão', idEstabelecimento]);
+    await conexao.execute(`
+      INSERT INTO configuracoes_estabelecimento
+        (id_estabelecimento, telefone, email, endereco, taxa_entrega_centavos,
+         tempo_entrega, pedido_minimo_centavos, loja_aberta, entrega_ativa,
+         retirada_ativa, atendimento_garcom_ativo, aceita_cartao, aceita_dinheiro)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        telefone = VALUES(telefone),
+        email = VALUES(email),
+        endereco = VALUES(endereco),
+        taxa_entrega_centavos = VALUES(taxa_entrega_centavos),
+        tempo_entrega = VALUES(tempo_entrega),
+        pedido_minimo_centavos = VALUES(pedido_minimo_centavos),
+        loja_aberta = VALUES(loja_aberta),
+        entrega_ativa = VALUES(entrega_ativa),
+        retirada_ativa = VALUES(retirada_ativa),
+        atendimento_garcom_ativo = VALUES(atendimento_garcom_ativo),
+        aceita_cartao = VALUES(aceita_cartao),
+        aceita_dinheiro = VALUES(aceita_dinheiro)
+    `, [
+      idEstabelecimento,
+      configuracaoInicial.telefone,
+      configuracaoInicial.email,
+      configuracaoInicial.endereco,
+      configuracaoInicial.taxaEntregaCentavos,
+      configuracaoInicial.tempoEntrega,
+      configuracaoInicial.pedidoMinimoCentavos,
+      configuracaoInicial.lojaAberta ? 1 : 0,
+      incluirDadosDemonstracao ? 1 : 0,
+      incluirDadosDemonstracao ? 1 : 0,
+      incluirDadosDemonstracao ? 1 : 0,
+      incluirDadosDemonstracao ? 1 : 0,
+      incluirDadosDemonstracao ? 1 : 0
+    ]);
+    await marcarMetadado(conexao, 'operacao_inicial_criada');
+  });
+}
+
+async function criarPool(configuracaoMySql) {
+  const nomeBanco = validarNomeBanco(configuracaoMySql.database);
+  const configuracaoBase = await configuracaoBaseMySql(configuracaoMySql);
+  return mysql.createPool({
+    ...configuracaoBase,
+    database: nomeBanco,
+    waitForConnections: true,
+    connectionLimit: Number(configuracaoMySql.connectionLimit) || 10,
+    queueLimit: 0
+  });
+}
+
+export async function abrirBanco({ mysql: configuracaoMySql }) {
+  const banco = await criarPool(configuracaoMySql);
+  try {
+    await banco.query('SELECT 1 AS conexao');
+    return banco;
+  } catch (erro) {
+    await banco.end();
     throw erro;
   }
 }
 
-function criarAdministradorInicial(banco, administrador) {
-  const existente = banco.prepare('SELECT * FROM administradores ORDER BY id LIMIT 1').get();
-  if (existente) {
-    const credenciaisMudaram = administrador.sincronizarCredenciais && (
-      existente.usuario !== administrador.usuario
-      || existente.email !== administrador.email
-      || existente.nome !== administrador.nome
-      || !verificarSenha(administrador.senha, existente.senha_hash)
-    );
+export async function prepararBanco({
+  mysql: configuracaoMySql,
+  administrador,
+  incluirDadosDemonstracao = false,
+  pinFuncionarioDemonstracao = null,
+  slugEstabelecimento = 'estabelecimento-padrao'
+}) {
+  if (!administrador?.senha) throw new Error('Defina ADMIN_PASSWORD para preparar o banco.');
+  if (pinFuncionarioDemonstracao && !/^\d{4,6}$/.test(pinFuncionarioDemonstracao)) {
+    throw new Error('DEMO_WAITER_PIN deve conter de 4 a 6 dígitos.');
+  }
+  const nomeBanco = validarNomeBanco(configuracaoMySql.database);
+  const configuracaoBase = await configuracaoBaseMySql(configuracaoMySql);
 
-    if (credenciaisMudaram) {
-      executarTransacao(banco, () => {
-        banco.prepare(`
-          UPDATE administradores
-          SET usuario = ?, email = ?, nome = ?, senha_hash = ?, atualizado_em = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(
-          administrador.usuario,
-          administrador.email,
-          administrador.nome,
-          criarHashSenha(administrador.senha),
-          existente.id
-        );
-        banco.prepare('DELETE FROM sessoes_admin WHERE administrador_id = ?').run(existente.id);
-      });
+  if (configuracaoMySql.criarBancoSeAusente !== false) {
+    const inicial = await mysql.createConnection(configuracaoBase);
+    try {
+      await inicial.query(`CREATE DATABASE IF NOT EXISTS \`${nomeBanco}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+    } finally {
+      await inicial.end();
     }
-    return;
   }
 
-  banco.prepare(`
-    INSERT INTO administradores (usuario, email, nome, senha_hash)
-    VALUES (?, ?, ?, ?)
-  `).run(
-    administrador.usuario,
-    administrador.email,
-    administrador.nome,
-    criarHashSenha(administrador.senha)
-  );
-}
-
-function criarCatalogoInicial(banco) {
-  const inicializado = banco.prepare(`
-    SELECT valor FROM metadados WHERE chave = 'catalogo_inicial_criado'
-  `).get();
-  if (inicializado) return;
-
-  const quantidade = banco.prepare('SELECT COUNT(*) AS total FROM produtos').get().total;
-  if (quantidade > 0) {
-    banco.prepare(`
-      INSERT INTO metadados (chave, valor) VALUES ('catalogo_inicial_criado', '1')
-    `).run();
-    return;
-  }
-
-  executarTransacao(banco, () => {
-    const inserirCategoria = banco.prepare(`
-      INSERT OR IGNORE INTO categorias (id, nome, ordem, ativo) VALUES (?, ?, ?, 1)
+  const banco = await criarPool(configuracaoMySql);
+  try {
+    const [tabelasExistentes] = await banco.query(`
+      SELECT COUNT(*) AS total
+      FROM information_schema.tables
+      WHERE table_schema = DATABASE()
     `);
-    const inserirAdicional = banco.prepare(`
-      INSERT OR IGNORE INTO adicionais (id, nome, preco_centavos, ativo) VALUES (?, ?, ?, 1)
-    `);
-    const inserirProduto = banco.prepare(`
-      INSERT OR IGNORE INTO produtos
-        (id, categoria_id, nome, descricao, preco_centavos, imagem_url, destaque, ativo)
-      VALUES (?, ?, ?, ?, ?, NULL, ?, 1)
-    `);
-    const vincularAdicional = banco.prepare(`
-      INSERT OR IGNORE INTO produto_adicionais (produto_id, adicional_id) VALUES (?, ?)
-    `);
-
-    categoriasSeed.forEach((categoria) => inserirCategoria.run(categoria.id, categoria.nome, categoria.ordem));
-    adicionaisSeed.forEach((adicional) => inserirAdicional.run(adicional.id, adicional.nome, adicional.precoCentavos));
-    produtosSeed.forEach((produto) => {
-      inserirProduto.run(
-        produto.id,
-        produto.categoriaId,
-        produto.nome,
-        produto.descricao,
-        produto.precoCentavos,
-        produto.destaque ?? null
+    if (Number(tabelasExistentes[0]?.total) > 0) {
+      throw new Error(
+        'O preparo inicial exige um banco vazio. Para um banco existente, use npm run db:migrate.'
       );
-      produto.adicionaisIds.forEach((adicionalId) => vincularAdicional.run(produto.id, adicionalId));
+    }
+    await aplicarEstruturaInicial(banco);
+    await registrarBaselineMigracoes(banco);
+    const idEstabelecimento = await criarEstabelecimentoInicial(banco, {
+      slug: slugEstabelecimento,
+      nomeFantasia: incluirDadosDemonstracao
+        ? configuracaoSeed.nomeLoja || 'Estabelecimento padrão'
+        : 'Estabelecimento padrão'
     });
-    banco.prepare(`
-      INSERT INTO metadados (chave, valor) VALUES ('catalogo_inicial_criado', '1')
-    `).run();
-  });
+    await revogarCredenciaisDemonstracaoLegadas(banco, idEstabelecimento);
+    await criarAdministradorInicial(banco, administrador, idEstabelecimento);
+    await criarCatalogoInicial(banco, idEstabelecimento, incluirDadosDemonstracao);
+    await criarOperacaoInicial(
+      banco,
+      idEstabelecimento,
+      incluirDadosDemonstracao,
+      pinFuncionarioDemonstracao
+    );
+    return banco;
+  } catch (erro) {
+    await banco.end();
+    throw erro;
+  }
 }
 
-function criarConfiguracaoInicial(banco) {
-  banco.prepare(`
-    INSERT OR IGNORE INTO configuracoes (
-      id, nome_loja, telefone, email, endereco, taxa_entrega_centavos,
-      tempo_entrega, pedido_minimo_centavos, loja_aberta
-    ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, 1)
-  `).run(
-    'Hamburgueria',
-    '(11) 99999-9999',
-    'contato@hamburgueria.com',
-    'Rua Principal, 100 - Centro',
-    790,
-    '35–45 min',
-    2000
-  );
+export async function fecharBanco(banco) {
+  await banco.end();
 }
-
-export function abrirBanco({ caminho, administrador }) {
-  if (caminho !== ':memory:') mkdirSync(dirname(caminho), { recursive: true });
-
-  const banco = new DatabaseSync(caminho);
-  banco.exec('PRAGMA journal_mode = WAL');
-  banco.exec(SCHEMA);
-  criarAdministradorInicial(banco, administrador);
-  criarCatalogoInicial(banco);
-  criarConfiguracaoInicial(banco);
-  return banco;
-}
-
-export { executarTransacao };
