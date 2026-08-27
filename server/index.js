@@ -10,7 +10,10 @@ const servidor = criarServidor({
   pastaDist: config.pastaDist,
   producao: config.producao,
   corsOrigins: config.corsOrigins,
-  publicSiteUrl: config.publicSiteUrl
+  publicSiteUrl: config.publicSiteUrl,
+  dominioPrincipal: config.dominioPrincipal,
+  tenantDesenvolvimento: config.tenantDesenvolvimento,
+  jwtSecret: config.jwtSecret
 });
 
 await aguardarServidor(servidor, config.porta);

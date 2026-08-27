@@ -12,7 +12,8 @@ const banco = await prepararBanco({
   mysql: config.mysql,
   administrador: config.administrador,
   incluirDadosDemonstracao: config.incluirDadosDemonstracao,
-  pinFuncionarioDemonstracao: config.pinFuncionarioDemonstracao
+  pinFuncionarioDemonstracao: config.pinFuncionarioDemonstracao,
+  slugEstabelecimento: config.tenantDesenvolvimento
 });
 await fecharBanco(banco);
 console.log('Banco preparado explicitamente com a estrutura e os dados iniciais atuais.');

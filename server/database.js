@@ -96,15 +96,16 @@ async function configuracaoBaseMySql(configuracaoMySql) {
   };
 }
 
-async function revogarCredenciaisDemonstracaoLegadas(banco) {
+async function revogarCredenciaisDemonstracaoLegadas(banco, idEstabelecimento) {
   const hashesTokensLegados = [
     'eae37569f974549b25e5d60627f12fbef1dafe4f79a950eff455a62b38c7b9c1',
     '816711d2b11be214316287916c7a1f3bd61ca9be413755f8dbb1d51bfac9fb36'
   ];
   const marcadores = hashesTokensLegados.map(() => '?').join(', ');
   const [funcionarios] = await banco.execute(`
-    SELECT id FROM funcionarios WHERE SHA2(token_acesso, 256) IN (${marcadores})
-  `, hashesTokensLegados);
+    SELECT id FROM funcionarios
+    WHERE id_estabelecimento = ? AND SHA2(token_acesso, 256) IN (${marcadores})
+  `, [idEstabelecimento, ...hashesTokensLegados]);
   if (funcionarios.length === 0) return;
 
   await executarTransacao(banco, async (conexao) => {
@@ -114,9 +115,12 @@ async function revogarCredenciaisDemonstracaoLegadas(banco) {
       await conexao.execute(`
         UPDATE funcionarios
         SET pin_hash = ?, token_acesso = ?, ativo = 0
-        WHERE id = ?
-      `, [criarHashSenha(pinAleatorio), tokenAleatorio, funcionario.id]);
-      await conexao.execute('DELETE FROM sessoes_garcom WHERE funcionario_id = ?', [funcionario.id]);
+        WHERE id = ? AND id_estabelecimento = ?
+      `, [criarHashSenha(pinAleatorio), tokenAleatorio, funcionario.id, idEstabelecimento]);
+      await conexao.execute(`
+        DELETE FROM sessoes_garcom
+        WHERE funcionario_id = ? AND id_estabelecimento = ?
+      `, [funcionario.id, idEstabelecimento]);
     }
   });
 }
@@ -136,14 +140,51 @@ export async function executarTransacao(banco, operacao) {
   }
 }
 
-export async function criarAdministradorInicial(banco, administrador) {
-  const [linhas] = await banco.execute('SELECT id FROM administradores ORDER BY id LIMIT 1');
+export async function criarEstabelecimentoInicial(
+  banco,
+  { slug = 'estabelecimento-padrao', nomeFantasia = 'Estabelecimento padrão' } = {}
+) {
+  const slugNormalizado = String(slug).trim().toLowerCase();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slugNormalizado)) {
+    throw new Error('O slug do estabelecimento inicial é inválido.');
+  }
+  await banco.execute(`
+    INSERT INTO estabelecimentos
+      (nome_fantasia, slug, status, plano, status_assinatura)
+    SELECT ?, ?, 'ativo', 'basico', 'ativa'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM estabelecimentos WHERE slug = ?
+    )
+  `, [nomeFantasia || 'Estabelecimento padrão', slugNormalizado, slugNormalizado]);
+  const [linhas] = await banco.execute(`
+    SELECT id_estabelecimento
+    FROM estabelecimentos
+    WHERE slug = ?
+    LIMIT 1
+  `, [slugNormalizado]);
+  const idEstabelecimento = Number(linhas[0]?.id_estabelecimento);
+  if (!idEstabelecimento) throw new Error('Não foi possível criar o estabelecimento inicial.');
+  await banco.execute(`
+    INSERT INTO configuracoes_estabelecimento (id_estabelecimento)
+    VALUES (?)
+    ON DUPLICATE KEY UPDATE id_estabelecimento = VALUES(id_estabelecimento)
+  `, [idEstabelecimento]);
+  return idEstabelecimento;
+}
+
+export async function criarAdministradorInicial(banco, administrador, idEstabelecimento) {
+  const idTenant = Number(idEstabelecimento) || await criarEstabelecimentoInicial(banco);
+  const [linhas] = await banco.execute(`
+    SELECT id FROM administradores
+    WHERE id_estabelecimento = ?
+    ORDER BY id LIMIT 1
+  `, [idTenant]);
   const existente = linhas[0];
   if (!existente) {
     await banco.execute(`
-      INSERT INTO administradores (usuario, email, nome, senha_hash)
-      VALUES (?, ?, ?, ?)
-    `, [administrador.usuario, administrador.email, administrador.nome, criarHashSenha(administrador.senha)]);
+      INSERT INTO administradores (id_estabelecimento, usuario, email, nome, senha_hash)
+      VALUES (?, ?, ?, ?, ?)
+    `, [idTenant, administrador.usuario, administrador.email, administrador.nome, criarHashSenha(administrador.senha)]);
     return;
   }
 
@@ -152,15 +193,19 @@ export async function criarAdministradorInicial(banco, administrador) {
     await conexao.execute(`
       UPDATE administradores
       SET usuario = ?, email = ?, nome = ?, senha_hash = ?
-      WHERE id = ?
+      WHERE id = ? AND id_estabelecimento = ?
     `, [
       administrador.usuario,
       administrador.email,
       administrador.nome,
       criarHashSenha(administrador.senha),
-      existente.id
+      existente.id,
+      idTenant
     ]);
-    await conexao.execute('DELETE FROM sessoes_admin WHERE administrador_id = ?', [existente.id]);
+    await conexao.execute(`
+      DELETE FROM sessoes_admin
+      WHERE administrador_id = ? AND id_estabelecimento = ?
+    `, [existente.id, idTenant]);
   });
 }
 
@@ -176,10 +221,12 @@ async function marcarMetadado(conexao, chave) {
   `, [chave]);
 }
 
-async function criarCatalogoInicial(banco, incluirDadosDemonstracao) {
+async function criarCatalogoInicial(banco, idEstabelecimento, incluirDadosDemonstracao) {
   if (await metadadoExiste(banco, 'catalogo_inicial_criado')) return;
 
-  const [[{ total }]] = await banco.query('SELECT COUNT(*) AS total FROM produtos');
+  const [[{ total }]] = await banco.execute(`
+    SELECT COUNT(*) AS total FROM produtos WHERE id_estabelecimento = ?
+  `, [idEstabelecimento]);
   if (Number(total) > 0) {
     await banco.execute("INSERT INTO metadados (chave, valor) VALUES ('catalogo_inicial_criado', '1')");
     return;
@@ -188,25 +235,37 @@ async function criarCatalogoInicial(banco, incluirDadosDemonstracao) {
   await executarTransacao(banco, async (conexao) => {
     for (const categoria of categoriasSeed) {
       await conexao.execute(`
-        INSERT INTO categorias (id, nome, ordem, ativo) VALUES (?, ?, ?, 1)
-      `, [categoria.id, categoria.nome, categoria.ordem]);
+        INSERT INTO categorias (id_estabelecimento, id, nome, ordem, ativo)
+        VALUES (?, ?, ?, ?, 1)
+      `, [idEstabelecimento, categoria.id, categoria.nome, categoria.ordem]);
     }
     if (incluirDadosDemonstracao) {
       for (const adicional of adicionaisSeed) {
         await conexao.execute(`
-          INSERT INTO adicionais (id, nome, preco_centavos, ativo) VALUES (?, ?, ?, 1)
-        `, [adicional.id, adicional.nome, adicional.precoCentavos]);
+          INSERT INTO adicionais (id_estabelecimento, id, nome, preco_centavos, ativo)
+          VALUES (?, ?, ?, ?, 1)
+        `, [idEstabelecimento, adicional.id, adicional.nome, adicional.precoCentavos]);
       }
       for (const produto of produtosSeed) {
         await conexao.execute(`
           INSERT INTO produtos
-            (id, categoria_id, nome, descricao, preco_centavos, imagem_url, destaque, ativo)
-          VALUES (?, ?, ?, ?, ?, NULL, ?, 1)
-        `, [produto.id, produto.categoriaId, produto.nome, produto.descricao, produto.precoCentavos, produto.destaque ?? null]);
+            (id_estabelecimento, id, categoria_id, nome, descricao,
+             preco_centavos, imagem_url, destaque, ativo)
+          VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 1)
+        `, [
+          idEstabelecimento,
+          produto.id,
+          produto.categoriaId,
+          produto.nome,
+          produto.descricao,
+          produto.precoCentavos,
+          produto.destaque ?? null
+        ]);
         for (const adicionalId of produto.adicionaisIds) {
           await conexao.execute(`
-            INSERT INTO produto_adicionais (produto_id, adicional_id) VALUES (?, ?)
-          `, [produto.id, adicionalId]);
+            INSERT INTO produto_adicionais (id_estabelecimento, produto_id, adicional_id)
+            VALUES (?, ?, ?)
+          `, [idEstabelecimento, produto.id, adicionalId]);
         }
       }
     }
@@ -214,30 +273,35 @@ async function criarCatalogoInicial(banco, incluirDadosDemonstracao) {
   });
 }
 
-async function inserirItemComanda(conexao, comandaId, item) {
+async function inserirItemComanda(conexao, idEstabelecimento, comandaId, item) {
   const [resultado] = await conexao.execute(`
     INSERT INTO comanda_itens
-      (comanda_id, produto_id, nome_produto, preco_unitario_centavos, quantidade, observacao)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `, [comandaId, item.produtoId, item.nome, item.precoCentavos, item.quantidade, item.observacao ?? null]);
+      (id_estabelecimento, comanda_id, produto_id, nome_produto,
+       preco_unitario_centavos, quantidade, observacao)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `, [idEstabelecimento, comandaId, item.produtoId, item.nome, item.precoCentavos, item.quantidade, item.observacao ?? null]);
   for (const adicional of item.adicionais ?? []) {
     await conexao.execute(`
       INSERT INTO comanda_item_adicionais
-        (comanda_item_id, adicional_id, nome_adicional, preco_centavos)
-      VALUES (?, ?, ?, ?)
-    `, [resultado.insertId, adicional.id, adicional.nome, adicional.precoCentavos]);
+        (id_estabelecimento, comanda_item_id, adicional_id, nome_adicional, preco_centavos)
+      VALUES (?, ?, ?, ?, ?)
+    `, [idEstabelecimento, resultado.insertId, adicional.id, adicional.nome, adicional.precoCentavos]);
   }
 }
 
-async function inserirItemPedido(conexao, pedidoId, item) {
-  const [produtoLinhas] = await conexao.execute('SELECT descricao, imagem_url FROM produtos WHERE id = ?', [item.produtoId]);
+async function inserirItemPedido(conexao, idEstabelecimento, pedidoId, item) {
+  const [produtoLinhas] = await conexao.execute(`
+    SELECT descricao, imagem_url FROM produtos
+    WHERE id = ? AND id_estabelecimento = ?
+  `, [item.produtoId, idEstabelecimento]);
   const produto = produtoLinhas[0];
   const [resultado] = await conexao.execute(`
     INSERT INTO pedido_itens
-      (pedido_id, produto_id, nome_produto, descricao_produto, imagem_url,
+      (id_estabelecimento, pedido_id, produto_id, nome_produto, descricao_produto, imagem_url,
        preco_unitario_centavos, quantidade, observacao)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
+    idEstabelecimento,
     pedidoId,
     item.produtoId,
     item.nome,
@@ -250,16 +314,25 @@ async function inserirItemPedido(conexao, pedidoId, item) {
   for (const adicional of item.adicionais ?? []) {
     await conexao.execute(`
       INSERT INTO pedido_item_adicionais
-        (pedido_item_id, adicional_id, nome_adicional, preco_centavos)
-      VALUES (?, ?, ?, ?)
-    `, [resultado.insertId, adicional.id, adicional.nome, adicional.precoCentavos]);
+        (id_estabelecimento, pedido_item_id, adicional_id, nome_adicional, preco_centavos)
+      VALUES (?, ?, ?, ?, ?)
+    `, [idEstabelecimento, resultado.insertId, adicional.id, adicional.nome, adicional.precoCentavos]);
   }
 }
 
-async function criarOperacaoInicial(banco, incluirDadosDemonstracao, pinFuncionarioDemonstracao) {
+async function criarOperacaoInicial(
+  banco,
+  idEstabelecimento,
+  incluirDadosDemonstracao,
+  pinFuncionarioDemonstracao
+) {
   if (await metadadoExiste(banco, 'operacao_inicial_criada')) return;
 
-  const [[{ total }]] = await banco.query('SELECT COUNT(*) AS total FROM funcionarios');
+  const [[{ total }]] = await banco.execute(`
+    SELECT COUNT(*) AS total
+    FROM funcionarios
+    WHERE id_estabelecimento = ?
+  `, [idEstabelecimento]);
   if (Number(total) > 0) {
     await banco.execute("INSERT INTO metadados (chave, valor) VALUES ('operacao_inicial_criada', '1')");
     return;
@@ -268,18 +341,20 @@ async function criarOperacaoInicial(banco, incluirDadosDemonstracao, pinFunciona
   await executarTransacao(banco, async (conexao) => {
     for (const mesa of mesasSeed) {
       await conexao.execute(`
-        INSERT INTO mesas (id, numero, lugares, ativo) VALUES (?, ?, ?, 1)
-      `, [mesa.id, mesa.numero, mesa.lugares]);
+        INSERT INTO mesas (id_estabelecimento, id, numero, lugares, ativo)
+        VALUES (?, ?, ?, ?, 1)
+      `, [idEstabelecimento, mesa.id, mesa.numero, mesa.lugares]);
     }
 
     if (incluirDadosDemonstracao) {
       for (const promocao of promocoesSeed) {
         await conexao.execute(`
           INSERT INTO promocoes
-            (id, produto_id, nome, categoria, descricao, preco_anterior_centavos,
+            (id_estabelecimento, id, produto_id, nome, categoria, descricao, preco_anterior_centavos,
              preco_centavos, destaque, tipo, ativo)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
         `, [
+          idEstabelecimento,
           promocao.id,
           promocao.produtoId,
           promocao.nome,
@@ -296,27 +371,39 @@ async function criarOperacaoInicial(banco, incluirDadosDemonstracao, pinFunciona
         const pin = pinFuncionarioDemonstracao || String(randomInt(100000, 1000000));
         const token = `garcom-${randomUUID().replaceAll('-', '')}`;
         await conexao.execute(`
-          INSERT INTO funcionarios (id, nome, cargo, pin_hash, token_acesso, ativo)
-          VALUES (?, ?, ?, ?, ?, 1)
-        `, [funcionario.id, funcionario.nome, funcionario.cargo, criarHashSenha(pin), token]);
+          INSERT INTO funcionarios
+            (id_estabelecimento, id, nome, cargo, pin_hash, token_acesso, ativo)
+          VALUES (?, ?, ?, ?, ?, ?, 1)
+        `, [idEstabelecimento, funcionario.id, funcionario.nome, funcionario.cargo, criarHashSenha(pin), token]);
       }
 
       for (const comanda of comandasSeed) {
         await conexao.execute(`
-          INSERT INTO comandas (id, mesa_id, funcionario_id, status, aberta_em)
-          VALUES (?, ?, ?, ?, ?)
-        `, [comanda.id, comanda.mesaId, comanda.funcionarioId, comanda.status, dataMySql(new Date(comanda.abertaEm))]);
-        for (const item of comanda.itens) await inserirItemComanda(conexao, comanda.id, item);
+          INSERT INTO comandas
+            (id_estabelecimento, id, mesa_id, funcionario_id, status, aberta_em)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `, [
+          idEstabelecimento,
+          comanda.id,
+          comanda.mesaId,
+          comanda.funcionarioId,
+          comanda.status,
+          dataMySql(new Date(comanda.abertaEm))
+        ]);
+        for (const item of comanda.itens) {
+          await inserirItemComanda(conexao, idEstabelecimento, comanda.id, item);
+        }
       }
 
       for (const pedido of pedidosSeed) {
         await conexao.execute(`
           INSERT INTO pedidos
-            (id, origem, cliente, telefone, email, status, pagamento, rua, numero,
+            (id_estabelecimento, id, origem, cliente, telefone, email, status, pagamento, rua, numero,
              bairro, complemento, referencia, taxa_entrega_centavos,
              total_centavos, comanda_id, mesa_id, funcionario_id, criado_em)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
+          idEstabelecimento,
           pedido.id,
           pedido.origem,
           pedido.cliente,
@@ -336,11 +423,15 @@ async function criarOperacaoInicial(banco, incluirDadosDemonstracao, pinFunciona
           pedido.funcionarioId ?? null,
           dataMySql(new Date(pedido.criadoEm))
         ]);
-        for (const item of pedido.itens) await inserirItemPedido(conexao, pedido.id, item);
+        for (const item of pedido.itens) {
+          await inserirItemPedido(conexao, idEstabelecimento, pedido.id, item);
+        }
         await conexao.execute(`
-          INSERT INTO pagamentos (pedido_id, comanda_id, forma, status, valor_centavos, pago_em)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO pagamentos
+            (id_estabelecimento, pedido_id, comanda_id, forma, status, valor_centavos, pago_em)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
         `, [
+          idEstabelecimento,
           pedido.id,
           pedido.comandaId ?? null,
           pedido.pagamento,
@@ -366,13 +457,31 @@ async function criarOperacaoInicial(banco, incluirDadosDemonstracao, pinFunciona
           lojaAberta: false
         };
     await conexao.execute(`
-      INSERT INTO configuracoes
-        (id, nome_loja, telefone, email, endereco, taxa_entrega_centavos,
+      UPDATE estabelecimentos
+      SET nome_fantasia = ?
+      WHERE id_estabelecimento = ?
+    `, [configuracaoInicial.nomeLoja || 'Estabelecimento padrão', idEstabelecimento]);
+    await conexao.execute(`
+      INSERT INTO configuracoes_estabelecimento
+        (id_estabelecimento, telefone, email, endereco, taxa_entrega_centavos,
          tempo_entrega, pedido_minimo_centavos, loja_aberta, entrega_ativa,
-         aceita_cartao, aceita_dinheiro)
-      VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         retirada_ativa, atendimento_garcom_ativo, aceita_cartao, aceita_dinheiro)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        telefone = VALUES(telefone),
+        email = VALUES(email),
+        endereco = VALUES(endereco),
+        taxa_entrega_centavos = VALUES(taxa_entrega_centavos),
+        tempo_entrega = VALUES(tempo_entrega),
+        pedido_minimo_centavos = VALUES(pedido_minimo_centavos),
+        loja_aberta = VALUES(loja_aberta),
+        entrega_ativa = VALUES(entrega_ativa),
+        retirada_ativa = VALUES(retirada_ativa),
+        atendimento_garcom_ativo = VALUES(atendimento_garcom_ativo),
+        aceita_cartao = VALUES(aceita_cartao),
+        aceita_dinheiro = VALUES(aceita_dinheiro)
     `, [
-      configuracaoInicial.nomeLoja,
+      idEstabelecimento,
       configuracaoInicial.telefone,
       configuracaoInicial.email,
       configuracaoInicial.endereco,
@@ -380,6 +489,8 @@ async function criarOperacaoInicial(banco, incluirDadosDemonstracao, pinFunciona
       configuracaoInicial.tempoEntrega,
       configuracaoInicial.pedidoMinimoCentavos,
       configuracaoInicial.lojaAberta ? 1 : 0,
+      incluirDadosDemonstracao ? 1 : 0,
+      incluirDadosDemonstracao ? 1 : 0,
       incluirDadosDemonstracao ? 1 : 0,
       incluirDadosDemonstracao ? 1 : 0,
       incluirDadosDemonstracao ? 1 : 0
@@ -415,7 +526,8 @@ export async function prepararBanco({
   mysql: configuracaoMySql,
   administrador,
   incluirDadosDemonstracao = false,
-  pinFuncionarioDemonstracao = null
+  pinFuncionarioDemonstracao = null,
+  slugEstabelecimento = 'estabelecimento-padrao'
 }) {
   if (!administrador?.senha) throw new Error('Defina ADMIN_PASSWORD para preparar o banco.');
   if (pinFuncionarioDemonstracao && !/^\d{4,6}$/.test(pinFuncionarioDemonstracao)) {
@@ -447,10 +559,21 @@ export async function prepararBanco({
     }
     await aplicarEstruturaInicial(banco);
     await registrarBaselineMigracoes(banco);
-    await revogarCredenciaisDemonstracaoLegadas(banco);
-    await criarAdministradorInicial(banco, administrador);
-    await criarCatalogoInicial(banco, incluirDadosDemonstracao);
-    await criarOperacaoInicial(banco, incluirDadosDemonstracao, pinFuncionarioDemonstracao);
+    const idEstabelecimento = await criarEstabelecimentoInicial(banco, {
+      slug: slugEstabelecimento,
+      nomeFantasia: incluirDadosDemonstracao
+        ? configuracaoSeed.nomeLoja || 'Estabelecimento padrão'
+        : 'Estabelecimento padrão'
+    });
+    await revogarCredenciaisDemonstracaoLegadas(banco, idEstabelecimento);
+    await criarAdministradorInicial(banco, administrador, idEstabelecimento);
+    await criarCatalogoInicial(banco, idEstabelecimento, incluirDadosDemonstracao);
+    await criarOperacaoInicial(
+      banco,
+      idEstabelecimento,
+      incluirDadosDemonstracao,
+      pinFuncionarioDemonstracao
+    );
     return banco;
   } catch (erro) {
     await banco.end();

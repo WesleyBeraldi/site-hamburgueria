@@ -4,21 +4,24 @@ Aplicação responsiva com três áreas integradas: cliente, administrador e gar
 
 ## Recursos conectados ao MySQL
 
-- login e sessões do administrador;
+- login e sessões revogáveis do administrador com JWT assinado;
 - múltiplos administradores, troca segura de senha e auditoria das ações críticas;
 - categorias administráveis, produtos, fotos, adicionais e vínculos por produto;
 - promoções exibidas no site;
 - pedidos de delivery e retirada, itens, adicionais, pagamentos e acompanhamento;
 - confirmação manual e idempotente de pagamentos, cancelamento e estorno com autor e horário;
 - funcionários com PIN protegido por `scrypt` e token individual para QR Code;
-- sessões do garçom, mesas, comandas e itens da comanda;
+- sessões revogáveis do garçom com JWT, mesas, comandas e itens da comanda;
 - vínculo automático entre garçom, mesa, comanda e pedido do salão;
 - identidade e operação da lanchonete: nome, logo, contatos, horário, redes sociais, status, delivery, áreas, taxas, mínimo e pagamentos;
 - dados de dashboard e relatórios calculados a partir dos registros compartilhados.
 
 O carrinho permanece no navegador somente até o cliente finalizar a compra. Ao abrir o carrinho e antes do checkout, a API remove itens indisponíveis e atualiza preço, promoção e adicionais. Na criação do pedido, o servidor recalcula tudo novamente, inclusive taxa por bairro e pedido mínimo, e grava pedido, itens e pagamento na mesma transação. Cada tentativa leva uma chave idempotente para que reenvios não criem pedidos duplicados.
 
-O banco já contém a fundação das entidades `estabelecimentos` e `configuracoes_estabelecimento`, além das migrations que associam os registros atuais a um estabelecimento padrão. As colunas de escopo permanecem nullable até que todas as consultas e escritas sejam atualizadas; portanto, esta versão continua operando como uma instalação de estabelecimento único.
+O backend identifica o estabelecimento pelo domínio, subdomínio ou slug local e
+aplica `id_estabelecimento` em todas as operações de negócio. JWTs assinados
+carregam usuário, perfil, tenant e indicação de superadministrador; o backend
+confirma essas informações contra o domínio e a sessão revogável no MySQL.
 
 ## Requisitos
 
@@ -56,6 +59,10 @@ DB_USER=hamburgueria_app
 DB_PASSWORD=sua-senha-local-da-aplicacao
 DB_NAME=hamburgueria
 
+DOMINIO_PRINCIPAL=meusistema.com.br
+TENANT_DESENVOLVIMENTO=estabelecimento-padrao
+JWT_SECRET=gere-um-segredo-aleatorio-com-pelo-menos-32-bytes
+
 ADMIN_USER=admin
 ADMIN_EMAIL=admin@exemplo.com
 ADMIN_PASSWORD=uma-senha-administrativa-segura
@@ -68,7 +75,15 @@ npm run criar-admin-inicial
 npm run db:check
 ```
 
-O `.env` é ignorado pelo Git. Nunca envie senhas ao repositório. `ADMIN_PASSWORD` é lido pelos comandos explícitos de preparação/administração, não pelo startup do servidor. Para uma instalação local totalmente vazia, `npm run db:prepare` pode criar e preparar o schema; ele recusa schemas que já possuam tabelas. Consulte [`database/README.md`](database/README.md) antes de preparar ou migrar um ambiente.
+O `.env` é ignorado pelo Git. Nunca envie senhas ou `JWT_SECRET` ao
+repositório. Em produção, `JWT_SECRET` é obrigatório e deve possuir pelo menos
+32 bytes. Em desenvolvimento, sua ausência gera um segredo temporário e todas
+as sessões são invalidadas ao reiniciar o processo. `ADMIN_PASSWORD` é lido
+pelos comandos explícitos de preparação/administração, não pelo startup do
+servidor. Para uma instalação local totalmente vazia, `npm run db:prepare` pode
+criar e preparar o schema; ele recusa schemas que já possuam tabelas. Consulte
+[`database/README.md`](database/README.md) antes de preparar ou migrar um
+ambiente.
 
 ## Executar localmente
 
@@ -114,9 +129,15 @@ Os testes de integração exigem configuração própria e usam um banco isolado
 - `GET /api/saude`
 - `GET /api/catalogo`
 - `GET /api/publico/inicial`
+- `GET /api/publico/configuracao`
 - `POST /api/pedidos`
 - `POST /api/carrinho/validar`
 - `GET /api/pedidos/:codigo?token=...`
+
+As configurações públicas são sempre selecionadas pelo domínio da requisição.
+A API publica somente o contrato necessário ao site — identidade visual,
+contatos, atendimento, pagamentos, entrega e textos legais — e não aceita um
+`id_estabelecimento` informado pelo navegador para trocar esse escopo.
 
 ### Administrador
 

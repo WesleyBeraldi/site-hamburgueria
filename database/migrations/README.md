@@ -23,4 +23,9 @@ A pasta `legado/` preserva o histórico anterior e não é executada pelo runner
   copia a configuração atual e faz o backfill sem excluir registros.
 - `004_adicionar_integridade_estabelecimento.sql`: adiciona índices e FKs para
   o estabelecimento depois do backfill, mantendo compatibilidade de escrita.
+- `005_preservar_redes_configuracao.sql`: completa a configuração multiempresa
+  e preserva as redes sociais cadastradas no modelo legado.
+- `006_ajustar_unicidade_por_estabelecimento.sql`: permite que tenants distintos
+  reutilizem usuários, e-mails, nomes de catálogo, números de mesa e chaves de
+  idempotência.
 - `legado/20260824_operacao_comercial.sql`: histórico anterior, fora do runner.

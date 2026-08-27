@@ -1,5 +1,10 @@
 import { config } from '../config.js';
-import { abrirBanco, criarAdministradorInicial, fecharBanco } from '../database.js';
+import {
+  abrirBanco,
+  criarAdministradorInicial,
+  criarEstabelecimentoInicial,
+  fecharBanco
+} from '../database.js';
 
 if (!config.administrador.senha) {
   throw new Error('Defina ADMIN_PASSWORD antes de criar o administrador inicial.');
@@ -10,7 +15,10 @@ if (config.producao && config.administrador.senha.length < 12) {
 
 const banco = await abrirBanco({ mysql: config.mysql });
 try {
-  await criarAdministradorInicial(banco, config.administrador);
+  const idEstabelecimento = await criarEstabelecimentoInicial(banco, {
+    slug: config.tenantDesenvolvimento
+  });
+  await criarAdministradorInicial(banco, config.administrador, idEstabelecimento);
   console.log('Administrador inicial verificado com sucesso.');
 } finally {
   await fecharBanco(banco);

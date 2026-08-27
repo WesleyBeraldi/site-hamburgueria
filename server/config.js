@@ -1,9 +1,12 @@
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { criarSegredoJwtTemporario } from './security.js';
+
 const pastaProjeto = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const producao = process.env.NODE_ENV === 'production';
 const senhaAdmin = process.env.ADMIN_PASSWORD || '';
+const jwtSecretInformado = process.env.JWT_SECRET || '';
 
 function listaAmbiente(valor) {
   return String(valor ?? '').split(',').map((item) => item.trim()).filter(Boolean);
@@ -17,6 +20,12 @@ function caminhoConfigurado(valor, padrao) {
 if (producao && (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_PASSWORD || !process.env.DB_NAME)) {
   throw new Error('Defina DB_HOST, DB_USER, DB_PASSWORD e DB_NAME antes de iniciar o servidor em produção.');
 }
+if (jwtSecretInformado && Buffer.byteLength(jwtSecretInformado, 'utf8') < 32) {
+  throw new Error('JWT_SECRET deve possuir pelo menos 32 bytes.');
+}
+if (producao && !jwtSecretInformado) {
+  throw new Error('Defina JWT_SECRET com pelo menos 32 bytes antes de iniciar o servidor em produção.');
+}
 
 export const config = {
   porta: Number(process.env.PORT) || 3001,
@@ -24,6 +33,9 @@ export const config = {
   incluirDadosDemonstracao: process.env.SEED_DEMO_DATA === '1',
   pinFuncionarioDemonstracao: process.env.DEMO_WAITER_PIN || null,
   publicSiteUrl: process.env.PUBLIC_SITE_URL || '',
+  dominioPrincipal: process.env.DOMINIO_PRINCIPAL || '',
+  tenantDesenvolvimento: process.env.TENANT_DESENVOLVIMENTO || (!producao ? 'estabelecimento-padrao' : ''),
+  jwtSecret: jwtSecretInformado || criarSegredoJwtTemporario(),
   corsOrigins: listaAmbiente(process.env.CORS_ORIGINS),
   mysql: {
     host: process.env.DB_HOST || '127.0.0.1',

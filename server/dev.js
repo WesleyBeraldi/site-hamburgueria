@@ -11,7 +11,10 @@ const api = criarServidor({
   pastaUploads: config.pastaUploads,
   producao: config.producao,
   corsOrigins: config.corsOrigins,
-  publicSiteUrl: config.publicSiteUrl
+  publicSiteUrl: config.publicSiteUrl,
+  dominioPrincipal: config.dominioPrincipal,
+  tenantDesenvolvimento: config.tenantDesenvolvimento,
+  jwtSecret: config.jwtSecret
 });
 const vite = await criarServidorVite();
 

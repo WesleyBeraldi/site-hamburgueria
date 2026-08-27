@@ -20,6 +20,31 @@ const MAX_UNIDADES_PEDIDO = 500;
 const MAX_ADICIONAIS_POR_ITEM = 50;
 const MAX_TOTAL_CENTAVOS = 4_294_967_295;
 const STATUS_TERMINAIS = new Set(['Entregue', 'Entregue na mesa', 'Retirado', 'Cancelado']);
+const CORES_PADRAO = Object.freeze({
+  corPrincipal: '#FFC107',
+  corSecundaria: '#0A0A0A',
+  corFundo: '#111111',
+  corCard: '#181818',
+  corTexto: '#FFFFFF'
+});
+const FONTES_PERMITIDAS = new Map([
+  ['poppins', 'Poppins'],
+  ['arial', 'Arial'],
+  ['verdana', 'Verdana'],
+  ['tahoma', 'Tahoma'],
+  ['trebuchet ms', 'Trebuchet MS'],
+  ['georgia', 'Georgia']
+]);
+const PAGAMENTOS_PUBLICOS = new Map([
+  ['pix', 'Pix'],
+  ['cartão', 'Cartão'],
+  ['cartao', 'Cartão'],
+  ['cartão na entrega', 'Cartão na entrega'],
+  ['cartao na entrega', 'Cartão na entrega'],
+  ['cartão na retirada', 'Cartão na retirada'],
+  ['cartao na retirada', 'Cartão na retirada'],
+  ['dinheiro', 'Dinheiro']
+]);
 
 function erroDominio(mensagem, status = 400) {
   const erro = new Error(mensagem);
@@ -99,6 +124,66 @@ function lerAreasEntrega(valor) {
   }
 }
 
+function mapearAreasEntregaPublicas(valor) {
+  const bairros = new Set();
+  const resultado = [];
+  for (const area of lerAreasEntrega(valor).slice(0, 200)) {
+    const bairro = texto(area?.bairro, 120);
+    const taxaCentavos = Number(area?.taxaCentavos);
+    const bairroNormalizado = normalizarBairro(bairro);
+    if (!bairro || !Number.isInteger(taxaCentavos) || taxaCentavos < 0
+        || taxaCentavos > MAX_TOTAL_CENTAVOS || bairros.has(bairroNormalizado)) {
+      continue;
+    }
+    bairros.add(bairroNormalizado);
+    resultado.push({ bairro, taxa: taxaCentavos / 100 });
+  }
+  return resultado;
+}
+
+function lerListaTextos(valor, limiteItens = 20, limiteTexto = 80) {
+  if (!valor) return [];
+  try {
+    const lista = typeof valor === 'string' ? JSON.parse(valor) : valor;
+    if (!Array.isArray(lista)) return [];
+    return [...new Set(lista
+      .slice(0, limiteItens)
+      .filter((item) => typeof item === 'string')
+      .map((item) => texto(item, limiteTexto))
+      .filter(Boolean))];
+  } catch {
+    return [];
+  }
+}
+
+function normalizarCor(valor, padrao) {
+  const cor = texto(valor, 7);
+  return /^#[0-9A-Fa-f]{6}$/.test(cor) ? cor.toUpperCase() : padrao;
+}
+
+function normalizarFonte(valor) {
+  return FONTES_PERMITIDAS.get(texto(valor, 80).toLowerCase()) ?? 'Poppins';
+}
+
+function normalizarUrlPublica(valor) {
+  const url = texto(valor, 500);
+  if (!url) return '';
+  if (/^\/(?!\/)[^\s\\]*$/.test(url)) return url;
+  try {
+    const analisada = new URL(url);
+    return ['http:', 'https:'].includes(analisada.protocol) ? url : '';
+  } catch {
+    return '';
+  }
+}
+
+function centavosParaNumero(valor) {
+  const centavos = Number(valor);
+  return Number.isInteger(centavos) && centavos >= 0 && centavos <= MAX_TOTAL_CENTAVOS
+    ? centavos / 100
+    : 0;
+}
+
 function validarUrlOpcional(valor, campo) {
   const url = texto(valor, 500);
   if (!url) return '';
@@ -158,49 +243,159 @@ function gerarPixCopiaCola({ chave, beneficiario, cidade, valorCentavos, txid })
   return `${semCrc}${crc16Pix(semCrc)}`;
 }
 
-async function registrarAuditoria(conexao, administradorId, acao, entidade, entidadeId, detalhes = null) {
+async function registrarAuditoria(
+  conexao,
+  idEstabelecimento,
+  administradorId,
+  acao,
+  entidade,
+  entidadeId,
+  detalhes = null
+) {
   await conexao.execute(`
-    INSERT INTO auditoria_admin (administrador_id, acao, entidade, entidade_id, detalhes_json)
-    VALUES (?, ?, ?, ?, ?)
-  `, [administradorId ?? null, acao, entidade, entidadeId == null ? null : String(entidadeId), detalhes ? JSON.stringify(detalhes) : null]);
+    INSERT INTO auditoria_admin
+      (id_estabelecimento, administrador_id, acao, entidade, entidade_id, detalhes_json)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `, [idEstabelecimento, administradorId ?? null, acao, entidade, entidadeId == null ? null : String(entidadeId), detalhes ? JSON.stringify(detalhes) : null]);
 }
 
 function mapearConfiguracao(linha) {
+  const formasPagamentoCadastradas = [...new Set(lerListaTextos(linha.formas_pagamento_json)
+    .map((forma) => PAGAMENTOS_PUBLICOS.get(forma.toLowerCase()))
+    .filter(Boolean))];
+  const formasPagamento = formasPagamentoCadastradas.length
+    ? formasPagamentoCadastradas
+    : [
+        linha.pix_chave ? 'Pix' : null,
+        linha.aceita_cartao ? 'Cartão' : null,
+        linha.aceita_dinheiro ? 'Dinheiro' : null
+      ].filter(Boolean);
   return {
-    nomeLoja: linha.nome_loja,
-    telefone: linha.telefone,
-    email: linha.email,
-    endereco: linha.endereco,
-    taxaEntrega: Number(linha.taxa_entrega_centavos) / 100,
-    tempoEntrega: linha.tempo_entrega,
-    pedidoMinimo: Number(linha.pedido_minimo_centavos) / 100,
+    nomeLoja: linha.nome_loja ?? '',
+    slug: linha.slug ?? '',
+    telefone: linha.telefone ?? '',
+    email: linha.email ?? '',
+    endereco: linha.endereco ?? '',
+    taxaEntrega: centavosParaNumero(linha.taxa_entrega_centavos),
+    tempoEntrega: linha.tempo_entrega ?? '',
+    pedidoMinimo: centavosParaNumero(linha.pedido_minimo_centavos),
     lojaAberta: Boolean(linha.loja_aberta),
     pixChave: linha.pix_chave ?? '',
     pixBeneficiario: linha.pix_beneficiario ?? '',
     pixCidade: linha.pix_cidade ?? '',
-    logo: linha.logo_url ?? '',
+    logo: normalizarUrlPublica(linha.logo_url),
+    banner: normalizarUrlPublica(linha.banner_url),
+    corPrincipal: normalizarCor(linha.cor_principal, CORES_PADRAO.corPrincipal),
+    corSecundaria: normalizarCor(linha.cor_secundaria, CORES_PADRAO.corSecundaria),
+    corFundo: normalizarCor(linha.cor_fundo, CORES_PADRAO.corFundo),
+    corCard: normalizarCor(linha.cor_card, CORES_PADRAO.corCard),
+    corTexto: normalizarCor(linha.cor_texto, CORES_PADRAO.corTexto),
+    fonte: normalizarFonte(linha.fonte),
     whatsapp: linha.whatsapp ?? '',
     horarioFuncionamento: linha.horario_funcionamento ?? '',
-    instagramUrl: linha.instagram_url ?? '',
-    facebookUrl: linha.facebook_url ?? '',
+    instagramUrl: normalizarUrlPublica(linha.instagram_url),
+    facebookUrl: normalizarUrlPublica(linha.facebook_url),
     entregaAtiva: Boolean(linha.entrega_ativa),
     retiradaAtiva: Boolean(linha.retirada_ativa),
+    atendimentoGarcomAtivo: Boolean(linha.atendimento_garcom_ativo),
     aceitaCartao: Boolean(linha.aceita_cartao),
     aceitaDinheiro: Boolean(linha.aceita_dinheiro),
-    areasEntrega: lerAreasEntrega(linha.areas_entrega_json).map((area) => ({
-      bairro: area.bairro,
-      taxa: Number(area.taxaCentavos) / 100
-    }))
+    formasPagamento,
+    politicaCancelamento: linha.politica_cancelamento ?? '',
+    informacoesLegais: linha.informacoes_legais ?? '',
+    areasEntrega: mapearAreasEntregaPublicas(linha.areas_entrega_json)
   };
 }
 
-export async function buscarConfiguracao(banco) {
-  const [linhas] = await banco.query('SELECT * FROM configuracoes WHERE id = 1');
+export async function buscarConfiguracao(banco, idEstabelecimento) {
+  const [linhas] = await banco.execute(`
+    SELECT
+      e.nome_fantasia AS nome_loja,
+      e.slug,
+      ce.logo_url,
+      ce.banner_url,
+      ce.cor_principal,
+      ce.cor_secundaria,
+      ce.cor_fundo,
+      ce.cor_card,
+      ce.cor_texto,
+      ce.fonte,
+      ce.telefone,
+      ce.email,
+      ce.endereco,
+      ce.taxa_entrega_centavos,
+      ce.tempo_entrega,
+      ce.pedido_minimo_centavos,
+      ce.loja_aberta,
+      ce.pix_chave,
+      ce.pix_beneficiario,
+      ce.pix_cidade,
+      ce.whatsapp,
+      ce.horario_funcionamento,
+      ce.instagram_url,
+      ce.facebook_url,
+      ce.entrega_ativa,
+      ce.retirada_ativa,
+      ce.atendimento_garcom_ativo,
+      ce.aceita_cartao,
+      ce.aceita_dinheiro,
+      ce.areas_entrega_json,
+      ce.formas_pagamento_json,
+      ce.politica_cancelamento,
+      ce.informacoes_legais
+    FROM estabelecimentos e
+    INNER JOIN configuracoes_estabelecimento ce
+      ON ce.id_estabelecimento = e.id_estabelecimento
+    WHERE e.id_estabelecimento = ?
+    LIMIT 1
+  `, [idEstabelecimento]);
   if (!linhas[0]) throw erroDominio('As configurações da loja ainda não foram cadastradas.', 500);
   return mapearConfiguracao(linhas[0]);
 }
 
-export async function salvarConfiguracao(banco, dados) {
+export function selecionarConfiguracaoPublica(configuracao) {
+  return {
+    nomeLoja: configuracao.nomeLoja,
+    slug: configuracao.slug,
+    logo: configuracao.logo,
+    banner: configuracao.banner,
+    corPrincipal: configuracao.corPrincipal,
+    corSecundaria: configuracao.corSecundaria,
+    corFundo: configuracao.corFundo,
+    corCard: configuracao.corCard,
+    corTexto: configuracao.corTexto,
+    fonte: configuracao.fonte,
+    telefone: configuracao.telefone,
+    whatsapp: configuracao.whatsapp,
+    email: configuracao.email,
+    endereco: configuracao.endereco,
+    horarioFuncionamento: configuracao.horarioFuncionamento,
+    instagramUrl: configuracao.instagramUrl,
+    facebookUrl: configuracao.facebookUrl,
+    lojaAberta: configuracao.lojaAberta,
+    pedidoMinimo: configuracao.pedidoMinimo,
+    taxaEntrega: configuracao.taxaEntrega,
+    tempoEntrega: configuracao.tempoEntrega,
+    entregaAtiva: configuracao.entregaAtiva,
+    retiradaAtiva: configuracao.retiradaAtiva,
+    atendimentoGarcomAtivo: configuracao.atendimentoGarcomAtivo,
+    aceitaCartao: configuracao.aceitaCartao,
+    aceitaDinheiro: configuracao.aceitaDinheiro,
+    formasPagamento: configuracao.formasPagamento,
+    pixChave: configuracao.pixChave,
+    pixBeneficiario: configuracao.pixBeneficiario,
+    pixCidade: configuracao.pixCidade,
+    areasEntrega: configuracao.areasEntrega,
+    politicaCancelamento: configuracao.politicaCancelamento,
+    informacoesLegais: configuracao.informacoesLegais
+  };
+}
+
+export async function buscarConfiguracaoPublica(banco, idEstabelecimento) {
+  return selecionarConfiguracaoPublica(await buscarConfiguracao(banco, idEstabelecimento));
+}
+
+export async function salvarConfiguracao(banco, idEstabelecimento, dados) {
   const nomeLoja = texto(dados.nomeLoja, 160);
   const telefone = texto(dados.telefone, 40);
   const email = texto(dados.email, 160);
@@ -250,16 +445,22 @@ export async function salvarConfiguracao(banco, dados) {
     throw erroDominio('Habilite ao menos uma forma de pagamento.');
   }
 
-  await banco.execute(`
-    INSERT INTO configuracoes
-      (id, nome_loja, telefone, email, endereco, taxa_entrega_centavos,
+  await executarTransacao(banco, async (conexao) => {
+    await conexao.execute(`
+      UPDATE estabelecimentos
+      SET nome_fantasia = ?
+      WHERE id_estabelecimento = ?
+    `, [nomeLoja, idEstabelecimento]);
+    await conexao.execute(`
+    INSERT INTO configuracoes_estabelecimento
+      (id_estabelecimento, telefone, email, endereco, taxa_entrega_centavos,
        tempo_entrega, pedido_minimo_centavos, loja_aberta, pix_chave, pix_beneficiario, pix_cidade,
        logo_url, whatsapp, horario_funcionamento, instagram_url, facebook_url,
        entrega_ativa, retirada_ativa, aceita_cartao, aceita_dinheiro, areas_entrega_json)
-    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
-      nome_loja = VALUES(nome_loja), telefone = VALUES(telefone), email = VALUES(email),
-      endereco = VALUES(endereco), taxa_entrega_centavos = VALUES(taxa_entrega_centavos),
+      telefone = VALUES(telefone), email = VALUES(email), endereco = VALUES(endereco),
+      taxa_entrega_centavos = VALUES(taxa_entrega_centavos),
       tempo_entrega = VALUES(tempo_entrega), pedido_minimo_centavos = VALUES(pedido_minimo_centavos),
       loja_aberta = VALUES(loja_aberta), pix_chave = VALUES(pix_chave),
       pix_beneficiario = VALUES(pix_beneficiario), pix_cidade = VALUES(pix_cidade), logo_url = VALUES(logo_url),
@@ -268,7 +469,7 @@ export async function salvarConfiguracao(banco, dados) {
       entrega_ativa = VALUES(entrega_ativa), retirada_ativa = VALUES(retirada_ativa), aceita_cartao = VALUES(aceita_cartao),
       aceita_dinheiro = VALUES(aceita_dinheiro), areas_entrega_json = VALUES(areas_entrega_json)
   `, [
-    nomeLoja,
+    idEstabelecimento,
     telefone,
     email,
     endereco,
@@ -290,7 +491,8 @@ export async function salvarConfiguracao(banco, dados) {
     aceitaDinheiro ? 1 : 0,
     areasEntrega.length ? JSON.stringify(areasEntrega) : null
   ]);
-  return buscarConfiguracao(banco);
+  });
+  return buscarConfiguracao(banco, idEstabelecimento);
 }
 
 function mapearPromocao(linha) {
@@ -312,20 +514,37 @@ function mapearPromocao(linha) {
   };
 }
 
-export async function listarPromocoes(banco, { somenteAtivas = false } = {}) {
-  const [linhas] = await banco.query(`
-    SELECT pr.*, p.imagem_url AS imagem_produto
+export async function listarPromocoes(banco, idEstabelecimento, { somenteAtivas = false } = {}) {
+  const [linhas] = await banco.execute(`
+    SELECT
+      pr.id,
+      pr.produto_id,
+      pr.nome,
+      pr.categoria,
+      pr.descricao,
+      pr.preco_anterior_centavos,
+      pr.preco_centavos,
+      pr.imagem_url,
+      pr.destaque,
+      pr.tipo,
+      pr.ativo,
+      pr.inicio_em,
+      pr.fim_em,
+      p.imagem_url AS imagem_produto
     FROM promocoes pr
-    LEFT JOIN produtos p ON p.id = pr.produto_id
-    ${somenteAtivas ? `WHERE pr.ativo = 1
+    LEFT JOIN produtos p
+      ON p.id = pr.produto_id
+      AND p.id_estabelecimento = pr.id_estabelecimento
+    WHERE pr.id_estabelecimento = ?
+    ${somenteAtivas ? `AND pr.ativo = 1
       AND (pr.inicio_em IS NULL OR pr.inicio_em <= CURRENT_TIMESTAMP)
       AND (pr.fim_em IS NULL OR pr.fim_em >= CURRENT_TIMESTAMP)` : ''}
     ORDER BY pr.id
-  `);
+  `, [idEstabelecimento]);
   return linhas.map(mapearPromocao);
 }
 
-async function validarPromocao(banco, dados) {
+async function validarPromocao(banco, idEstabelecimento, dados) {
   const nome = texto(dados.nome, 160);
   const descricao = texto(dados.descricao, 2000);
   const precoAnteriorCentavos = precoParaCentavos(dados.precoAntigo || 0);
@@ -346,9 +565,11 @@ async function validarPromocao(banco, dados) {
   const [produtos] = await banco.execute(`
     SELECT p.id, c.nome AS categoria
     FROM produtos p
-    INNER JOIN categorias c ON c.id = p.categoria_id
-    WHERE p.id = ? AND p.ativo = 1 AND c.ativo = 1
-  `, [produtoId]);
+    INNER JOIN categorias c
+      ON c.id = p.categoria_id
+      AND c.id_estabelecimento = p.id_estabelecimento
+    WHERE p.id = ? AND p.id_estabelecimento = ? AND p.ativo = 1 AND c.ativo = 1
+  `, [produtoId, idEstabelecimento]);
   if (!produtos[0]) throw erroDominio('O produto vinculado à promoção não está disponível.', 409);
 
   return {
@@ -367,40 +588,44 @@ async function validarPromocao(banco, dados) {
   };
 }
 
-export async function salvarPromocao(banco, dados, id = null) {
-  const promocao = await validarPromocao(banco, dados);
+export async function salvarPromocao(banco, idEstabelecimento, dados, id = null) {
+  const promocao = await validarPromocao(banco, idEstabelecimento, dados);
   let promocaoId = Number(id) || null;
   if (promocaoId) {
     const [resultado] = await banco.execute(`
       UPDATE promocoes
       SET produto_id = ?, nome = ?, categoria = ?, descricao = ?, preco_anterior_centavos = ?,
           preco_centavos = ?, imagem_url = ?, destaque = ?, tipo = ?, ativo = ?, inicio_em = ?, fim_em = ?
-      WHERE id = ?
+      WHERE id = ? AND id_estabelecimento = ?
     `, [
       promocao.produtoId, promocao.nome, promocao.categoria, promocao.descricao,
       promocao.precoAnteriorCentavos, promocao.precoCentavos, promocao.imagem,
-      promocao.destaque, promocao.tipo, promocao.ativo, promocao.inicioEm, promocao.fimEm, promocaoId
+      promocao.destaque, promocao.tipo, promocao.ativo, promocao.inicioEm, promocao.fimEm,
+      promocaoId, idEstabelecimento
     ]);
     if (!resultado.affectedRows) throw erroDominio('Promoção não encontrada.', 404);
   } else {
     const [resultado] = await banco.execute(`
       INSERT INTO promocoes
-        (produto_id, nome, categoria, descricao, preco_anterior_centavos,
+        (id_estabelecimento, produto_id, nome, categoria, descricao, preco_anterior_centavos,
          preco_centavos, imagem_url, destaque, tipo, ativo, inicio_em, fim_em)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
+      idEstabelecimento,
       promocao.produtoId, promocao.nome, promocao.categoria, promocao.descricao,
       promocao.precoAnteriorCentavos, promocao.precoCentavos, promocao.imagem,
       promocao.destaque, promocao.tipo, promocao.ativo, promocao.inicioEm, promocao.fimEm
     ]);
     promocaoId = Number(resultado.insertId);
   }
-  const promocoes = await listarPromocoes(banco);
+  const promocoes = await listarPromocoes(banco, idEstabelecimento);
   return promocoes.find((item) => item.id === promocaoId);
 }
 
-export async function excluirPromocao(banco, id) {
-  const [resultado] = await banco.execute('DELETE FROM promocoes WHERE id = ?', [id]);
+export async function excluirPromocao(banco, idEstabelecimento, id) {
+  const [resultado] = await banco.execute(`
+    DELETE FROM promocoes WHERE id = ? AND id_estabelecimento = ?
+  `, [id, idEstabelecimento]);
   return resultado.affectedRows > 0;
 }
 
@@ -417,27 +642,37 @@ function mapearFuncionario(linha) {
   };
 }
 
-export async function listarFuncionarios(banco, { somenteAtivos = false } = {}) {
-  const [linhas] = await banco.query(`
-    SELECT f.*,
+export async function listarFuncionarios(banco, idEstabelecimento, { somenteAtivos = false } = {}) {
+  const [linhas] = await banco.execute(`
+    SELECT f.id, f.nome, f.cargo, f.ativo, f.token_acesso,
       COUNT(DISTINCT CASE WHEN c.status = 'Encerrada' THEN c.id END) AS comandas,
       COUNT(DISTINCT CASE WHEN p.status IN ('Entregue', 'Entregue na mesa') THEN p.id END) AS vendas
     FROM funcionarios f
-    LEFT JOIN comandas c ON c.funcionario_id = f.id
-    LEFT JOIN pedidos p ON p.funcionario_id = f.id
-    ${somenteAtivos ? 'WHERE f.ativo = 1' : ''}
+    LEFT JOIN comandas c
+      ON c.funcionario_id = f.id
+      AND c.id_estabelecimento = f.id_estabelecimento
+    LEFT JOIN pedidos p
+      ON p.funcionario_id = f.id
+      AND p.id_estabelecimento = f.id_estabelecimento
+    WHERE f.id_estabelecimento = ?
+    ${somenteAtivos ? 'AND f.ativo = 1' : ''}
     GROUP BY f.id
     ORDER BY f.nome
-  `);
+  `, [idEstabelecimento]);
   return linhas.map(mapearFuncionario);
 }
 
-export async function buscarFuncionarioPorToken(banco, token) {
-  const [linhas] = await banco.execute('SELECT * FROM funcionarios WHERE token_acesso = ? AND ativo = 1', [token]);
+export async function buscarFuncionarioPorToken(banco, idEstabelecimento, token) {
+  const [linhas] = await banco.execute(`
+    SELECT id, nome, cargo, pin_hash, token_acesso, ativo
+    FROM funcionarios
+    WHERE token_acesso = ? AND id_estabelecimento = ? AND ativo = 1
+    LIMIT 1
+  `, [token, idEstabelecimento]);
   return linhas[0] ?? null;
 }
 
-export async function salvarFuncionario(banco, dados, id = null) {
+export async function salvarFuncionario(banco, idEstabelecimento, dados, id = null) {
   const nome = texto(dados.nome, 160);
   const cargo = texto(dados.cargo, 80);
   const pin = texto(dados.pin, 6);
@@ -448,37 +683,53 @@ export async function salvarFuncionario(banco, dados, id = null) {
   let funcionarioId = Number(id) || null;
   if (funcionarioId) {
     const [resultado] = await banco.execute(`
-      UPDATE funcionarios SET nome = ?, cargo = ?, pin_hash = ? WHERE id = ?
-    `, [nome, cargo, criarHashSenha(pin), funcionarioId]);
+      UPDATE funcionarios SET nome = ?, cargo = ?, pin_hash = ?
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [nome, cargo, criarHashSenha(pin), funcionarioId, idEstabelecimento]);
     if (!resultado.affectedRows) throw erroDominio('Funcionário não encontrado.', 404);
-    await banco.execute('DELETE FROM sessoes_garcom WHERE funcionario_id = ?', [funcionarioId]);
+    await banco.execute(`
+      DELETE FROM sessoes_garcom
+      WHERE funcionario_id = ? AND id_estabelecimento = ?
+    `, [funcionarioId, idEstabelecimento]);
   } else {
     const [resultado] = await banco.execute(`
-      INSERT INTO funcionarios (nome, cargo, pin_hash, token_acesso, ativo)
-      VALUES (?, ?, ?, ?, 1)
-    `, [nome, cargo, criarHashSenha(pin), normalizarToken(nome)]);
+      INSERT INTO funcionarios
+        (id_estabelecimento, nome, cargo, pin_hash, token_acesso, ativo)
+      VALUES (?, ?, ?, ?, ?, 1)
+    `, [idEstabelecimento, nome, cargo, criarHashSenha(pin), normalizarToken(nome)]);
     funcionarioId = Number(resultado.insertId);
   }
-  const funcionarios = await listarFuncionarios(banco);
+  const funcionarios = await listarFuncionarios(banco, idEstabelecimento);
   return funcionarios.find((item) => item.id === String(funcionarioId));
 }
 
-export async function alternarStatusFuncionario(banco, id, ativo) {
-  const [resultado] = await banco.execute('UPDATE funcionarios SET ativo = ? WHERE id = ?', [ativo ? 1 : 0, id]);
+export async function alternarStatusFuncionario(banco, idEstabelecimento, id, ativo) {
+  const [resultado] = await banco.execute(`
+    UPDATE funcionarios SET ativo = ? WHERE id = ? AND id_estabelecimento = ?
+  `, [ativo ? 1 : 0, id, idEstabelecimento]);
   if (!resultado.affectedRows) return null;
-  if (!ativo) await banco.execute('DELETE FROM sessoes_garcom WHERE funcionario_id = ?', [id]);
-  const funcionarios = await listarFuncionarios(banco);
+  if (!ativo) {
+    await banco.execute(`
+      DELETE FROM sessoes_garcom
+      WHERE funcionario_id = ? AND id_estabelecimento = ?
+    `, [id, idEstabelecimento]);
+  }
+  const funcionarios = await listarFuncionarios(banco, idEstabelecimento);
   return funcionarios.find((item) => item.id === String(id));
 }
 
-export async function listarMesas(banco) {
-  const [linhas] = await banco.query(`
-    SELECT m.*, CASE WHEN c.id IS NULL THEN 'Livre' ELSE 'Ocupada' END AS status
+export async function listarMesas(banco, idEstabelecimento) {
+  const [linhas] = await banco.execute(`
+    SELECT m.id, m.numero, m.lugares,
+      CASE WHEN c.id IS NULL THEN 'Livre' ELSE 'Ocupada' END AS status
     FROM mesas m
-    LEFT JOIN comandas c ON c.mesa_id = m.id AND c.status <> 'Encerrada'
-    WHERE m.ativo = 1
+    LEFT JOIN comandas c
+      ON c.mesa_id = m.id
+      AND c.id_estabelecimento = m.id_estabelecimento
+      AND c.status <> 'Encerrada'
+    WHERE m.id_estabelecimento = ? AND m.ativo = 1
     ORDER BY CAST(m.numero AS UNSIGNED), m.numero
-  `);
+  `, [idEstabelecimento]);
   return linhas.map((linha) => ({
     id: Number(linha.id),
     numero: linha.numero,
@@ -487,29 +738,30 @@ export async function listarMesas(banco) {
   }));
 }
 
-export async function criarMesa(banco, dados) {
+export async function criarMesa(banco, idEstabelecimento, dados) {
   const numeroInformado = texto(dados?.numero, 10);
   if (!/^\d{1,3}$/.test(numeroInformado) || Number(numeroInformado) < 1) {
     throw erroDominio('Informe um número de mesa entre 1 e 999.');
   }
   const numero = String(Number(numeroInformado)).padStart(2, '0');
   const [resultado] = await banco.execute(`
-    INSERT INTO mesas (numero, lugares, ativo) VALUES (?, 4, 1)
-  `, [numero]);
-  const mesas = await listarMesas(banco);
+    INSERT INTO mesas (id_estabelecimento, numero, lugares, ativo)
+    VALUES (?, ?, 4, 1)
+  `, [idEstabelecimento, numero]);
+  const mesas = await listarMesas(banco, idEstabelecimento);
   return mesas.find((mesa) => mesa.id === Number(resultado.insertId));
 }
 
-async function listarAdicionaisDeItens(banco, tabela, campo, itensIds) {
+async function listarAdicionaisDeItens(banco, idEstabelecimento, tabela, campo, itensIds) {
   const mapa = new Map();
   if (itensIds.length === 0) return mapa;
   const marcadores = itensIds.map(() => '?').join(', ');
   const [linhas] = await banco.execute(`
     SELECT ${campo} AS item_id, adicional_id, nome_adicional, preco_centavos
     FROM ${tabela}
-    WHERE ${campo} IN (${marcadores})
+    WHERE id_estabelecimento = ? AND ${campo} IN (${marcadores})
     ORDER BY nome_adicional
-  `, itensIds);
+  `, [idEstabelecimento, ...itensIds]);
   for (const linha of linhas) {
     const itemId = Number(linha.item_id);
     if (!mapa.has(itemId)) mapa.set(itemId, []);
@@ -522,16 +774,21 @@ async function listarAdicionaisDeItens(banco, tabela, campo, itensIds) {
   return mapa;
 }
 
-export async function listarComandas(banco, { funcionarioId = null } = {}) {
-  const parametros = [];
+export async function listarComandas(banco, idEstabelecimento, { funcionarioId = null } = {}) {
+  const parametros = [idEstabelecimento];
   const filtroFuncionario = funcionarioId == null ? '' : 'AND c.funcionario_id = ?';
   if (funcionarioId != null) parametros.push(funcionarioId);
   const [comandas] = await banco.execute(`
-    SELECT c.*, m.numero AS mesa_numero, f.nome AS garcom
+    SELECT c.id, c.mesa_id, c.funcionario_id, c.status, c.pagamento, c.aberta_em,
+      m.numero AS mesa_numero, f.nome AS garcom
     FROM comandas c
-    INNER JOIN mesas m ON m.id = c.mesa_id
-    INNER JOIN funcionarios f ON f.id = c.funcionario_id
-    WHERE c.status <> 'Encerrada'
+    INNER JOIN mesas m
+      ON m.id = c.mesa_id
+      AND m.id_estabelecimento = c.id_estabelecimento
+    INNER JOIN funcionarios f
+      ON f.id = c.funcionario_id
+      AND f.id_estabelecimento = c.id_estabelecimento
+    WHERE c.id_estabelecimento = ? AND c.status <> 'Encerrada'
       ${filtroFuncionario}
     ORDER BY c.aberta_em DESC
   `, parametros);
@@ -539,13 +796,23 @@ export async function listarComandas(banco, { funcionarioId = null } = {}) {
   const ids = comandas.map((comanda) => Number(comanda.id));
   const marcadores = ids.map(() => '?').join(', ');
   const [itens] = await banco.execute(`
-    SELECT ci.*, p.descricao, p.imagem_url, p.categoria_id
+    SELECT ci.id, ci.comanda_id, ci.produto_id, ci.nome_produto,
+      ci.preco_unitario_centavos, ci.quantidade, ci.observacao,
+      p.descricao, p.imagem_url, p.categoria_id
     FROM comanda_itens ci
-    LEFT JOIN produtos p ON p.id = ci.produto_id
-    WHERE ci.comanda_id IN (${marcadores})
+    LEFT JOIN produtos p
+      ON p.id = ci.produto_id
+      AND p.id_estabelecimento = ci.id_estabelecimento
+    WHERE ci.id_estabelecimento = ? AND ci.comanda_id IN (${marcadores})
     ORDER BY ci.id
-  `, ids);
-  const adicionais = await listarAdicionaisDeItens(banco, 'comanda_item_adicionais', 'comanda_item_id', itens.map((item) => Number(item.id)));
+  `, [idEstabelecimento, ...ids]);
+  const adicionais = await listarAdicionaisDeItens(
+    banco,
+    idEstabelecimento,
+    'comanda_item_adicionais',
+    'comanda_item_id',
+    itens.map((item) => Number(item.id))
+  );
   const itensPorComanda = new Map();
   for (const item of itens) {
     const comandaId = Number(item.comanda_id);
@@ -574,15 +841,19 @@ export async function listarComandas(banco, { funcionarioId = null } = {}) {
   }));
 }
 
-export async function listarPedidos(banco, { id = null } = {}) {
-  const parametros = [];
+export async function listarPedidos(banco, idEstabelecimento, { id = null } = {}) {
+  const parametros = [idEstabelecimento];
   let filtro = '';
   if (id) {
-    filtro = 'WHERE p.id = ?';
+    filtro = 'AND p.id = ?';
     parametros.push(id);
   }
   const [pedidos] = await banco.execute(`
-    SELECT p.*, m.numero AS mesa_numero, f.nome AS garcom,
+    SELECT p.id, p.origem, p.cliente, p.telefone, p.email, p.status, p.pagamento,
+      p.rua, p.numero, p.bairro, p.complemento, p.referencia,
+      p.taxa_entrega_centavos, p.total_centavos, p.comanda_id, p.mesa_id,
+      p.funcionario_id, p.criado_em,
+      m.numero AS mesa_numero, f.nome AS garcom,
       pg.id AS pagamento_id, pg.status AS pagamento_status,
       pg.pix_chave, pg.pix_beneficiario, pg.pix_copia_cola,
       pg.sem_troco, pg.troco_para_centavos, pg.pago_em,
@@ -590,13 +861,22 @@ export async function listarPedidos(banco, { id = null } = {}) {
       confirmador.nome AS pagamento_confirmado_por,
       estornador.nome AS pagamento_estornado_por
     FROM pedidos p
-    LEFT JOIN mesas m ON m.id = p.mesa_id
-    LEFT JOIN funcionarios f ON f.id = p.funcionario_id
+    LEFT JOIN mesas m
+      ON m.id = p.mesa_id AND m.id_estabelecimento = p.id_estabelecimento
+    LEFT JOIN funcionarios f
+      ON f.id = p.funcionario_id AND f.id_estabelecimento = p.id_estabelecimento
     LEFT JOIN pagamentos pg ON pg.id = (
-      SELECT pg2.id FROM pagamentos pg2 WHERE pg2.pedido_id = p.id ORDER BY pg2.id DESC LIMIT 1
+      SELECT pg2.id FROM pagamentos pg2
+      WHERE pg2.pedido_id = p.id AND pg2.id_estabelecimento = p.id_estabelecimento
+      ORDER BY pg2.id DESC LIMIT 1
     )
-    LEFT JOIN administradores confirmador ON confirmador.id = pg.confirmado_por
-    LEFT JOIN administradores estornador ON estornador.id = pg.estornado_por
+    LEFT JOIN administradores confirmador
+      ON confirmador.id = pg.confirmado_por
+      AND confirmador.id_estabelecimento = p.id_estabelecimento
+    LEFT JOIN administradores estornador
+      ON estornador.id = pg.estornado_por
+      AND estornador.id_estabelecimento = p.id_estabelecimento
+    WHERE p.id_estabelecimento = ?
     ${filtro}
     ORDER BY p.criado_em DESC
     LIMIT 500
@@ -605,9 +885,19 @@ export async function listarPedidos(banco, { id = null } = {}) {
   const ids = pedidos.map((pedido) => Number(pedido.id));
   const marcadores = ids.map(() => '?').join(', ');
   const [itens] = await banco.execute(`
-    SELECT * FROM pedido_itens WHERE pedido_id IN (${marcadores}) ORDER BY id
-  `, ids);
-  const adicionais = await listarAdicionaisDeItens(banco, 'pedido_item_adicionais', 'pedido_item_id', itens.map((item) => Number(item.id)));
+    SELECT id, pedido_id, produto_id, promocao_id, nome_produto, descricao_produto,
+      imagem_url, preco_unitario_centavos, quantidade, observacao
+    FROM pedido_itens
+    WHERE id_estabelecimento = ? AND pedido_id IN (${marcadores})
+    ORDER BY id
+  `, [idEstabelecimento, ...ids]);
+  const adicionais = await listarAdicionaisDeItens(
+    banco,
+    idEstabelecimento,
+    'pedido_item_adicionais',
+    'pedido_item_id',
+    itens.map((item) => Number(item.id))
+  );
   const itensPorPedido = new Map();
   for (const item of itens) {
     const pedidoId = Number(item.pedido_id);
@@ -667,7 +957,7 @@ export async function listarPedidos(banco, { id = null } = {}) {
   });
 }
 
-export async function buscarItensValidados(conexao, itensRecebidos) {
+export async function buscarItensValidados(conexao, idEstabelecimento, itensRecebidos) {
   if (!Array.isArray(itensRecebidos) || itensRecebidos.length === 0) {
     throw erroDominio('Adicione ao menos um produto ao pedido.');
   }
@@ -696,18 +986,26 @@ export async function buscarItensValidados(conexao, itensRecebidos) {
       throw erroDominio(`O pedido pode ter no máximo ${MAX_UNIDADES_PEDIDO} unidades.`);
     }
     const [produtos] = await conexao.execute(`
-      SELECT p.* FROM produtos p
-      INNER JOIN categorias c ON c.id = p.categoria_id
-      WHERE p.id = ? AND p.ativo = 1 AND c.ativo = 1 FOR UPDATE
-    `, [produtoId]);
+      SELECT p.id, p.nome, p.descricao, p.preco_centavos, p.imagem_url
+      FROM produtos p
+      INNER JOIN categorias c
+        ON c.id = p.categoria_id
+        AND c.id_estabelecimento = p.id_estabelecimento
+      WHERE p.id = ? AND p.id_estabelecimento = ? AND p.ativo = 1 AND c.ativo = 1
+      FOR UPDATE
+    `, [produtoId, idEstabelecimento]);
     const produto = produtos[0];
     if (!produto) throw erroDominio('Um produto do pedido não está mais disponível.', 409);
 
     let promocao = null;
     if (promocaoId !== null) {
       const [promocoes] = await conexao.execute(`
-        SELECT * FROM promocoes WHERE id = ? AND produto_id = ? FOR UPDATE
-      `, [promocaoId, produtoId]);
+        SELECT id, produto_id, nome, descricao, preco_centavos, imagem_url,
+          ativo, inicio_em, fim_em
+        FROM promocoes
+        WHERE id = ? AND produto_id = ? AND id_estabelecimento = ?
+        FOR UPDATE
+      `, [promocaoId, produtoId, idEstabelecimento]);
       promocao = promocoes[0];
       if (!promocao || !promocaoDisponivel(promocao)) {
         throw erroDominio('A promoção selecionada não está mais disponível.', 409);
@@ -728,10 +1026,13 @@ export async function buscarItensValidados(conexao, itensRecebidos) {
       const [linhas] = await conexao.execute(`
         SELECT a.id, a.nome, a.preco_centavos
         FROM adicionais a
-        INNER JOIN produto_adicionais pa ON pa.adicional_id = a.id AND pa.produto_id = ?
-        WHERE a.id IN (${marcadores}) AND a.ativo = 1
+        INNER JOIN produto_adicionais pa
+          ON pa.adicional_id = a.id
+          AND pa.id_estabelecimento = a.id_estabelecimento
+          AND pa.produto_id = ?
+        WHERE a.id_estabelecimento = ? AND a.id IN (${marcadores}) AND a.ativo = 1
         FOR UPDATE
-      `, [produtoId, ...adicionaisIds]);
+      `, [produtoId, idEstabelecimento, ...adicionaisIds]);
       if (linhas.length !== adicionaisIds.length) throw erroDominio('Um adicional não está disponível para o produto.', 409);
       adicionais = linhas.map((linha) => ({
         id: Number(linha.id),
@@ -756,7 +1057,7 @@ export async function buscarItensValidados(conexao, itensRecebidos) {
   return itens;
 }
 
-export async function revalidarCarrinho(banco, itensRecebidos) {
+export async function revalidarCarrinho(banco, idEstabelecimento, itensRecebidos) {
   if (!Array.isArray(itensRecebidos)) throw erroDominio('O carrinho informado é inválido.');
   if (itensRecebidos.length > MAX_LINHAS_PEDIDO) {
     throw erroDominio(`O carrinho pode ter no máximo ${MAX_LINHAS_PEDIDO} itens diferentes.`);
@@ -778,11 +1079,14 @@ export async function revalidarCarrinho(banco, itensRecebidos) {
     }
 
     const [produtos] = await banco.execute(`
-      SELECT p.*, c.nome AS categoria
+      SELECT p.id, p.nome, p.descricao, p.preco_centavos, p.imagem_url,
+        c.nome AS categoria
       FROM produtos p
-      INNER JOIN categorias c ON c.id = p.categoria_id
-      WHERE p.id = ? AND p.ativo = 1 AND c.ativo = 1
-    `, [produtoId]);
+      INNER JOIN categorias c
+        ON c.id = p.categoria_id
+        AND c.id_estabelecimento = p.id_estabelecimento
+      WHERE p.id = ? AND p.id_estabelecimento = ? AND p.ativo = 1 AND c.ativo = 1
+    `, [produtoId, idEstabelecimento]);
     const produto = produtos[0];
     if (!produto) {
       alteracoes.push({ carrinhoId, tipo: 'removido', mensagem: `${texto(recebido.nome, 160) || 'Um produto'} não está mais disponível e foi removido.` });
@@ -792,7 +1096,12 @@ export async function revalidarCarrinho(banco, itensRecebidos) {
     let promocao = null;
     const promocaoIdRecebida = Number(recebido.promocaoId) || null;
     if (promocaoIdRecebida) {
-      const [promocoes] = await banco.execute('SELECT * FROM promocoes WHERE id = ? AND produto_id = ?', [promocaoIdRecebida, produtoId]);
+      const [promocoes] = await banco.execute(`
+        SELECT id, produto_id, nome, descricao, preco_centavos, imagem_url,
+          ativo, inicio_em, fim_em
+        FROM promocoes
+        WHERE id = ? AND produto_id = ? AND id_estabelecimento = ?
+      `, [promocaoIdRecebida, produtoId, idEstabelecimento]);
       promocao = promocoes[0];
       if (!promocaoDisponivel(promocao)) {
         promocao = null;
@@ -809,10 +1118,13 @@ export async function revalidarCarrinho(banco, itensRecebidos) {
       const [linhas] = await banco.execute(`
         SELECT a.id, a.nome, a.preco_centavos
         FROM adicionais a
-        INNER JOIN produto_adicionais pa ON pa.adicional_id = a.id AND pa.produto_id = ?
-        WHERE a.id IN (${marcadores}) AND a.ativo = 1
+        INNER JOIN produto_adicionais pa
+          ON pa.adicional_id = a.id
+          AND pa.id_estabelecimento = a.id_estabelecimento
+          AND pa.produto_id = ?
+        WHERE a.id_estabelecimento = ? AND a.id IN (${marcadores}) AND a.ativo = 1
         ORDER BY a.nome
-      `, [produtoId, ...idsRecebidos]);
+      `, [produtoId, idEstabelecimento, ...idsRecebidos]);
       adicionais = linhas.map((linha) => ({
         id: Number(linha.id),
         nome: linha.nome,
@@ -849,23 +1161,24 @@ export async function revalidarCarrinho(banco, itensRecebidos) {
   return { itens, alteracoes };
 }
 
-async function inserirItensPedido(conexao, pedidoId, itens) {
+async function inserirItensPedido(conexao, idEstabelecimento, pedidoId, itens) {
   for (const item of itens) {
     const [resultado] = await conexao.execute(`
       INSERT INTO pedido_itens
-        (pedido_id, produto_id, promocao_id, nome_produto, descricao_produto, imagem_url,
+        (id_estabelecimento, pedido_id, produto_id, promocao_id, nome_produto, descricao_produto, imagem_url,
          preco_unitario_centavos, quantidade, observacao)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
+      idEstabelecimento,
       pedidoId, item.produtoId, item.promocaoId, item.nome, item.descricao, item.imagem,
       item.precoCentavos, item.quantidade, item.observacao
     ]);
     for (const adicional of item.adicionais) {
       await conexao.execute(`
         INSERT INTO pedido_item_adicionais
-          (pedido_item_id, adicional_id, nome_adicional, preco_centavos)
-        VALUES (?, ?, ?, ?)
-      `, [resultado.insertId, adicional.id, adicional.nome, adicional.precoCentavos]);
+          (id_estabelecimento, pedido_item_id, adicional_id, nome_adicional, preco_centavos)
+        VALUES (?, ?, ?, ?, ?)
+      `, [idEstabelecimento, resultado.insertId, adicional.id, adicional.nome, adicional.precoCentavos]);
     }
   }
 }
@@ -886,7 +1199,7 @@ export function calcularTotaisPedido(itens, taxaEntregaCentavos) {
   };
 }
 
-export async function criarPedidoDelivery(banco, dados) {
+export async function criarPedidoDelivery(banco, idEstabelecimento, dados) {
   const nome = texto(dados.nome, 160);
   const telefone = texto(dados.telefone, 40);
   const email = texto(dados.email, 160);
@@ -932,18 +1245,29 @@ export async function criarPedidoDelivery(banco, dados) {
 
   const hashIdempotencia = criarHashToken(chaveIdempotencia);
   const [pedidosExistentes] = await banco.execute(
-    'SELECT id FROM pedidos WHERE chave_idempotencia_hash = ?',
-    [hashIdempotencia]
+    'SELECT id FROM pedidos WHERE chave_idempotencia_hash = ? AND id_estabelecimento = ?',
+    [hashIdempotencia, idEstabelecimento]
   );
   if (pedidosExistentes[0]) {
-    const [pedidoExistente] = await listarPedidos(banco, { id: Number(pedidosExistentes[0].id) });
+    const [pedidoExistente] = await listarPedidos(
+      banco,
+      idEstabelecimento,
+      { id: Number(pedidosExistentes[0].id) }
+    );
     return { ...pedidoExistente, tokenAcompanhamento: chaveIdempotencia };
   }
 
   let pedidoId;
   try {
     pedidoId = await executarTransacao(banco, async (conexao) => {
-      const [configuracoes] = await conexao.execute('SELECT * FROM configuracoes WHERE id = 1 FOR UPDATE');
+      const [configuracoes] = await conexao.execute(`
+        SELECT loja_aberta, entrega_ativa, retirada_ativa, aceita_cartao,
+          aceita_dinheiro, pix_chave, pix_beneficiario, pix_cidade,
+          areas_entrega_json, taxa_entrega_centavos, pedido_minimo_centavos
+        FROM configuracoes_estabelecimento
+        WHERE id_estabelecimento = ?
+        FOR UPDATE
+      `, [idEstabelecimento]);
       const configuracao = configuracoes[0];
       if (!configuracao?.loja_aberta) throw erroDominio('A loja está fechada no momento.', 409);
       if (!retirada && !configuracao.entrega_ativa) throw erroDominio('A entrega está indisponível no momento.', 409);
@@ -959,7 +1283,7 @@ export async function criarPedidoDelivery(banco, dados) {
         throw erroDominio('O pagamento em dinheiro está indisponível.', 409);
       }
 
-      const itens = await buscarItensValidados(conexao, dados.itens);
+      const itens = await buscarItensValidados(conexao, idEstabelecimento, dados.itens);
       const areasEntrega = retirada ? [] : lerAreasEntrega(configuracao.areas_entrega_json);
       const areaEntrega = retirada
         ? null
@@ -985,17 +1309,19 @@ export async function criarPedidoDelivery(banco, dados) {
         : retirada ? 'Pagamento na retirada' : PAGAMENTO_ENTREGA;
       const [resultado] = await conexao.execute(`
         INSERT INTO pedidos
-          (token_acompanhamento_hash, chave_idempotencia_hash, origem, cliente, telefone, email, status, pagamento,
+          (id_estabelecimento, token_acompanhamento_hash, chave_idempotencia_hash,
+           origem, cliente, telefone, email, status, pagamento,
            rua, numero, bairro, complemento, referencia,
            taxa_entrega_centavos, total_centavos)
-        VALUES (?, ?, ?, ?, ?, ?, 'Recebido', ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'Recebido', ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
+        idEstabelecimento,
         hashIdempotencia, hashIdempotencia, modalidade, nome, telefone, email, pagamento,
         retirada ? null : rua, retirada ? null : numero, retirada ? null : (areaEntrega?.bairro ?? bairro),
         retirada ? null : (texto(dados.complemento, 160) || null),
         texto(dados.referencia, 255) || null, taxaEntrega, totalCentavos
       ]);
-      await inserirItensPedido(conexao, resultado.insertId, itens);
+      await inserirItensPedido(conexao, idEstabelecimento, resultado.insertId, itens);
       const pixCopiaCola = pagamento === 'Pix'
         ? gerarPixCopiaCola({
             chave: configuracao.pix_chave,
@@ -1007,10 +1333,11 @@ export async function criarPedidoDelivery(banco, dados) {
         : null;
       await conexao.execute(`
         INSERT INTO pagamentos
-          (pedido_id, forma, status, valor_centavos, pix_chave, pix_beneficiario,
+          (id_estabelecimento, pedido_id, forma, status, valor_centavos, pix_chave, pix_beneficiario,
            sem_troco, troco_para_centavos, pix_copia_cola)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
+        idEstabelecimento,
         resultado.insertId,
         pagamento,
         statusPagamento,
@@ -1026,34 +1353,44 @@ export async function criarPedidoDelivery(banco, dados) {
   } catch (erro) {
     if (erro.code !== 'ER_DUP_ENTRY') throw erro;
     const [existentes] = await banco.execute(
-      'SELECT id FROM pedidos WHERE chave_idempotencia_hash = ?',
-      [hashIdempotencia]
+      'SELECT id FROM pedidos WHERE chave_idempotencia_hash = ? AND id_estabelecimento = ?',
+      [hashIdempotencia, idEstabelecimento]
     );
     if (!existentes[0]) throw erro;
     pedidoId = Number(existentes[0].id);
   }
 
-  const [pedido] = await listarPedidos(banco, { id: pedidoId });
+  const [pedido] = await listarPedidos(banco, idEstabelecimento, { id: pedidoId });
   return { ...pedido, tokenAcompanhamento: chaveIdempotencia };
 }
 
-export async function acompanharPedido(banco, codigo, token) {
+export async function acompanharPedido(banco, idEstabelecimento, codigo, token) {
   const id = idPedidoPeloCodigo(codigo);
   if (!id || !token) return null;
   const [linhas] = await banco.execute(`
     SELECT id FROM pedidos
-    WHERE id = ? AND origem IN ('delivery', 'retirada') AND token_acompanhamento_hash = ?
-  `, [id, criarHashToken(token)]);
+    WHERE id = ? AND id_estabelecimento = ?
+      AND origem IN ('delivery', 'retirada') AND token_acompanhamento_hash = ?
+  `, [id, idEstabelecimento, criarHashToken(token)]);
   if (!linhas[0]) return null;
-  const [pedido] = await listarPedidos(banco, { id });
+  const [pedido] = await listarPedidos(banco, idEstabelecimento, { id });
   return { ...pedido, tokenAcompanhamento: token };
 }
 
-export async function atualizarStatusPedido(banco, codigo, status, administradorId = null) {
+export async function atualizarStatusPedido(
+  banco,
+  idEstabelecimento,
+  codigo,
+  status,
+  administradorId = null
+) {
   const id = idPedidoPeloCodigo(codigo);
   if (!id) return null;
   const atualizado = await executarTransacao(banco, async (conexao) => {
-    const [linhas] = await conexao.execute('SELECT origem, status FROM pedidos WHERE id = ? FOR UPDATE', [id]);
+    const [linhas] = await conexao.execute(`
+      SELECT origem, status FROM pedidos
+      WHERE id = ? AND id_estabelecimento = ? FOR UPDATE
+    `, [id, idEstabelecimento]);
     if (!linhas[0]) return false;
     const permitidos = linhas[0].origem === 'delivery'
       ? STATUS_DELIVERY
@@ -1063,39 +1400,56 @@ export async function atualizarStatusPedido(banco, codigo, status, administrador
       throw erroDominio('Um pedido concluído ou cancelado não pode voltar para outra etapa.', 409);
     }
     if (status === linhas[0].status) return true;
-    await conexao.execute('UPDATE pedidos SET status = ? WHERE id = ?', [status, id]);
+    await conexao.execute(`
+      UPDATE pedidos SET status = ? WHERE id = ? AND id_estabelecimento = ?
+    `, [status, id, idEstabelecimento]);
     if (status === 'Cancelado') {
-      const [pagamentos] = await conexao.execute('SELECT * FROM pagamentos WHERE pedido_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE', [id]);
+      const [pagamentos] = await conexao.execute(`
+        SELECT id, forma, status, valor_centavos
+        FROM pagamentos
+        WHERE pedido_id = ? AND id_estabelecimento = ?
+        ORDER BY id DESC LIMIT 1 FOR UPDATE
+      `, [id, idEstabelecimento]);
       const pagamento = pagamentos[0];
       if (pagamento?.status === PAGAMENTO_PAGO) {
         await conexao.execute(`
           UPDATE pagamentos
           SET status = ?, estornado_por = ?, estornado_em = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `, [PAGAMENTO_ESTORNADO, administradorId, pagamento.id]);
+          WHERE id = ? AND id_estabelecimento = ?
+        `, [PAGAMENTO_ESTORNADO, administradorId, pagamento.id, idEstabelecimento]);
       } else if (pagamento && ![PAGAMENTO_CANCELADO, PAGAMENTO_ESTORNADO].includes(pagamento.status)) {
-        await conexao.execute('UPDATE pagamentos SET status = ? WHERE id = ?', [PAGAMENTO_CANCELADO, pagamento.id]);
+        await conexao.execute(`
+          UPDATE pagamentos SET status = ? WHERE id = ? AND id_estabelecimento = ?
+        `, [PAGAMENTO_CANCELADO, pagamento.id, idEstabelecimento]);
       }
     }
-    await registrarAuditoria(conexao, administradorId, status === 'Cancelado' ? 'pedido.cancelado' : 'pedido.status_alterado', 'pedido', id, {
+    await registrarAuditoria(conexao, idEstabelecimento, administradorId, status === 'Cancelado' ? 'pedido.cancelado' : 'pedido.status_alterado', 'pedido', id, {
       statusAnterior: linhas[0].status,
       statusNovo: status
     });
     return true;
   });
   if (!atualizado) return null;
-  const [pedido] = await listarPedidos(banco, { id });
+  const [pedido] = await listarPedidos(banco, idEstabelecimento, { id });
   return pedido;
 }
 
-export async function confirmarPagamento(banco, codigo, administradorId) {
+export async function confirmarPagamento(banco, idEstabelecimento, codigo, administradorId) {
   const id = idPedidoPeloCodigo(codigo);
   if (!id) return null;
   await executarTransacao(banco, async (conexao) => {
-    const [pedidos] = await conexao.execute('SELECT id, status FROM pedidos WHERE id = ? FOR UPDATE', [id]);
+    const [pedidos] = await conexao.execute(`
+      SELECT id, status FROM pedidos
+      WHERE id = ? AND id_estabelecimento = ? FOR UPDATE
+    `, [id, idEstabelecimento]);
     if (!pedidos[0]) throw erroDominio('Pedido não encontrado.', 404);
     if (pedidos[0].status === 'Cancelado') throw erroDominio('Não é possível confirmar o pagamento de um pedido cancelado.', 409);
-    const [pagamentos] = await conexao.execute('SELECT * FROM pagamentos WHERE pedido_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE', [id]);
+    const [pagamentos] = await conexao.execute(`
+      SELECT id, forma, status, valor_centavos
+      FROM pagamentos
+      WHERE pedido_id = ? AND id_estabelecimento = ?
+      ORDER BY id DESC LIMIT 1 FOR UPDATE
+    `, [id, idEstabelecimento]);
     const pagamento = pagamentos[0];
     if (!pagamento) throw erroDominio('O pagamento deste pedido não foi encontrado.', 404);
     if (pagamento.status === PAGAMENTO_PAGO) return;
@@ -1106,37 +1460,45 @@ export async function confirmarPagamento(banco, codigo, administradorId) {
       UPDATE pagamentos
       SET status = ?, pago_em = CURRENT_TIMESTAMP, confirmado_por = ?, confirmado_em = CURRENT_TIMESTAMP,
           estornado_por = NULL, estornado_em = NULL
-      WHERE id = ?
-    `, [PAGAMENTO_PAGO, administradorId, pagamento.id]);
-    await registrarAuditoria(conexao, administradorId, 'pagamento.confirmado', 'pedido', id, {
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [PAGAMENTO_PAGO, administradorId, pagamento.id, idEstabelecimento]);
+    await registrarAuditoria(conexao, idEstabelecimento, administradorId, 'pagamento.confirmado', 'pedido', id, {
       forma: pagamento.forma,
       valorCentavos: Number(pagamento.valor_centavos)
     });
   });
-  const [pedido] = await listarPedidos(banco, { id });
+  const [pedido] = await listarPedidos(banco, idEstabelecimento, { id });
   return pedido;
 }
 
-export async function estornarPagamento(banco, codigo, administradorId) {
+export async function estornarPagamento(banco, idEstabelecimento, codigo, administradorId) {
   const id = idPedidoPeloCodigo(codigo);
   if (!id) return null;
   await executarTransacao(banco, async (conexao) => {
-    const [pedidos] = await conexao.execute('SELECT id FROM pedidos WHERE id = ? FOR UPDATE', [id]);
+    const [pedidos] = await conexao.execute(`
+      SELECT id FROM pedidos WHERE id = ? AND id_estabelecimento = ? FOR UPDATE
+    `, [id, idEstabelecimento]);
     if (!pedidos[0]) throw erroDominio('Pedido não encontrado.', 404);
-    const [pagamentos] = await conexao.execute('SELECT * FROM pagamentos WHERE pedido_id = ? ORDER BY id DESC LIMIT 1 FOR UPDATE', [id]);
+    const [pagamentos] = await conexao.execute(`
+      SELECT id, forma, status, valor_centavos
+      FROM pagamentos
+      WHERE pedido_id = ? AND id_estabelecimento = ?
+      ORDER BY id DESC LIMIT 1 FOR UPDATE
+    `, [id, idEstabelecimento]);
     const pagamento = pagamentos[0];
     if (!pagamento) throw erroDominio('O pagamento deste pedido não foi encontrado.', 404);
     if (pagamento.status === PAGAMENTO_ESTORNADO) return;
     if (pagamento.status !== PAGAMENTO_PAGO) throw erroDominio('Somente pagamentos pagos podem ser estornados.', 409);
     await conexao.execute(`
-      UPDATE pagamentos SET status = ?, estornado_por = ?, estornado_em = CURRENT_TIMESTAMP WHERE id = ?
-    `, [PAGAMENTO_ESTORNADO, administradorId, pagamento.id]);
-    await registrarAuditoria(conexao, administradorId, 'pagamento.estornado', 'pedido', id, {
+      UPDATE pagamentos SET status = ?, estornado_por = ?, estornado_em = CURRENT_TIMESTAMP
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [PAGAMENTO_ESTORNADO, administradorId, pagamento.id, idEstabelecimento]);
+    await registrarAuditoria(conexao, idEstabelecimento, administradorId, 'pagamento.estornado', 'pedido', id, {
       forma: pagamento.forma,
       valorCentavos: Number(pagamento.valor_centavos)
     });
   });
-  const [pedido] = await listarPedidos(banco, { id });
+  const [pedido] = await listarPedidos(banco, idEstabelecimento, { id });
   return pedido;
 }
 
@@ -1151,12 +1513,17 @@ function mapearAdministrador(linha) {
   };
 }
 
-export async function listarAdministradores(banco) {
-  const [linhas] = await banco.query('SELECT id, usuario, email, nome, ativo, criado_em FROM administradores ORDER BY nome');
+export async function listarAdministradores(banco, idEstabelecimento) {
+  const [linhas] = await banco.execute(`
+    SELECT id, usuario, email, nome, ativo, criado_em
+    FROM administradores
+    WHERE id_estabelecimento = ?
+    ORDER BY nome
+  `, [idEstabelecimento]);
   return linhas.map(mapearAdministrador);
 }
 
-export async function criarAdministrador(banco, dados, administradorId) {
+export async function criarAdministrador(banco, idEstabelecimento, dados, administradorId) {
   const usuario = texto(dados.usuario, 80);
   const email = texto(dados.email, 160).toLowerCase();
   const nome = texto(dados.nome, 160);
@@ -1167,58 +1534,106 @@ export async function criarAdministrador(banco, dados, administradorId) {
   if (senha !== confirmacao) throw erroDominio('A confirmação da senha não confere.');
   const id = await executarTransacao(banco, async (conexao) => {
     const [resultado] = await conexao.execute(`
-      INSERT INTO administradores (usuario, email, nome, senha_hash, ativo) VALUES (?, ?, ?, ?, 1)
-    `, [usuario, email, nome, criarHashSenha(senha)]);
-    await registrarAuditoria(conexao, administradorId, 'administrador.criado', 'administrador', resultado.insertId, { usuario, email });
+      INSERT INTO administradores
+        (id_estabelecimento, usuario, email, nome, senha_hash, ativo)
+      VALUES (?, ?, ?, ?, ?, 1)
+    `, [idEstabelecimento, usuario, email, nome, criarHashSenha(senha)]);
+    await registrarAuditoria(conexao, idEstabelecimento, administradorId, 'administrador.criado', 'administrador', resultado.insertId, { usuario, email });
     return Number(resultado.insertId);
   });
-  const [linhas] = await banco.execute('SELECT id, usuario, email, nome, ativo, criado_em FROM administradores WHERE id = ?', [id]);
+  const [linhas] = await banco.execute(`
+    SELECT id, usuario, email, nome, ativo, criado_em
+    FROM administradores
+    WHERE id = ? AND id_estabelecimento = ?
+  `, [id, idEstabelecimento]);
   return mapearAdministrador(linhas[0]);
 }
 
-export async function alternarStatusAdministrador(banco, id, ativo, administradorId) {
+export async function alternarStatusAdministrador(
+  banco,
+  idEstabelecimento,
+  id,
+  ativo,
+  administradorId
+) {
   const alvoId = Number(id);
   if (!Number.isInteger(alvoId) || alvoId <= 0) return null;
   if (!ativo && alvoId === Number(administradorId)) throw erroDominio('Você não pode desativar o próprio acesso.', 409);
   return executarTransacao(banco, async (conexao) => {
-    const [alvos] = await conexao.execute('SELECT id FROM administradores WHERE id = ? FOR UPDATE', [alvoId]);
+    const [alvos] = await conexao.execute(`
+      SELECT id FROM administradores
+      WHERE id = ? AND id_estabelecimento = ? FOR UPDATE
+    `, [alvoId, idEstabelecimento]);
     if (!alvos[0]) return null;
     if (!ativo) {
-      const [[contagem]] = await conexao.execute('SELECT COUNT(*) AS total FROM administradores WHERE ativo = 1 FOR UPDATE');
+      const [[contagem]] = await conexao.execute(`
+        SELECT COUNT(*) AS total FROM administradores
+        WHERE id_estabelecimento = ? AND ativo = 1 FOR UPDATE
+      `, [idEstabelecimento]);
       if (Number(contagem.total) <= 1) throw erroDominio('Mantenha ao menos um administrador ativo.', 409);
     }
-    await conexao.execute('UPDATE administradores SET ativo = ? WHERE id = ?', [ativo ? 1 : 0, alvoId]);
-    if (!ativo) await conexao.execute('DELETE FROM sessoes_admin WHERE administrador_id = ?', [alvoId]);
-    await registrarAuditoria(conexao, administradorId, ativo ? 'administrador.ativado' : 'administrador.desativado', 'administrador', alvoId);
-    const [linhas] = await conexao.execute('SELECT id, usuario, email, nome, ativo, criado_em FROM administradores WHERE id = ?', [alvoId]);
+    await conexao.execute(`
+      UPDATE administradores SET ativo = ? WHERE id = ? AND id_estabelecimento = ?
+    `, [ativo ? 1 : 0, alvoId, idEstabelecimento]);
+    if (!ativo) {
+      await conexao.execute(`
+        DELETE FROM sessoes_admin
+        WHERE administrador_id = ? AND id_estabelecimento = ?
+      `, [alvoId, idEstabelecimento]);
+    }
+    await registrarAuditoria(conexao, idEstabelecimento, administradorId, ativo ? 'administrador.ativado' : 'administrador.desativado', 'administrador', alvoId);
+    const [linhas] = await conexao.execute(`
+      SELECT id, usuario, email, nome, ativo, criado_em
+      FROM administradores
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [alvoId, idEstabelecimento]);
     return mapearAdministrador(linhas[0]);
   });
 }
 
-export async function alterarSenhaAdministrador(banco, administradorId, dados, tokenAtual) {
+export async function alterarSenhaAdministrador(
+  banco,
+  idEstabelecimento,
+  administradorId,
+  dados,
+  tokenAtual
+) {
   const senhaAtual = String(dados.senhaAtual ?? '');
   const novaSenha = String(dados.novaSenha ?? '');
   const confirmacao = String(dados.confirmacaoSenha ?? '');
   if (novaSenha.length < 10) throw erroDominio('A nova senha deve ter pelo menos 10 caracteres.');
   if (novaSenha !== confirmacao) throw erroDominio('A confirmação da nova senha não confere.');
   await executarTransacao(banco, async (conexao) => {
-    const [linhas] = await conexao.execute('SELECT senha_hash FROM administradores WHERE id = ? FOR UPDATE', [administradorId]);
+    const [linhas] = await conexao.execute(`
+      SELECT senha_hash FROM administradores
+      WHERE id = ? AND id_estabelecimento = ? FOR UPDATE
+    `, [administradorId, idEstabelecimento]);
     if (!linhas[0] || !verificarSenha(senhaAtual, linhas[0].senha_hash)) throw erroDominio('A senha atual está incorreta.', 401);
     if (verificarSenha(novaSenha, linhas[0].senha_hash)) throw erroDominio('A nova senha deve ser diferente da senha atual.');
-    await conexao.execute('UPDATE administradores SET senha_hash = ? WHERE id = ?', [criarHashSenha(novaSenha), administradorId]);
-    await conexao.execute('DELETE FROM sessoes_admin WHERE administrador_id = ? AND token_hash <> ?', [administradorId, criarHashToken(tokenAtual)]);
-    await registrarAuditoria(conexao, administradorId, 'administrador.senha_alterada', 'administrador', administradorId);
+    await conexao.execute(`
+      UPDATE administradores SET senha_hash = ?
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [criarHashSenha(novaSenha), administradorId, idEstabelecimento]);
+    await conexao.execute(`
+      DELETE FROM sessoes_admin
+      WHERE administrador_id = ? AND id_estabelecimento = ? AND token_hash <> ?
+    `, [administradorId, idEstabelecimento, criarHashToken(tokenAtual)]);
+    await registrarAuditoria(conexao, idEstabelecimento, administradorId, 'administrador.senha_alterada', 'administrador', administradorId);
   });
 }
 
-export async function listarAuditoriaAdmin(banco) {
-  const [linhas] = await banco.query(`
-    SELECT au.*, a.nome AS administrador_nome
+export async function listarAuditoriaAdmin(banco, idEstabelecimento) {
+  const [linhas] = await banco.execute(`
+    SELECT au.id, au.acao, au.entidade, au.entidade_id, au.detalhes_json,
+      au.criado_em, a.nome AS administrador_nome
     FROM auditoria_admin au
-    LEFT JOIN administradores a ON a.id = au.administrador_id
+    LEFT JOIN administradores a
+      ON a.id = au.administrador_id
+      AND a.id_estabelecimento = au.id_estabelecimento
+    WHERE au.id_estabelecimento = ?
     ORDER BY au.criado_em DESC, au.id DESC
     LIMIT 100
-  `);
+  `, [idEstabelecimento]);
   return linhas.map((linha) => ({
     id: Number(linha.id),
     administrador: linha.administrador_nome ?? 'Sistema',
@@ -1230,13 +1645,22 @@ export async function listarAuditoriaAdmin(banco) {
   }));
 }
 
-async function obterComandaDoGarcom(conexao, comandaId, funcionarioId, { bloquear = false } = {}) {
+async function obterComandaDoGarcom(
+  conexao,
+  idEstabelecimento,
+  comandaId,
+  funcionarioId,
+  { bloquear = false } = {}
+) {
   const [linhas] = await conexao.execute(`
-    SELECT c.*, m.numero AS mesa_numero
+    SELECT c.id, c.mesa_id, c.funcionario_id, c.status, c.pagamento,
+      c.aberta_em, m.numero AS mesa_numero
     FROM comandas c
-    INNER JOIN mesas m ON m.id = c.mesa_id
-    WHERE c.id = ? ${bloquear ? 'FOR UPDATE' : ''}
-  `, [comandaId]);
+    INNER JOIN mesas m
+      ON m.id = c.mesa_id
+      AND m.id_estabelecimento = c.id_estabelecimento
+    WHERE c.id = ? AND c.id_estabelecimento = ? ${bloquear ? 'FOR UPDATE' : ''}
+  `, [comandaId, idEstabelecimento]);
   const comanda = linhas[0];
   if (!comanda) throw erroDominio('Comanda não encontrada.', 404);
   if (Number(comanda.funcionario_id) !== Number(funcionarioId)) {
@@ -1246,13 +1670,18 @@ async function obterComandaDoGarcom(conexao, comandaId, funcionarioId, { bloquea
   return comanda;
 }
 
-export async function abrirComanda(banco, mesaId, funcionarioId) {
+export async function abrirComanda(banco, idEstabelecimento, mesaId, funcionarioId) {
   const id = await executarTransacao(banco, async (conexao) => {
-    const [mesas] = await conexao.execute('SELECT * FROM mesas WHERE id = ? AND ativo = 1 FOR UPDATE', [mesaId]);
+    const [mesas] = await conexao.execute(`
+      SELECT id, numero FROM mesas
+      WHERE id = ? AND id_estabelecimento = ? AND ativo = 1 FOR UPDATE
+    `, [mesaId, idEstabelecimento]);
     if (!mesas[0]) throw erroDominio('Mesa não encontrada.', 404);
     const [existentes] = await conexao.execute(`
-      SELECT * FROM comandas WHERE mesa_id = ? AND status <> 'Encerrada' FOR UPDATE
-    `, [mesaId]);
+      SELECT id, funcionario_id FROM comandas
+      WHERE mesa_id = ? AND id_estabelecimento = ? AND status <> 'Encerrada'
+      FOR UPDATE
+    `, [mesaId, idEstabelecimento]);
     if (existentes[0]) {
       if (Number(existentes[0].funcionario_id) !== Number(funcionarioId)) {
         throw erroDominio('Esta mesa já está sendo atendida por outro garçom.', 409);
@@ -1260,18 +1689,31 @@ export async function abrirComanda(banco, mesaId, funcionarioId) {
       return Number(existentes[0].id);
     }
     const [resultado] = await conexao.execute(`
-      INSERT INTO comandas (mesa_id, funcionario_id, status) VALUES (?, ?, 'Aberta')
-    `, [mesaId, funcionarioId]);
+      INSERT INTO comandas (id_estabelecimento, mesa_id, funcionario_id, status)
+      VALUES (?, ?, ?, 'Aberta')
+    `, [idEstabelecimento, mesaId, funcionarioId]);
     return Number(resultado.insertId);
   });
-  const comandas = await listarComandas(banco);
+  const comandas = await listarComandas(banco, idEstabelecimento);
   return comandas.find((comanda) => comanda.id === String(id));
 }
 
-export async function adicionarItemComanda(banco, comandaId, funcionarioId, dados) {
+export async function adicionarItemComanda(
+  banco,
+  idEstabelecimento,
+  comandaId,
+  funcionarioId,
+  dados
+) {
   await executarTransacao(banco, async (conexao) => {
-    await obterComandaDoGarcom(conexao, comandaId, funcionarioId, { bloquear: true });
-    const [item] = await buscarItensValidados(conexao, [{
+    await obterComandaDoGarcom(
+      conexao,
+      idEstabelecimento,
+      comandaId,
+      funcionarioId,
+      { bloquear: true }
+    );
+    const [item] = await buscarItensValidados(conexao, idEstabelecimento, [{
       id: dados.produtoId,
       quantidade: dados.quantidade,
       adicionais: dados.adicionais,
@@ -1279,116 +1721,172 @@ export async function adicionarItemComanda(banco, comandaId, funcionarioId, dado
     }]);
     const [[totais]] = await conexao.execute(`
       SELECT COUNT(*) AS linhas, COALESCE(SUM(quantidade), 0) AS unidades
-      FROM comanda_itens WHERE comanda_id = ?
-    `, [comandaId]);
+      FROM comanda_itens
+      WHERE comanda_id = ? AND id_estabelecimento = ?
+    `, [comandaId, idEstabelecimento]);
     if (Number(totais.linhas) >= MAX_LINHAS_PEDIDO
         || Number(totais.unidades) + item.quantidade > MAX_UNIDADES_PEDIDO) {
       throw erroDominio('A comanda atingiu o limite de itens permitido.');
     }
     const [resultado] = await conexao.execute(`
       INSERT INTO comanda_itens
-        (comanda_id, produto_id, nome_produto, preco_unitario_centavos, quantidade, observacao)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `, [comandaId, item.produtoId, item.nome, item.precoCentavos, item.quantidade, item.observacao]);
+        (id_estabelecimento, comanda_id, produto_id, nome_produto,
+         preco_unitario_centavos, quantidade, observacao)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [idEstabelecimento, comandaId, item.produtoId, item.nome, item.precoCentavos, item.quantidade, item.observacao]);
     for (const adicional of item.adicionais) {
       await conexao.execute(`
         INSERT INTO comanda_item_adicionais
-          (comanda_item_id, adicional_id, nome_adicional, preco_centavos)
-        VALUES (?, ?, ?, ?)
-      `, [resultado.insertId, adicional.id, adicional.nome, adicional.precoCentavos]);
+          (id_estabelecimento, comanda_item_id, adicional_id, nome_adicional, preco_centavos)
+        VALUES (?, ?, ?, ?, ?)
+      `, [idEstabelecimento, resultado.insertId, adicional.id, adicional.nome, adicional.precoCentavos]);
     }
-    await conexao.execute("UPDATE comandas SET status = 'Aberta' WHERE id = ?", [comandaId]);
+    await conexao.execute(`
+      UPDATE comandas SET status = 'Aberta'
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [comandaId, idEstabelecimento]);
   });
 }
 
-export async function removerItemComanda(banco, comandaId, itemId, funcionarioId) {
+export async function removerItemComanda(
+  banco,
+  idEstabelecimento,
+  comandaId,
+  itemId,
+  funcionarioId
+) {
   await executarTransacao(banco, async (conexao) => {
-    await obterComandaDoGarcom(conexao, comandaId, funcionarioId, { bloquear: true });
+    await obterComandaDoGarcom(
+      conexao,
+      idEstabelecimento,
+      comandaId,
+      funcionarioId,
+      { bloquear: true }
+    );
     const [[totais]] = await conexao.execute(`
       SELECT COUNT(*) AS linhas,
-        EXISTS(SELECT 1 FROM pedidos WHERE comanda_id = ?) AS possui_pedido
-      FROM comanda_itens WHERE comanda_id = ?
-    `, [comandaId, comandaId]);
+        EXISTS(
+          SELECT 1 FROM pedidos
+          WHERE comanda_id = ? AND id_estabelecimento = ?
+        ) AS possui_pedido
+      FROM comanda_itens
+      WHERE comanda_id = ? AND id_estabelecimento = ?
+    `, [comandaId, idEstabelecimento, comandaId, idEstabelecimento]);
     if (Number(totais.possui_pedido) && Number(totais.linhas) <= 1) {
       throw erroDominio('Não é possível remover o último item depois do envio à cozinha.', 409);
     }
     const [resultado] = await conexao.execute(`
-      DELETE FROM comanda_itens WHERE id = ? AND comanda_id = ?
-    `, [itemId, comandaId]);
+      DELETE FROM comanda_itens
+      WHERE id = ? AND comanda_id = ? AND id_estabelecimento = ?
+    `, [itemId, comandaId, idEstabelecimento]);
     if (!resultado.affectedRows) throw erroDominio('Item da comanda não encontrado.', 404);
-    await conexao.execute("UPDATE comandas SET status = 'Aberta' WHERE id = ?", [comandaId]);
+    await conexao.execute(`
+      UPDATE comandas SET status = 'Aberta'
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [comandaId, idEstabelecimento]);
   });
 }
 
-async function buscarResponsavelComanda(banco, comandaId) {
-  const [linhas] = await banco.execute('SELECT funcionario_id FROM comandas WHERE id = ?', [comandaId]);
+async function buscarResponsavelComanda(banco, idEstabelecimento, comandaId) {
+  const [linhas] = await banco.execute(`
+    SELECT funcionario_id FROM comandas
+    WHERE id = ? AND id_estabelecimento = ?
+  `, [comandaId, idEstabelecimento]);
   if (!linhas[0]) throw erroDominio('Comanda não encontrada.', 404);
   return Number(linhas[0].funcionario_id);
 }
 
-export async function adicionarItemComandaAdmin(banco, comandaId, dados) {
-  const funcionarioId = await buscarResponsavelComanda(banco, comandaId);
-  await adicionarItemComanda(banco, comandaId, funcionarioId, dados);
+export async function adicionarItemComandaAdmin(banco, idEstabelecimento, comandaId, dados) {
+  const funcionarioId = await buscarResponsavelComanda(banco, idEstabelecimento, comandaId);
+  await adicionarItemComanda(banco, idEstabelecimento, comandaId, funcionarioId, dados);
 }
 
-export async function removerItemComandaAdmin(banco, comandaId, itemId) {
-  const funcionarioId = await buscarResponsavelComanda(banco, comandaId);
-  await removerItemComanda(banco, comandaId, itemId, funcionarioId);
+export async function removerItemComandaAdmin(banco, idEstabelecimento, comandaId, itemId) {
+  const funcionarioId = await buscarResponsavelComanda(banco, idEstabelecimento, comandaId);
+  await removerItemComanda(banco, idEstabelecimento, comandaId, itemId, funcionarioId);
 }
 
-export async function atualizarQuantidadeItemComandaAdmin(banco, comandaId, itemId, quantidadeInformada) {
+export async function atualizarQuantidadeItemComandaAdmin(
+  banco,
+  idEstabelecimento,
+  comandaId,
+  itemId,
+  quantidadeInformada
+) {
   const quantidade = Number(quantidadeInformada);
   if (!Number.isInteger(quantidade) || quantidade < 1 || quantidade > 50) {
     throw erroDominio('Informe uma quantidade entre 1 e 50.');
   }
   await executarTransacao(banco, async (conexao) => {
-    const [comandas] = await conexao.execute('SELECT status FROM comandas WHERE id = ? FOR UPDATE', [comandaId]);
+    const [comandas] = await conexao.execute(`
+      SELECT status FROM comandas
+      WHERE id = ? AND id_estabelecimento = ? FOR UPDATE
+    `, [comandaId, idEstabelecimento]);
     if (!comandas[0]) throw erroDominio('Comanda não encontrada.', 404);
     if (comandas[0].status === 'Encerrada') throw erroDominio('Esta comanda já foi encerrada.', 409);
 
     const [itens] = await conexao.execute(`
-      SELECT id FROM comanda_itens WHERE id = ? AND comanda_id = ? FOR UPDATE
-    `, [itemId, comandaId]);
+      SELECT id FROM comanda_itens
+      WHERE id = ? AND comanda_id = ? AND id_estabelecimento = ? FOR UPDATE
+    `, [itemId, comandaId, idEstabelecimento]);
     if (!itens[0]) throw erroDominio('Item da comanda não encontrado.', 404);
 
     const [[totais]] = await conexao.execute(`
       SELECT COALESCE(SUM(quantidade), 0) AS unidades
-      FROM comanda_itens WHERE comanda_id = ? AND id <> ?
-    `, [comandaId, itemId]);
+      FROM comanda_itens
+      WHERE comanda_id = ? AND id <> ? AND id_estabelecimento = ?
+    `, [comandaId, itemId, idEstabelecimento]);
     if (Number(totais.unidades) + quantidade > MAX_UNIDADES_PEDIDO) {
       throw erroDominio('A comanda atingiu o limite de itens permitido.');
     }
-    await conexao.execute('UPDATE comanda_itens SET quantidade = ? WHERE id = ?', [quantidade, itemId]);
-    await conexao.execute("UPDATE comandas SET status = 'Aberta' WHERE id = ?", [comandaId]);
+    await conexao.execute(`
+      UPDATE comanda_itens SET quantidade = ?
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [quantidade, itemId, idEstabelecimento]);
+    await conexao.execute(`
+      UPDATE comandas SET status = 'Aberta'
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [comandaId, idEstabelecimento]);
   });
 }
 
-async function copiarItensComandaParaPedido(conexao, comandaId, pedidoId) {
-  const [itens] = await conexao.execute('SELECT * FROM comanda_itens WHERE comanda_id = ? ORDER BY id', [comandaId]);
+async function copiarItensComandaParaPedido(conexao, idEstabelecimento, comandaId, pedidoId) {
+  const [itens] = await conexao.execute(`
+    SELECT id, produto_id, nome_produto, preco_unitario_centavos, quantidade, observacao
+    FROM comanda_itens
+    WHERE comanda_id = ? AND id_estabelecimento = ?
+    ORDER BY id
+  `, [comandaId, idEstabelecimento]);
   if (itens.length === 0) throw erroDominio('Adicione produtos antes de enviar a comanda.', 409);
   for (const item of itens) {
     const [produtos] = item.produto_id
-      ? await conexao.execute('SELECT descricao, imagem_url FROM produtos WHERE id = ?', [item.produto_id])
+      ? await conexao.execute(`
+          SELECT descricao, imagem_url FROM produtos
+          WHERE id = ? AND id_estabelecimento = ?
+        `, [item.produto_id, idEstabelecimento])
       : [[]];
     const [resultado] = await conexao.execute(`
       INSERT INTO pedido_itens
-        (pedido_id, produto_id, nome_produto, descricao_produto, imagem_url,
+        (id_estabelecimento, pedido_id, produto_id, nome_produto, descricao_produto, imagem_url,
          preco_unitario_centavos, quantidade, observacao)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
+      idEstabelecimento,
       pedidoId, item.produto_id, item.nome_produto, produtos[0]?.descricao ?? '',
       produtos[0]?.imagem_url ?? null, item.preco_unitario_centavos,
       item.quantidade, item.observacao
     ]);
     const [adicionais] = await conexao.execute(`
-      SELECT * FROM comanda_item_adicionais WHERE comanda_item_id = ?
-    `, [item.id]);
+      SELECT adicional_id, nome_adicional, preco_centavos
+      FROM comanda_item_adicionais
+      WHERE comanda_item_id = ? AND id_estabelecimento = ?
+    `, [item.id, idEstabelecimento]);
     for (const adicional of adicionais) {
       await conexao.execute(`
         INSERT INTO pedido_item_adicionais
-          (pedido_item_id, adicional_id, nome_adicional, preco_centavos)
-        VALUES (?, ?, ?, ?)
-      `, [resultado.insertId, adicional.adicional_id, adicional.nome_adicional, adicional.preco_centavos]);
+          (id_estabelecimento, pedido_item_id, adicional_id, nome_adicional, preco_centavos)
+        VALUES (?, ?, ?, ?, ?)
+      `, [idEstabelecimento, resultado.insertId, adicional.adicional_id, adicional.nome_adicional, adicional.preco_centavos]);
     }
   }
   const total = itens.reduce(
@@ -1401,107 +1899,181 @@ async function copiarItensComandaParaPedido(conexao, comandaId, pedidoId) {
   return total;
 }
 
-export async function enviarComanda(banco, comandaId, funcionarioId) {
+export async function enviarComanda(banco, idEstabelecimento, comandaId, funcionarioId) {
   await executarTransacao(banco, async (conexao) => {
-    const comanda = await obterComandaDoGarcom(conexao, comandaId, funcionarioId, { bloquear: true });
-    const [pedidos] = await conexao.execute('SELECT id FROM pedidos WHERE comanda_id = ? FOR UPDATE', [comandaId]);
+    const comanda = await obterComandaDoGarcom(
+      conexao,
+      idEstabelecimento,
+      comandaId,
+      funcionarioId,
+      { bloquear: true }
+    );
+    const [pedidos] = await conexao.execute(`
+      SELECT id FROM pedidos
+      WHERE comanda_id = ? AND id_estabelecimento = ? FOR UPDATE
+    `, [comandaId, idEstabelecimento]);
     let pedidoId = pedidos[0] ? Number(pedidos[0].id) : null;
     if (!pedidoId) {
       const [resultado] = await conexao.execute(`
         INSERT INTO pedidos
-          (origem, cliente, telefone, status, pagamento, taxa_entrega_centavos,
+          (id_estabelecimento, origem, cliente, telefone, status, pagamento, taxa_entrega_centavos,
            total_centavos, comanda_id, mesa_id, funcionario_id)
-        VALUES ('mesa', ?, 'Atendimento presencial', 'Recebido', 'A definir', 0, 0, ?, ?, ?)
-      `, [`Mesa ${comanda.mesa_numero}`, comandaId, comanda.mesa_id, funcionarioId]);
+        VALUES (?, 'mesa', ?, 'Atendimento presencial', 'Recebido', 'A definir', 0, 0, ?, ?, ?)
+      `, [idEstabelecimento, `Mesa ${comanda.mesa_numero}`, comandaId, comanda.mesa_id, funcionarioId]);
       pedidoId = Number(resultado.insertId);
     } else {
-      await conexao.execute('DELETE FROM pedido_itens WHERE pedido_id = ?', [pedidoId]);
+      await conexao.execute(`
+        DELETE FROM pedido_itens
+        WHERE pedido_id = ? AND id_estabelecimento = ?
+      `, [pedidoId, idEstabelecimento]);
     }
-    const total = await copiarItensComandaParaPedido(conexao, comandaId, pedidoId);
+    const total = await copiarItensComandaParaPedido(
+      conexao,
+      idEstabelecimento,
+      comandaId,
+      pedidoId
+    );
     await conexao.execute(`
-      UPDATE pedidos SET total_centavos = ?, status = 'Em preparo' WHERE id = ?
-    `, [total, pedidoId]);
-    await conexao.execute("UPDATE comandas SET status = 'Na cozinha' WHERE id = ?", [comandaId]);
+      UPDATE pedidos SET total_centavos = ?, status = 'Em preparo'
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [total, pedidoId, idEstabelecimento]);
+    await conexao.execute(`
+      UPDATE comandas SET status = 'Na cozinha'
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [comandaId, idEstabelecimento]);
   });
 }
 
-export async function solicitarConta(banco, comandaId, funcionarioId) {
+export async function solicitarConta(banco, idEstabelecimento, comandaId, funcionarioId) {
   await executarTransacao(banco, async (conexao) => {
-    const comanda = await obterComandaDoGarcom(conexao, comandaId, funcionarioId, { bloquear: true });
+    const comanda = await obterComandaDoGarcom(
+      conexao,
+      idEstabelecimento,
+      comandaId,
+      funcionarioId,
+      { bloquear: true }
+    );
     if (comanda.status !== 'Na cozinha') {
       throw erroDominio('Envie as alterações da comanda para a cozinha antes de solicitar a conta.', 409);
     }
-    const [pedidos] = await conexao.execute('SELECT id FROM pedidos WHERE comanda_id = ? FOR UPDATE', [comandaId]);
+    const [pedidos] = await conexao.execute(`
+      SELECT id FROM pedidos
+      WHERE comanda_id = ? AND id_estabelecimento = ? FOR UPDATE
+    `, [comandaId, idEstabelecimento]);
     if (!pedidos[0]) throw erroDominio('Envie a comanda para a cozinha antes de solicitar a conta.', 409);
-    await conexao.execute("UPDATE comandas SET status = 'Conta solicitada' WHERE id = ?", [comandaId]);
+    await conexao.execute(`
+      UPDATE comandas SET status = 'Conta solicitada'
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [comandaId, idEstabelecimento]);
   });
 }
 
-export async function fecharComanda(banco, comandaId, funcionarioId, pagamento) {
+export async function fecharComanda(
+  banco,
+  idEstabelecimento,
+  comandaId,
+  funcionarioId,
+  pagamento
+) {
   if (!PAGAMENTOS.has(pagamento) || pagamento === 'A definir') throw erroDominio('Selecione uma forma de pagamento válida.');
   await executarTransacao(banco, async (conexao) => {
-    const comanda = await obterComandaDoGarcom(conexao, comandaId, funcionarioId, { bloquear: true });
+    const comanda = await obterComandaDoGarcom(
+      conexao,
+      idEstabelecimento,
+      comandaId,
+      funcionarioId,
+      { bloquear: true }
+    );
     if (comanda.status !== 'Conta solicitada') {
       throw erroDominio('Solicite a conta antes de confirmar o pagamento.', 409);
     }
-    const [pedidos] = await conexao.execute('SELECT * FROM pedidos WHERE comanda_id = ? FOR UPDATE', [comandaId]);
+    const [pedidos] = await conexao.execute(`
+      SELECT id, total_centavos FROM pedidos
+      WHERE comanda_id = ? AND id_estabelecimento = ? FOR UPDATE
+    `, [comandaId, idEstabelecimento]);
     const pedido = pedidos[0];
     if (!pedido) throw erroDominio('Envie a comanda para a cozinha antes de fechá-la.', 409);
     await conexao.execute(`
-      UPDATE comandas SET status = 'Encerrada', pagamento = ?, encerrada_em = CURRENT_TIMESTAMP WHERE id = ?
-    `, [pagamento, comandaId]);
+      UPDATE comandas SET status = 'Encerrada', pagamento = ?, encerrada_em = CURRENT_TIMESTAMP
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [pagamento, comandaId, idEstabelecimento]);
     await conexao.execute(`
-      UPDATE pedidos SET status = 'Entregue na mesa', pagamento = ? WHERE id = ?
-    `, [pagamento, pedido.id]);
+      UPDATE pedidos SET status = 'Entregue na mesa', pagamento = ?
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [pagamento, pedido.id, idEstabelecimento]);
     await conexao.execute(`
-      INSERT INTO pagamentos (pedido_id, comanda_id, forma, status, valor_centavos, pago_em, confirmado_em)
-      VALUES (?, ?, ?, 'Pago', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `, [pedido.id, comandaId, pagamento, pedido.total_centavos]);
+      INSERT INTO pagamentos
+        (id_estabelecimento, pedido_id, comanda_id, forma, status,
+         valor_centavos, pago_em, confirmado_em)
+      VALUES (?, ?, ?, ?, 'Pago', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `, [idEstabelecimento, pedido.id, comandaId, pagamento, pedido.total_centavos]);
   });
 }
 
-export async function finalizarComandaAdmin(banco, comandaId, pagamento, administradorId = null) {
+export async function finalizarComandaAdmin(
+  banco,
+  idEstabelecimento,
+  comandaId,
+  pagamento,
+  administradorId = null
+) {
   if (!PAGAMENTOS.has(pagamento) || pagamento === 'A definir') {
     throw erroDominio('Selecione uma forma de pagamento válida.');
   }
   await executarTransacao(banco, async (conexao) => {
     const [comandas] = await conexao.execute(`
-      SELECT c.*, m.numero AS mesa_numero
+      SELECT c.id, c.mesa_id, c.funcionario_id, c.status, m.numero AS mesa_numero
       FROM comandas c
-      INNER JOIN mesas m ON m.id = c.mesa_id
-      WHERE c.id = ? FOR UPDATE
-    `, [comandaId]);
+      INNER JOIN mesas m
+        ON m.id = c.mesa_id
+        AND m.id_estabelecimento = c.id_estabelecimento
+      WHERE c.id = ? AND c.id_estabelecimento = ? FOR UPDATE
+    `, [comandaId, idEstabelecimento]);
     const comanda = comandas[0];
     if (!comanda) throw erroDominio('Comanda não encontrada.', 404);
     if (comanda.status === 'Encerrada') throw erroDominio('Esta comanda já foi encerrada.', 409);
 
-    const [pedidos] = await conexao.execute('SELECT * FROM pedidos WHERE comanda_id = ? FOR UPDATE', [comandaId]);
+    const [pedidos] = await conexao.execute(`
+      SELECT id FROM pedidos
+      WHERE comanda_id = ? AND id_estabelecimento = ? FOR UPDATE
+    `, [comandaId, idEstabelecimento]);
     let pedidoId = pedidos[0] ? Number(pedidos[0].id) : null;
     if (!pedidoId) {
       const [resultado] = await conexao.execute(`
         INSERT INTO pedidos
-          (origem, cliente, telefone, status, pagamento, taxa_entrega_centavos,
+          (id_estabelecimento, origem, cliente, telefone, status, pagamento, taxa_entrega_centavos,
            total_centavos, comanda_id, mesa_id, funcionario_id)
-        VALUES ('mesa', ?, 'Atendimento presencial', 'Recebido', ?, 0, 0, ?, ?, ?)
-      `, [`Mesa ${comanda.mesa_numero}`, pagamento, comandaId, comanda.mesa_id, comanda.funcionario_id]);
+        VALUES (?, 'mesa', ?, 'Atendimento presencial', 'Recebido', ?, 0, 0, ?, ?, ?)
+      `, [idEstabelecimento, `Mesa ${comanda.mesa_numero}`, pagamento, comandaId, comanda.mesa_id, comanda.funcionario_id]);
       pedidoId = Number(resultado.insertId);
     } else {
-      await conexao.execute('DELETE FROM pedido_itens WHERE pedido_id = ?', [pedidoId]);
+      await conexao.execute(`
+        DELETE FROM pedido_itens
+        WHERE pedido_id = ? AND id_estabelecimento = ?
+      `, [pedidoId, idEstabelecimento]);
     }
 
-    const total = await copiarItensComandaParaPedido(conexao, comandaId, pedidoId);
+    const total = await copiarItensComandaParaPedido(
+      conexao,
+      idEstabelecimento,
+      comandaId,
+      pedidoId
+    );
     await conexao.execute(`
-      UPDATE pedidos SET total_centavos = ?, status = 'Entregue na mesa', pagamento = ? WHERE id = ?
-    `, [total, pagamento, pedidoId]);
+      UPDATE pedidos SET total_centavos = ?, status = 'Entregue na mesa', pagamento = ?
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [total, pagamento, pedidoId, idEstabelecimento]);
     await conexao.execute(`
-      UPDATE comandas SET status = 'Encerrada', pagamento = ?, encerrada_em = CURRENT_TIMESTAMP WHERE id = ?
-    `, [pagamento, comandaId]);
+      UPDATE comandas SET status = 'Encerrada', pagamento = ?, encerrada_em = CURRENT_TIMESTAMP
+      WHERE id = ? AND id_estabelecimento = ?
+    `, [pagamento, comandaId, idEstabelecimento]);
     await conexao.execute(`
       INSERT INTO pagamentos
-        (pedido_id, comanda_id, forma, status, valor_centavos, pago_em, confirmado_por, confirmado_em)
-      VALUES (?, ?, ?, 'Pago', ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)
-    `, [pedidoId, comandaId, pagamento, total, administradorId]);
-    await registrarAuditoria(conexao, administradorId, 'comanda.finalizada', 'pedido', pedidoId, {
+        (id_estabelecimento, pedido_id, comanda_id, forma, status,
+         valor_centavos, pago_em, confirmado_por, confirmado_em)
+      VALUES (?, ?, ?, ?, 'Pago', ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)
+    `, [idEstabelecimento, pedidoId, comandaId, pagamento, total, administradorId]);
+    await registrarAuditoria(conexao, idEstabelecimento, administradorId, 'comanda.finalizada', 'pedido', pedidoId, {
       comandaId: Number(comandaId),
       forma: pagamento,
       valorCentavos: total
@@ -1509,36 +2081,36 @@ export async function finalizarComandaAdmin(banco, comandaId, pagamento, adminis
   });
 }
 
-export async function listarDadosPublicos(banco) {
+export async function listarDadosPublicos(banco, idEstabelecimento) {
   const [catalogo, promocoes, configuracao] = await Promise.all([
-    listarCatalogo(banco),
-    listarPromocoes(banco, { somenteAtivas: true }),
-    buscarConfiguracao(banco)
+    listarCatalogo(banco, idEstabelecimento),
+    listarPromocoes(banco, idEstabelecimento, { somenteAtivas: true }),
+    buscarConfiguracaoPublica(banco, idEstabelecimento)
   ]);
   return { ...catalogo, promocoes, configuracao };
 }
 
-export async function listarDadosAdmin(banco) {
+export async function listarDadosAdmin(banco, idEstabelecimento) {
   const [catalogo, promocoes, funcionarios, mesas, comandas, pedidos, configuracao, administradores, auditoria] = await Promise.all([
-    listarCatalogo(banco, { administrativo: true }),
-    listarPromocoes(banco),
-    listarFuncionarios(banco),
-    listarMesas(banco),
-    listarComandas(banco),
-    listarPedidos(banco),
-    buscarConfiguracao(banco),
-    listarAdministradores(banco),
-    listarAuditoriaAdmin(banco)
+    listarCatalogo(banco, idEstabelecimento, { administrativo: true }),
+    listarPromocoes(banco, idEstabelecimento),
+    listarFuncionarios(banco, idEstabelecimento),
+    listarMesas(banco, idEstabelecimento),
+    listarComandas(banco, idEstabelecimento),
+    listarPedidos(banco, idEstabelecimento),
+    buscarConfiguracao(banco, idEstabelecimento),
+    listarAdministradores(banco, idEstabelecimento),
+    listarAuditoriaAdmin(banco, idEstabelecimento)
   ]);
   return { ...catalogo, promocoes, funcionarios, mesas, comandas, pedidos, configuracao, administradores, auditoria };
 }
 
-export async function listarDadosGarcom(banco, funcionarioId) {
+export async function listarDadosGarcom(banco, idEstabelecimento, funcionarioId) {
   const [catalogo, mesas, comandas, configuracao] = await Promise.all([
-    listarCatalogo(banco),
-    listarMesas(banco),
-    listarComandas(banco, { funcionarioId }),
-    buscarConfiguracao(banco)
+    listarCatalogo(banco, idEstabelecimento),
+    listarMesas(banco, idEstabelecimento),
+    listarComandas(banco, idEstabelecimento, { funcionarioId }),
+    buscarConfiguracao(banco, idEstabelecimento)
   ]);
   return { ...catalogo, mesas, comandas, configuracao };
 }

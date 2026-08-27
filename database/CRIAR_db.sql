@@ -1,6 +1,7 @@
 -- Instalação completa da estrutura multiempresa.
 -- Uso exclusivo em um schema novo, previamente criado e selecionado no provedor.
--- Não insere registros de estabelecimentos, contas administrativas ou dados demonstrativos.
+-- Cria somente o estabelecimento inicial de compatibilidade, sem contas administrativas
+-- ou dados demonstrativos.
 
 -- Estrutura base multiempresa. As tabelas operacionais serão relacionadas
 -- aos estabelecimentos por migrations posteriores e não destrutivas.
@@ -54,6 +55,8 @@ CREATE TABLE IF NOT EXISTS configuracoes_estabelecimento (
   email VARCHAR(160),
   endereco VARCHAR(255),
   horario_funcionamento TEXT,
+  instagram_url VARCHAR(500),
+  facebook_url VARCHAR(500),
   loja_aberta TINYINT(1) NOT NULL DEFAULT 0,
   pedido_minimo_centavos INT UNSIGNED NOT NULL DEFAULT 0,
   taxa_entrega_centavos INT UNSIGNED NOT NULL DEFAULT 0,
@@ -87,13 +90,15 @@ CREATE TABLE IF NOT EXISTS configuracoes_estabelecimento (
 CREATE TABLE IF NOT EXISTS administradores (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   id_estabelecimento BIGINT UNSIGNED,
-  usuario VARCHAR(80) NOT NULL UNIQUE,
-  email VARCHAR(160) NOT NULL UNIQUE,
+  usuario VARCHAR(80) NOT NULL,
+  email VARCHAR(160) NOT NULL,
   nome VARCHAR(160) NOT NULL,
   senha_hash VARCHAR(255) NOT NULL,
   ativo TINYINT(1) NOT NULL DEFAULT 1,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_administradores_estabelecimento_usuario (id_estabelecimento, usuario),
+  UNIQUE KEY uk_administradores_estabelecimento_email (id_estabelecimento, email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS sessoes_admin (
@@ -120,19 +125,21 @@ CREATE TABLE IF NOT EXISTS auditoria_admin (
 CREATE TABLE IF NOT EXISTS categorias (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   id_estabelecimento BIGINT UNSIGNED,
-  nome VARCHAR(100) NOT NULL UNIQUE,
+  nome VARCHAR(100) NOT NULL,
   ordem INT NOT NULL DEFAULT 0,
-  ativo TINYINT(1) NOT NULL DEFAULT 1
+  ativo TINYINT(1) NOT NULL DEFAULT 1,
+  UNIQUE KEY uk_categorias_estabelecimento_nome (id_estabelecimento, nome)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS adicionais (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   id_estabelecimento BIGINT UNSIGNED,
-  nome VARCHAR(120) NOT NULL UNIQUE,
+  nome VARCHAR(120) NOT NULL,
   preco_centavos INT UNSIGNED NOT NULL,
   ativo TINYINT(1) NOT NULL DEFAULT 1,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_adicionais_estabelecimento_nome (id_estabelecimento, nome)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS produtos (
@@ -202,10 +209,11 @@ CREATE TABLE IF NOT EXISTS sessoes_garcom (
 CREATE TABLE IF NOT EXISTS mesas (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   id_estabelecimento BIGINT UNSIGNED,
-  numero VARCHAR(10) NOT NULL UNIQUE,
+  numero VARCHAR(10) NOT NULL,
   lugares INT UNSIGNED NOT NULL DEFAULT 4,
   ativo TINYINT(1) NOT NULL DEFAULT 1,
-  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_mesas_estabelecimento_numero (id_estabelecimento, numero)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS comandas (
@@ -270,7 +278,8 @@ CREATE TABLE IF NOT EXISTS pedidos (
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_pedidos_comanda (comanda_id),
-  UNIQUE KEY uk_pedidos_chave_idempotencia (chave_idempotencia_hash),
+  UNIQUE KEY uk_pedidos_estabelecimento_idempotencia
+    (id_estabelecimento, chave_idempotencia_hash),
   INDEX idx_pedidos_mesa (mesa_id),
   INDEX idx_pedidos_funcionario (funcionario_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -554,27 +563,48 @@ INSERT INTO schema_migrations (versao, checksum) VALUES
   ('001_adicionar_estabelecimentos.sql', 'fe5a3c02b5519e7a7b6007f4d6c180cf54d18cf78f640d41e3161d45b4c3a10c'),
   ('002_adicionar_escopo_estabelecimento.sql', '379ac9882c45d603cd978ea0900f89a680ffff820ef49f8539d023e0ce45963c'),
   ('003_relacionar_dados_estabelecimento.sql', '62f6e86e05a80b98fa1ce6cfa4f0e423893944ec8290810c0abe052f2673e4bc'),
-  ('004_adicionar_integridade_estabelecimento.sql', 'c8e52b9245f1ab2866718e979e118249cf0118f809ecf41a76b4c4191f577a46')
+  ('004_adicionar_integridade_estabelecimento.sql', 'c8e52b9245f1ab2866718e979e118249cf0118f809ecf41a76b4c4191f577a46'),
+  ('005_preservar_redes_configuracao.sql', '456ca8ceeb39b4693e26e3e8fff02cc113adc9e820f47844aea30b81f2a23c44'),
+  ('006_ajustar_unicidade_por_estabelecimento.sql', '3908bf4e8d0ab04225077d2fb829e27544cd1d0e30f40634b172b821627a4cb4')
 ON DUPLICATE KEY UPDATE versao = VALUES(versao);
 
-INSERT INTO categorias (id, nome, ordem, ativo) VALUES
-  (1, 'Hambúrgueres', 1, 1),
-  (2, 'Combos', 2, 1),
-  (3, 'Porções', 3, 1),
-  (4, 'Bebidas', 4, 1)
+INSERT INTO estabelecimentos
+  (nome_fantasia, slug, status, plano, status_assinatura)
+VALUES
+  ('Estabelecimento padrão', 'estabelecimento-padrao', 'ativo', 'basico', 'ativa')
+ON DUPLICATE KEY UPDATE slug = VALUES(slug);
+
+SET @id_estabelecimento_inicial = (
+  SELECT id_estabelecimento
+  FROM estabelecimentos
+  WHERE slug = 'estabelecimento-padrao'
+  LIMIT 1
+);
+
+INSERT INTO configuracoes_estabelecimento (id_estabelecimento)
+VALUES (@id_estabelecimento_inicial)
+ON DUPLICATE KEY UPDATE id_estabelecimento = VALUES(id_estabelecimento);
+
+INSERT INTO categorias (id_estabelecimento, id, nome, ordem, ativo) VALUES
+  (@id_estabelecimento_inicial, 1, 'Hambúrgueres', 1, 1),
+  (@id_estabelecimento_inicial, 2, 'Combos', 2, 1),
+  (@id_estabelecimento_inicial, 3, 'Porções', 3, 1),
+  (@id_estabelecimento_inicial, 4, 'Bebidas', 4, 1)
 ON DUPLICATE KEY UPDATE
-  nome = VALUES(nome), ordem = VALUES(ordem);
+  id_estabelecimento = VALUES(id_estabelecimento),
+  nome = VALUES(nome),
+  ordem = VALUES(ordem);
 
 INSERT INTO configuracoes (
-  id, nome_loja, telefone, email, endereco, taxa_entrega_centavos,
+  id, id_estabelecimento, nome_loja, telefone, email, endereco, taxa_entrega_centavos,
   tempo_entrega, pedido_minimo_centavos, loja_aberta, entrega_ativa,
   retirada_ativa, aceita_cartao, aceita_dinheiro
 ) VALUES (
-  1, '', '', '', '', 0,
+  1, @id_estabelecimento_inicial, '', '', '', '', 0,
   '', 0, 0, 0,
   0, 0, 0
 )
-ON DUPLICATE KEY UPDATE id = VALUES(id);
+ON DUPLICATE KEY UPDATE id_estabelecimento = VALUES(id_estabelecimento);
 
 INSERT INTO metadados (chave, valor) VALUES
   ('catalogo_inicial_criado', '1'),

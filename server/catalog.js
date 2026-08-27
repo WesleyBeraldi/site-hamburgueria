@@ -40,15 +40,15 @@ function mapearProduto(linha, vinculos) {
   };
 }
 
-async function buscarVinculos(banco, produtosIds = []) {
+async function buscarVinculos(banco, idEstabelecimento, produtosIds = []) {
   if (produtosIds.length === 0) return new Map();
   const marcadores = produtosIds.map(() => '?').join(', ');
   const [linhas] = await banco.execute(`
     SELECT produto_id, adicional_id
     FROM produto_adicionais
-    WHERE produto_id IN (${marcadores})
+    WHERE id_estabelecimento = ? AND produto_id IN (${marcadores})
     ORDER BY adicional_id
-  `, produtosIds);
+  `, [idEstabelecimento, ...produtosIds]);
   const vinculos = new Map();
   for (const linha of linhas) {
     const produtoId = Number(linha.produto_id);
@@ -59,18 +59,33 @@ async function buscarVinculos(banco, produtosIds = []) {
 }
 
 const SELECT_PRODUTOS = `
-  SELECT p.*, c.nome AS categoria
+  SELECT p.id, p.categoria_id, p.nome, p.descricao, p.preco_centavos,
+         p.imagem_url, p.destaque, p.ativo, c.nome AS categoria
   FROM produtos p
-  INNER JOIN categorias c ON c.id = p.categoria_id
+  INNER JOIN categorias c
+    ON c.id = p.categoria_id AND c.id_estabelecimento = p.id_estabelecimento
 `;
 
-export async function listarCatalogo(banco, { administrativo = false } = {}) {
+export async function listarCatalogo(banco, idEstabelecimento, { administrativo = false } = {}) {
   const [[categorias], [adicionais], [produtos]] = await Promise.all([
-    banco.query(`SELECT id, nome, ordem, ativo FROM categorias ${administrativo ? '' : 'WHERE ativo = 1'} ORDER BY ordem, nome`),
-    banco.query(`SELECT * FROM adicionais ${administrativo ? '' : 'WHERE ativo = 1'} ORDER BY nome`),
-    banco.query(`${SELECT_PRODUTOS} ${administrativo ? '' : 'WHERE p.ativo = 1 AND c.ativo = 1'} ORDER BY p.id`)
+    banco.execute(`
+      SELECT id, nome, ordem, ativo
+      FROM categorias
+      WHERE id_estabelecimento = ? ${administrativo ? '' : 'AND ativo = 1'}
+      ORDER BY ordem, nome
+    `, [idEstabelecimento]),
+    banco.execute(`
+      SELECT id, nome, preco_centavos, ativo
+      FROM adicionais
+      WHERE id_estabelecimento = ? ${administrativo ? '' : 'AND ativo = 1'}
+      ORDER BY nome
+    `, [idEstabelecimento]),
+    banco.execute(`${SELECT_PRODUTOS}
+      WHERE p.id_estabelecimento = ? ${administrativo ? '' : 'AND p.ativo = 1 AND c.ativo = 1'}
+      ORDER BY p.id
+    `, [idEstabelecimento])
   ]);
-  const vinculos = await buscarVinculos(banco, produtos.map((produto) => Number(produto.id)));
+  const vinculos = await buscarVinculos(banco, idEstabelecimento, produtos.map((produto) => Number(produto.id)));
   return {
     categorias: categorias.map((categoria) => ({
       id: Number(categoria.id),
@@ -93,12 +108,16 @@ function validarCategoria(dados) {
   return { nome, ordem, ativo: dados?.ativo === false ? 0 : 1 };
 }
 
-export async function criarCategoria(banco, dados) {
+export async function criarCategoria(banco, idEstabelecimento, dados) {
   const categoria = validarCategoria(dados);
   const [resultado] = await banco.execute(`
-    INSERT INTO categorias (nome, ordem, ativo) VALUES (?, ?, ?)
-  `, [categoria.nome, categoria.ordem, categoria.ativo]);
-  const [linhas] = await banco.execute('SELECT id, nome, ordem, ativo FROM categorias WHERE id = ?', [resultado.insertId]);
+    INSERT INTO categorias (id_estabelecimento, nome, ordem, ativo) VALUES (?, ?, ?, ?)
+  `, [idEstabelecimento, categoria.nome, categoria.ordem, categoria.ativo]);
+  const [linhas] = await banco.execute(`
+    SELECT id, nome, ordem, ativo
+    FROM categorias
+    WHERE id = ? AND id_estabelecimento = ?
+  `, [resultado.insertId, idEstabelecimento]);
   return {
     id: Number(linhas[0].id),
     nome: linhas[0].nome,
@@ -107,13 +126,18 @@ export async function criarCategoria(banco, dados) {
   };
 }
 
-export async function atualizarCategoria(banco, id, dados) {
+export async function atualizarCategoria(banco, idEstabelecimento, id, dados) {
   const categoria = validarCategoria(dados);
   const [resultado] = await banco.execute(`
-    UPDATE categorias SET nome = ?, ordem = ?, ativo = ? WHERE id = ?
-  `, [categoria.nome, categoria.ordem, categoria.ativo, id]);
+    UPDATE categorias SET nome = ?, ordem = ?, ativo = ?
+    WHERE id = ? AND id_estabelecimento = ?
+  `, [categoria.nome, categoria.ordem, categoria.ativo, id, idEstabelecimento]);
   if (!resultado.affectedRows) return null;
-  const [linhas] = await banco.execute('SELECT id, nome, ordem, ativo FROM categorias WHERE id = ?', [id]);
+  const [linhas] = await banco.execute(`
+    SELECT id, nome, ordem, ativo
+    FROM categorias
+    WHERE id = ? AND id_estabelecimento = ?
+  `, [id, idEstabelecimento]);
   return {
     id: Number(linhas[0].id),
     nome: linhas[0].nome,
@@ -122,10 +146,16 @@ export async function atualizarCategoria(banco, id, dados) {
   };
 }
 
-export async function alternarStatusCategoria(banco, id, ativo) {
-  const [resultado] = await banco.execute('UPDATE categorias SET ativo = ? WHERE id = ?', [ativo ? 1 : 0, id]);
+export async function alternarStatusCategoria(banco, idEstabelecimento, id, ativo) {
+  const [resultado] = await banco.execute(`
+    UPDATE categorias SET ativo = ? WHERE id = ? AND id_estabelecimento = ?
+  `, [ativo ? 1 : 0, id, idEstabelecimento]);
   if (!resultado.affectedRows) return null;
-  const [linhas] = await banco.execute('SELECT id, nome, ordem, ativo FROM categorias WHERE id = ?', [id]);
+  const [linhas] = await banco.execute(`
+    SELECT id, nome, ordem, ativo
+    FROM categorias
+    WHERE id = ? AND id_estabelecimento = ?
+  `, [id, idEstabelecimento]);
   return {
     id: Number(linhas[0].id),
     nome: linhas[0].nome,
@@ -134,32 +164,45 @@ export async function alternarStatusCategoria(banco, id, ativo) {
   };
 }
 
-export async function buscarProduto(banco, id) {
-  const [linhas] = await banco.execute(`${SELECT_PRODUTOS} WHERE p.id = ?`, [id]);
+export async function buscarProduto(banco, idEstabelecimento, id) {
+  const [linhas] = await banco.execute(`
+    ${SELECT_PRODUTOS}
+    WHERE p.id = ? AND p.id_estabelecimento = ?
+  `, [id, idEstabelecimento]);
   if (!linhas[0]) return null;
-  const vinculos = await buscarVinculos(banco, [Number(id)]);
+  const vinculos = await buscarVinculos(banco, idEstabelecimento, [Number(id)]);
   return mapearProduto(linhas[0], vinculos);
 }
 
-export async function buscarAdicional(banco, id) {
-  const [linhas] = await banco.execute('SELECT * FROM adicionais WHERE id = ?', [id]);
+export async function buscarAdicional(banco, idEstabelecimento, id) {
+  const [linhas] = await banco.execute(`
+    SELECT id, nome, preco_centavos, ativo
+    FROM adicionais
+    WHERE id = ? AND id_estabelecimento = ?
+  `, [id, idEstabelecimento]);
   return linhas[0] ? mapearAdicional(linhas[0]) : null;
 }
 
-async function obterCategoriaId(banco, nome) {
-  const [linhas] = await banco.execute('SELECT id FROM categorias WHERE nome = ? AND ativo = 1', [nome]);
+async function obterCategoriaId(banco, idEstabelecimento, nome) {
+  const [linhas] = await banco.execute(`
+    SELECT id FROM categorias
+    WHERE nome = ? AND ativo = 1 AND id_estabelecimento = ?
+  `, [nome, idEstabelecimento]);
   return linhas[0] ? Number(linhas[0].id) : null;
 }
 
-async function validarProduto(banco, dados) {
+async function validarProduto(banco, idEstabelecimento, dados) {
   const nome = String(dados.nome ?? '').trim();
   const descricao = String(dados.descricao ?? '').trim();
   const categoriaInformada = Number(dados.categoriaId);
   let categoriaId = Number.isInteger(categoriaInformada) && categoriaInformada > 0
     ? categoriaInformada
-    : await obterCategoriaId(banco, String(dados.categoria ?? '').trim());
+    : await obterCategoriaId(banco, idEstabelecimento, String(dados.categoria ?? '').trim());
   if (categoriaId) {
-    const [categorias] = await banco.execute('SELECT id FROM categorias WHERE id = ? AND ativo = 1', [categoriaId]);
+    const [categorias] = await banco.execute(`
+      SELECT id FROM categorias
+      WHERE id = ? AND ativo = 1 AND id_estabelecimento = ?
+    `, [categoriaId, idEstabelecimento]);
     categoriaId = categorias[0] ? Number(categorias[0].id) : null;
   }
   const precoCentavos = precoParaCentavos(dados.preco);
@@ -173,8 +216,9 @@ async function validarProduto(banco, dados) {
   if (adicionaisIds.length > 0) {
     const marcadores = adicionaisIds.map(() => '?').join(', ');
     const [linhas] = await banco.execute(`
-      SELECT COUNT(*) AS total FROM adicionais WHERE id IN (${marcadores})
-    `, adicionaisIds);
+      SELECT COUNT(*) AS total FROM adicionais
+      WHERE id_estabelecimento = ? AND id IN (${marcadores})
+    `, [idEstabelecimento, ...adicionaisIds]);
     if (Number(linhas[0].total) !== adicionaisIds.length) throw new Error('Um ou mais adicionais não existem.');
   }
 
@@ -189,23 +233,28 @@ async function validarProduto(banco, dados) {
   };
 }
 
-async function salvarVinculos(conexao, produtoId, adicionaisIds) {
-  await conexao.execute('DELETE FROM produto_adicionais WHERE produto_id = ?', [produtoId]);
+async function salvarVinculos(conexao, idEstabelecimento, produtoId, adicionaisIds) {
+  await conexao.execute(`
+    DELETE FROM produto_adicionais
+    WHERE produto_id = ? AND id_estabelecimento = ?
+  `, [produtoId, idEstabelecimento]);
   for (const adicionalId of adicionaisIds) {
     await conexao.execute(`
-      INSERT INTO produto_adicionais (produto_id, adicional_id) VALUES (?, ?)
-    `, [produtoId, adicionalId]);
+      INSERT INTO produto_adicionais (id_estabelecimento, produto_id, adicional_id)
+      VALUES (?, ?, ?)
+    `, [idEstabelecimento, produtoId, adicionalId]);
   }
 }
 
-export async function criarProduto(banco, dados, imagemUrl) {
-  const produto = await validarProduto(banco, dados);
+export async function criarProduto(banco, idEstabelecimento, dados, imagemUrl) {
+  const produto = await validarProduto(banco, idEstabelecimento, dados);
   const id = await executarTransacao(banco, async (conexao) => {
     const [resultado] = await conexao.execute(`
       INSERT INTO produtos
-        (categoria_id, nome, descricao, preco_centavos, imagem_url, destaque, ativo)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        (id_estabelecimento, categoria_id, nome, descricao, preco_centavos, imagem_url, destaque, ativo)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `, [
+      idEstabelecimento,
       produto.categoriaId,
       produto.nome,
       produto.descricao,
@@ -214,22 +263,22 @@ export async function criarProduto(banco, dados, imagemUrl) {
       produto.destaque,
       produto.ativo
     ]);
-    await salvarVinculos(conexao, resultado.insertId, produto.adicionaisIds);
+    await salvarVinculos(conexao, idEstabelecimento, resultado.insertId, produto.adicionaisIds);
     return Number(resultado.insertId);
   });
-  return buscarProduto(banco, id);
+  return buscarProduto(banco, idEstabelecimento, id);
 }
 
-export async function atualizarProduto(banco, id, dados, imagemUrl) {
-  if (!await buscarProduto(banco, id)) return null;
-  const produto = await validarProduto(banco, dados);
+export async function atualizarProduto(banco, idEstabelecimento, id, dados, imagemUrl) {
+  if (!await buscarProduto(banco, idEstabelecimento, id)) return null;
+  const produto = await validarProduto(banco, idEstabelecimento, dados);
 
   await executarTransacao(banco, async (conexao) => {
     await conexao.execute(`
       UPDATE produtos
       SET categoria_id = ?, nome = ?, descricao = ?, preco_centavos = ?, imagem_url = ?,
           destaque = ?, ativo = ?
-      WHERE id = ?
+      WHERE id = ? AND id_estabelecimento = ?
     `, [
       produto.categoriaId,
       produto.nome,
@@ -238,20 +287,25 @@ export async function atualizarProduto(banco, id, dados, imagemUrl) {
       imagemUrl,
       produto.destaque,
       produto.ativo,
-      id
+      id,
+      idEstabelecimento
     ]);
-    await salvarVinculos(conexao, id, produto.adicionaisIds);
+    await salvarVinculos(conexao, idEstabelecimento, id, produto.adicionaisIds);
   });
-  return buscarProduto(banco, id);
+  return buscarProduto(banco, idEstabelecimento, id);
 }
 
-export async function alternarStatusProduto(banco, id, ativo) {
-  const [resultado] = await banco.execute('UPDATE produtos SET ativo = ? WHERE id = ?', [ativo ? 1 : 0, id]);
-  return resultado.affectedRows ? buscarProduto(banco, id) : null;
+export async function alternarStatusProduto(banco, idEstabelecimento, id, ativo) {
+  const [resultado] = await banco.execute(`
+    UPDATE produtos SET ativo = ? WHERE id = ? AND id_estabelecimento = ?
+  `, [ativo ? 1 : 0, id, idEstabelecimento]);
+  return resultado.affectedRows ? buscarProduto(banco, idEstabelecimento, id) : null;
 }
 
-export async function excluirProduto(banco, id) {
-  const [resultado] = await banco.execute('DELETE FROM produtos WHERE id = ?', [id]);
+export async function excluirProduto(banco, idEstabelecimento, id) {
+  const [resultado] = await banco.execute(`
+    DELETE FROM produtos WHERE id = ? AND id_estabelecimento = ?
+  `, [id, idEstabelecimento]);
   return resultado.affectedRows > 0;
 }
 
@@ -263,28 +317,34 @@ function validarAdicional(dados) {
   return { nome, precoCentavos, ativo: dados.ativo === false ? 0 : 1 };
 }
 
-export async function criarAdicional(banco, dados) {
+export async function criarAdicional(banco, idEstabelecimento, dados) {
   const adicional = validarAdicional(dados);
   const [resultado] = await banco.execute(`
-    INSERT INTO adicionais (nome, preco_centavos, ativo) VALUES (?, ?, ?)
-  `, [adicional.nome, adicional.precoCentavos, adicional.ativo]);
-  return buscarAdicional(banco, Number(resultado.insertId));
+    INSERT INTO adicionais (id_estabelecimento, nome, preco_centavos, ativo)
+    VALUES (?, ?, ?, ?)
+  `, [idEstabelecimento, adicional.nome, adicional.precoCentavos, adicional.ativo]);
+  return buscarAdicional(banco, idEstabelecimento, Number(resultado.insertId));
 }
 
-export async function atualizarAdicional(banco, id, dados) {
+export async function atualizarAdicional(banco, idEstabelecimento, id, dados) {
   const adicional = validarAdicional(dados);
   const [resultado] = await banco.execute(`
-    UPDATE adicionais SET nome = ?, preco_centavos = ?, ativo = ? WHERE id = ?
-  `, [adicional.nome, adicional.precoCentavos, adicional.ativo, id]);
-  return resultado.affectedRows ? buscarAdicional(banco, id) : null;
+    UPDATE adicionais SET nome = ?, preco_centavos = ?, ativo = ?
+    WHERE id = ? AND id_estabelecimento = ?
+  `, [adicional.nome, adicional.precoCentavos, adicional.ativo, id, idEstabelecimento]);
+  return resultado.affectedRows ? buscarAdicional(banco, idEstabelecimento, id) : null;
 }
 
-export async function alternarStatusAdicional(banco, id, ativo) {
-  const [resultado] = await banco.execute('UPDATE adicionais SET ativo = ? WHERE id = ?', [ativo ? 1 : 0, id]);
-  return resultado.affectedRows ? buscarAdicional(banco, id) : null;
+export async function alternarStatusAdicional(banco, idEstabelecimento, id, ativo) {
+  const [resultado] = await banco.execute(`
+    UPDATE adicionais SET ativo = ? WHERE id = ? AND id_estabelecimento = ?
+  `, [ativo ? 1 : 0, id, idEstabelecimento]);
+  return resultado.affectedRows ? buscarAdicional(banco, idEstabelecimento, id) : null;
 }
 
-export async function excluirAdicional(banco, id) {
-  const [resultado] = await banco.execute('DELETE FROM adicionais WHERE id = ?', [id]);
+export async function excluirAdicional(banco, idEstabelecimento, id) {
+  const [resultado] = await banco.execute(`
+    DELETE FROM adicionais WHERE id = ? AND id_estabelecimento = ?
+  `, [id, idEstabelecimento]);
   return resultado.affectedRows > 0;
 }

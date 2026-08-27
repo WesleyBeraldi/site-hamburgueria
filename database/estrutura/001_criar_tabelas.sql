@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS configuracoes_estabelecimento (
   email VARCHAR(160),
   endereco VARCHAR(255),
   horario_funcionamento TEXT,
+  instagram_url VARCHAR(500),
+  facebook_url VARCHAR(500),
   loja_aberta TINYINT(1) NOT NULL DEFAULT 0,
   pedido_minimo_centavos INT UNSIGNED NOT NULL DEFAULT 0,
   taxa_entrega_centavos INT UNSIGNED NOT NULL DEFAULT 0,
@@ -83,13 +85,15 @@ CREATE TABLE IF NOT EXISTS configuracoes_estabelecimento (
 CREATE TABLE IF NOT EXISTS administradores (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   id_estabelecimento BIGINT UNSIGNED,
-  usuario VARCHAR(80) NOT NULL UNIQUE,
-  email VARCHAR(160) NOT NULL UNIQUE,
+  usuario VARCHAR(80) NOT NULL,
+  email VARCHAR(160) NOT NULL,
   nome VARCHAR(160) NOT NULL,
   senha_hash VARCHAR(255) NOT NULL,
   ativo TINYINT(1) NOT NULL DEFAULT 1,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_administradores_estabelecimento_usuario (id_estabelecimento, usuario),
+  UNIQUE KEY uk_administradores_estabelecimento_email (id_estabelecimento, email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS sessoes_admin (
@@ -116,19 +120,21 @@ CREATE TABLE IF NOT EXISTS auditoria_admin (
 CREATE TABLE IF NOT EXISTS categorias (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   id_estabelecimento BIGINT UNSIGNED,
-  nome VARCHAR(100) NOT NULL UNIQUE,
+  nome VARCHAR(100) NOT NULL,
   ordem INT NOT NULL DEFAULT 0,
-  ativo TINYINT(1) NOT NULL DEFAULT 1
+  ativo TINYINT(1) NOT NULL DEFAULT 1,
+  UNIQUE KEY uk_categorias_estabelecimento_nome (id_estabelecimento, nome)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS adicionais (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   id_estabelecimento BIGINT UNSIGNED,
-  nome VARCHAR(120) NOT NULL UNIQUE,
+  nome VARCHAR(120) NOT NULL,
   preco_centavos INT UNSIGNED NOT NULL,
   ativo TINYINT(1) NOT NULL DEFAULT 1,
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_adicionais_estabelecimento_nome (id_estabelecimento, nome)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS produtos (
@@ -198,10 +204,11 @@ CREATE TABLE IF NOT EXISTS sessoes_garcom (
 CREATE TABLE IF NOT EXISTS mesas (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   id_estabelecimento BIGINT UNSIGNED,
-  numero VARCHAR(10) NOT NULL UNIQUE,
+  numero VARCHAR(10) NOT NULL,
   lugares INT UNSIGNED NOT NULL DEFAULT 4,
   ativo TINYINT(1) NOT NULL DEFAULT 1,
-  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_mesas_estabelecimento_numero (id_estabelecimento, numero)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS comandas (
@@ -266,7 +273,8 @@ CREATE TABLE IF NOT EXISTS pedidos (
   criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   atualizado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_pedidos_comanda (comanda_id),
-  UNIQUE KEY uk_pedidos_chave_idempotencia (chave_idempotencia_hash),
+  UNIQUE KEY uk_pedidos_estabelecimento_idempotencia
+    (id_estabelecimento, chave_idempotencia_hash),
   INDEX idx_pedidos_mesa (mesa_id),
   INDEX idx_pedidos_funcionario (funcionario_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -3,9 +3,9 @@
 Esta pasta é a fonte versionada da estrutura MySQL. A fundação multiempresa
 possui `estabelecimentos`, `configuracoes_estabelecimento` e escopo
 `id_estabelecimento` nas tabelas de negócio. As migrations preservam os dados
-atuais associando-os a um estabelecimento padrão. Até o isolamento do backend
-ser concluído, a aplicação continua operando como instalação de uma única
-hamburgueria.
+atuais associando-os a um estabelecimento padrão. Até o isolamento por domínio
+ser ativado, o slug `estabelecimento-padrao` mantém a instalação atual
+compatível em desenvolvimento.
 
 ## Fundação multiempresa
 
@@ -18,8 +18,7 @@ deve ser gravado como `NULL` quando não existir.
 estabelecimento. Ela contém URLs de logo/banner, a paleta visual padrão, fonte,
 contatos, endereço, horários, opções de atendimento e pagamento e textos
 operacionais. Imagens permanecem fora do MySQL; somente URLs e caminhos são
-armazenados. A futura API deverá validar a fonte contra uma lista permitida e
-nunca aceitar CSS, HTML ou JavaScript arbitrários.
+armazenados.
 
 A separação foi aplicada somente a dados de negócio. `schema_migrations` e
 `metadados` permanecem globais; a própria tabela `estabelecimentos` é o registro
@@ -29,12 +28,16 @@ depender apenas de relacionamentos indiretos. A tabela `configuracoes` é mantid
 como compatibilidade temporária, enquanto `configuracoes_estabelecimento` é o
 modelo definitivo.
 
-As colunas novas permanecem nullable de forma intencional nesta fase. Isso
-mantém compatibilidade com o backend anterior durante uma implantação gradual.
-Depois que todas as leituras e escritas forem isoladas pelo backend, uma
-migration posterior deverá confirmar ausência de nulos, tornar as colunas
-obrigatórias e substituir unicidades globais por restrições compostas quando
-necessário.
+O backend resolve o estabelecimento somente pelo `Host`: subdomínio do domínio
+principal, domínio personalizado ou slug de desenvolvimento em localhost. O ID
+do estabelecimento enviado pelo cliente não é usado. Leituras, escritas,
+sessões e auditoria recebem esse escopo explicitamente.
+
+As colunas adicionadas ao banco existente permanecem nullable durante a
+implantação gradual, embora o backend atual sempre as preencha. As unicidades
+de usuário, e-mail, categoria, adicional, mesa e chave de idempotência já são
+compostas com o estabelecimento. Uma migration futura poderá tornar o escopo
+obrigatório após a verificação de ausência de nulos em todos os ambientes.
 
 ## Instalação nova pelo MySQL Workbench
 
@@ -46,9 +49,9 @@ necessário.
 5. Valide com `npm run db:check` e, no Workbench, execute
    `verificacoes/001_verificar_instalacao.sql`.
 
-`CRIAR_db.sql` contém tabelas, índices, relacionamentos e apenas os dados
-iniciais não sensíveis. Ele não contém estabelecimento, conta administrativa
-nem dados demonstrativos.
+`CRIAR_db.sql` contém tabelas, índices, relacionamentos, o estabelecimento
+inicial de compatibilidade e apenas os dados iniciais não sensíveis. Ele não
+contém conta administrativa nem dados demonstrativos.
 
 Se preferir executar os módulos menores no schema já selecionado, use nesta
 ordem os arquivos de `estrutura/` e depois `seeds/001_dados_iniciais.sql`:
@@ -91,11 +94,15 @@ ordem registrada pelo runner:
 3. `003_relacionar_dados_estabelecimento.sql` cria o estabelecimento padrão,
    copia a configuração e associa todos os registros existentes;
 4. `004_adicionar_integridade_estabelecimento.sql` cria índices e FKs;
-5. `verificacoes/002_verificar_migracao_estabelecimento.sql` deve retornar zero
+5. `005_preservar_redes_configuracao.sql` preserva Instagram e Facebook no
+   modelo definitivo de configuração;
+6. `006_ajustar_unicidade_por_estabelecimento.sql` troca unicidades globais por
+   unicidades compostas com o estabelecimento;
+7. `verificacoes/002_verificar_migracao_estabelecimento.sql` deve retornar zero
    para todos os registros sem escopo e relacionamentos divergentes.
 
-Não aplique essas migrations em produção enquanto o deploy do backend
-multiempresa não estiver preparado. Nesta etapa os arquivos foram somente
+Em produção, aplique essas migrations somente com backup validado e junto do
+deploy do backend multiempresa. Nesta etapa os arquivos foram somente
 versionados e verificados estaticamente; nenhum banco foi alterado.
 
 Novas migrations usam o formato `NNN_descricao.sql`. O runner registra nome e
@@ -113,6 +120,8 @@ em uma instalação nova.
 ## TLS e segredos
 
 - Nunca versione `.env`, senha, token, chave privada ou backup real.
+- Use um `JWT_SECRET` aleatório com pelo menos 32 bytes e compartilhe o mesmo
+  valor entre todas as instâncias do mesmo ambiente.
 - Use uma conta MySQL exclusiva, com acesso somente ao schema da aplicação.
 - Mantenha a conta da aplicação apenas com permissões operacionais. Para
   migrations, forneça temporariamente ao comando uma credencial de manutenção
